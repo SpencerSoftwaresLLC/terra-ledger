@@ -1,6 +1,6 @@
 {
   "name": "terraledger-desktop",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "Desktop app for TerraLedger",
   "author": "Spencer Softwares LLC",
   "main": "main.js",
@@ -12,11 +12,65 @@
     "electron": "^29.4.6",
     "electron-builder": "^24.13.3"
   },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
   "build": {
     "appId": "com.spencersoftware.terraledger",
     "productName": "TerraLedger",
+    "artifactName": "TerraLedger-Setup.${ext}",
+    "directories": {
+      "buildResources": "build"
+    },
+    "files": [
+      "**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../",
+        "to": ".",
+        "filter": [
+          "app.py",
+          "db.py",
+          "calculations.py",
+          "decorators.py",
+          "extensions.py",
+          "helpers.py",
+          "page_helpers.py",
+          "permissions.py",
+          "requirements.txt",
+          "__init__.py",
+          ".env",
+          "*.db",
+          "ai/**/*",
+          "routes/**/*",
+          "static/**/*",
+          "templates/**/*",
+          "utils/**/*",
+          "venv/**/*"
+        ]
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "SpencerSoftwaresLLC",
+        "repo": "terra-ledger"
+      }
+    ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TerraLedger"
     }
   }
 }
