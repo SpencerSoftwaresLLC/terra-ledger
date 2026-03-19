@@ -1,0 +1,22 @@
+{
+  "name": "terraledger-desktop",
+  "version": "1.0.0",
+  "description": "Desktop app for TerraLedger",
+  "author": "Spencer Softwares LLC",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^29.4.6",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.spencersoftware.terraledger",
+    "productName": "TerraLedger",
+    "win": {
+      "target": "nsis"
+    }
+  }
+}
