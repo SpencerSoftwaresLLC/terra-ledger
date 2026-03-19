@@ -2,10 +2,10 @@ from flask import Blueprint, request, redirect, url_for, session, flash
 from werkzeug.security import generate_password_hash
 from html import escape
 
-from ..db import get_db_connection, ensure_user_permission_columns
-from ..decorators import login_required, require_permission, subscription_required
-from ..permissions import get_role_defaults
-from ..page_helpers import render_page
+from db import get_db_connection, ensure_user_permission_columns
+from decorators import login_required, require_permission, subscription_required
+from permissions import get_role_defaults
+from page_helpers import render_page
 
 users_bp = Blueprint("users", __name__)
 

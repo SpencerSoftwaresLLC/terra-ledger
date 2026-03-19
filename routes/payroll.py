@@ -3,15 +3,15 @@ from datetime import date
 import io
 import csv
 
-from ..db import (
+from db import (
     get_db_connection,
     ensure_employee_payroll_columns,
     ensure_bookkeeping_history_table,
     ensure_payroll_table_structure,
 )
-from ..decorators import login_required, require_permission, subscription_required
-from ..utils.payroll_tax_service import calculate_payroll_taxes_for_employee
-from ..page_helpers import *
+from decorators import login_required, require_permission, subscription_required
+from utils.payroll_tax_service import calculate_payroll_taxes_for_employee
+from page_helpers import *
 
 payroll_bp = Blueprint("payroll", __name__)
 

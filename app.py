@@ -5,27 +5,27 @@ from flask import Flask
 # Load environment variables first
 load_dotenv()
 
-from .extensions import mail
-from .db import (
+from extensions import mail
+from db import (
     init_db,
     ensure_company_profile_location_columns,
     ensure_company_profile_email_columns,
 )
 
-from .routes.auth import auth_bp
-from .routes.dashboard import dashboard_bp
-from .routes.customers import customers_bp
-from .routes.jobs import jobs_bp
-from .routes.quotes import quotes_bp
-from .routes.invoices import invoices_bp
-from .routes.ledger import ledger_bp
-from .routes.payroll import payroll_bp
-from .routes.employees import employees_bp
-from .routes.users import users_bp
-from .routes.settings import settings_bp
-from .routes.billing import billing_bp
-from .routes.bookkeeping import bookkeeping_bp
-from .routes.help_assistant import help_assistant_bp
+from routes.auth import auth_bp
+from routes.dashboard import dashboard_bp
+from routes.customers import customers_bp
+from routes.jobs import jobs_bp
+from routes.quotes import quotes_bp
+from routes.invoices import invoices_bp
+from routes.ledger import ledger_bp
+from routes.payroll import payroll_bp
+from routes.employees import employees_bp
+from routes.users import users_bp
+from routes.settings import settings_bp
+from routes.billing import billing_bp
+from routes.bookkeeping import bookkeeping_bp
+from routes.help_assistant import help_assistant_bp
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "your-secret-key")

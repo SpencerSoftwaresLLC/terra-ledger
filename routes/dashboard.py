@@ -1,7 +1,7 @@
 from flask import Blueprint, session, url_for
-from ..db import get_db_connection
-from ..decorators import login_required, subscription_required
-from ..page_helpers import render_page
+from db import get_db_connection
+from decorators import login_required, subscription_required
+from page_helpers import render_page
 
 dashboard_bp = Blueprint("dashboard", __name__)
 

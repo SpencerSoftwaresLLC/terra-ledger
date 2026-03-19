@@ -5,15 +5,15 @@ from flask import Blueprint, request, redirect, url_for, session, flash, render_
 from markupsafe import escape
 from werkzeug.utils import secure_filename
 
-from ..db import (
+from db import (
     get_db_connection,
     ensure_company_profile_columns,
     ensure_company_tax_settings_table,
     ensure_company_profile_location_columns,
 )
-from ..decorators import login_required, require_permission
-from ..page_helpers import render_page
-from ..utils.emailing import send_company_email
+from decorators import login_required, require_permission
+from page_helpers import render_page
+from utils.emailing import send_company_email
 
 settings_bp = Blueprint("settings", __name__)
 

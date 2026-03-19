@@ -4,9 +4,9 @@ from datetime import date
 import csv
 import io
 
-from ..db import get_db_connection, ensure_customer_name_columns
-from ..decorators import login_required, require_permission, subscription_required
-from ..page_helpers import render_page
+from db import get_db_connection, ensure_customer_name_columns
+from decorators import login_required, require_permission, subscription_required
+from page_helpers import render_page
 
 customers_bp = Blueprint("customers", __name__)
 

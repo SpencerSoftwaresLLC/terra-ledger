@@ -12,12 +12,12 @@ import csv
 from urllib.request import urlopen
 from urllib.parse import urlparse
 
-from ..db import get_db_connection, update_invoice_balance
-from ..decorators import login_required, require_permission, subscription_required
-from ..page_helpers import *
-from ..helpers import *
-from ..calculations import *
-from ..utils.emailing import send_company_email
+from db import get_db_connection, update_invoice_balance
+from decorators import login_required, require_permission, subscription_required
+from page_helpers import *
+from helpers import *
+from calculations import *
+from utils.emailing import send_company_email
 
 invoices_bp = Blueprint("invoices", __name__)
 

@@ -2,11 +2,11 @@ from flask import Blueprint, request, redirect, url_for, session, flash, render_
 from datetime import date, datetime
 from html import escape
 
-from ..db import get_db_connection, ensure_bookkeeping_history_table, table_columns
-from ..decorators import login_required, require_permission
-from ..page_helpers import *
-from ..helpers import *
-from ..calculations import *
+from db import get_db_connection, ensure_bookkeeping_history_table, table_columns
+from decorators import login_required, require_permission
+from page_helpers import *
+from helpers import *
+from calculations import *
 
 bookkeeping_bp = Blueprint("bookkeeping", __name__)
 

@@ -2,15 +2,15 @@ import os
 from datetime import datetime
 from flask import Blueprint, request, redirect, url_for, session, flash, render_template_string
 
-from ..db import (
+from db import (
     get_db_connection,
     get_company_subscription,
     upsert_company_subscription,
     insert_billing_event,
     get_billing_history,
 )
-from ..decorators import login_required
-from ..page_helpers import render_page
+from decorators import login_required
+from page_helpers import render_page
 
 billing_bp = Blueprint("billing", __name__)
 
@@ -486,7 +486,7 @@ def customer_portal():
     return redirect(portal_session.url)
 
 
-@billing_bp.route("/stripe/webhook", methods=["POST"])
+@billing_bp.route("/stripe-webhook", methods=["POST"])
 def stripe_webhook():
     cfg = get_stripe_config()
 

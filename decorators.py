@@ -1,6 +1,6 @@
 from functools import wraps
 from flask import session, redirect, url_for, flash
-from .db import get_db_connection, ensure_user_permission_columns, get_company_subscription
+from db import get_db_connection, ensure_user_permission_columns, get_company_subscription
 
 
 def get_current_user():

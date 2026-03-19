@@ -1,8 +1,8 @@
 # TerraLedger/routes/help_assistant.py
 
 from flask import Blueprint, request, jsonify, session
-from ..decorators import login_required
-from ..ai.client import ask_terraledger_help
+from decorators import login_required
+from ai.client import ask_terraledger_help
 
 help_assistant_bp = Blueprint("help_assistant", __name__)
 

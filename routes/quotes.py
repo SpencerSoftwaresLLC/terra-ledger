@@ -13,12 +13,12 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 
-from ..db import get_db_connection, ensure_job_cost_ledger
-from ..decorators import login_required, require_permission, subscription_required
-from ..page_helpers import *
-from ..helpers import *
-from ..calculations import *
-from ..utils.emailing import send_company_email
+from db import get_db_connection, ensure_job_cost_ledger
+from decorators import login_required, require_permission, subscription_required
+from page_helpers import *
+from helpers import *
+from calculations import *
+from utils.emailing import send_company_email
 
 quotes_bp = Blueprint("quotes", __name__)
 

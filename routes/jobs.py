@@ -5,11 +5,11 @@ import json
 import io
 import csv
 
-from ..db import get_db_connection, ensure_job_cost_ledger
-from ..decorators import login_required, require_permission, subscription_required
-from ..page_helpers import *
-from ..helpers import *
-from ..calculations import recalc_job, recalc_invoice
+from db import get_db_connection, ensure_job_cost_ledger
+from decorators import login_required, require_permission, subscription_required
+from page_helpers import *
+from helpers import *
+from calculations import recalc_job, recalc_invoice
 
 jobs_bp = Blueprint("jobs", __name__)
 

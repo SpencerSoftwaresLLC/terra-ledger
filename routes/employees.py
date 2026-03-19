@@ -2,7 +2,7 @@ from flask import Blueprint, request, redirect, url_for, session, flash
 from html import escape
 import sqlite3
 
-from ..db import (
+from db import (
     get_db_connection,
     ensure_employee_status_column,
     ensure_employee_name_columns,
@@ -10,8 +10,8 @@ from ..db import (
     ensure_employee_tax_columns,
     get_employee_columns,
 )
-from ..decorators import login_required, require_permission, subscription_required
-from ..page_helpers import render_page
+from decorators import login_required, require_permission, subscription_required
+from page_helpers import render_page
 
 
 employees_bp = Blueprint("employees", __name__)
