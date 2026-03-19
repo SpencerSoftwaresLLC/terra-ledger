@@ -3,7 +3,7 @@
 import os
 from openai import OpenAI
 
-from prompts import (
+from ai.prompts import (
     build_help_system_prompt,
     build_page_context,
     build_help_input_messages,
