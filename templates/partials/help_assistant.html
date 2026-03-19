@@ -1,0 +1,39 @@
+<div id="helpAssistantOverlay" class="help-assistant-overlay" style="display:none;">
+    <div class="help-assistant-panel">
+        <div class="help-assistant-header">
+            <div>
+                <div class="help-assistant-title">TerraLedger Assistant</div>
+                <div class="help-assistant-subtitle">
+                    Ask about quotes, invoices, jobs, payroll, bookkeeping, users, employees, and settings.
+                </div>
+            </div>
+            <div class="help-assistant-header-actions">
+                <button type="button" class="btn secondary" onclick="clearHelpAssistantChat()">Clear</button>
+                <button type="button" class="btn secondary" onclick="closeHelpAssistant()">Close</button>
+            </div>
+        </div>
+
+        <div id="helpAssistantMessages" class="help-assistant-messages">
+            <div class="help-assistant-message assistant">
+                Hi — I’m your TerraLedger assistant. Ask me how to do anything in the system.
+            </div>
+        </div>
+
+        <div class="help-assistant-suggestions">
+            <button type="button" onclick="sendSuggestedHelpPrompt('How do I create an invoice?')">How do I create an invoice?</button>
+            <button type="button" onclick="sendSuggestedHelpPrompt('How do I convert a quote into an invoice?')">Convert quote to invoice</button>
+            <button type="button" onclick="sendSuggestedHelpPrompt('How do I add an employee?')">How do I add an employee?</button>
+            <button type="button" onclick="sendSuggestedHelpPrompt('How do I record an expense?')">How do I record an expense?</button>
+        </div>
+
+        <div class="help-assistant-input-wrap">
+            <textarea
+                id="helpAssistantInput"
+                class="help-assistant-input"
+                rows="3"
+                placeholder="Type your question here..."
+            ></textarea>
+            <button type="button" class="btn" onclick="submitHelpAssistantMessage()">Send</button>
+        </div>
+    </div>
+</div>

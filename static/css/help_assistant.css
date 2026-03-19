@@ -1,0 +1,131 @@
+/* TerraLedger/static/css/help_assistant.css */
+
+.help-assistant-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.45);
+    z-index: 9999;
+    display: none;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.help-assistant-panel {
+    width: min(520px, 100%);
+    height: 100%;
+    background: #ffffff;
+    box-shadow: -8px 0 30px rgba(0,0,0,.18);
+    display: flex;
+    flex-direction: column;
+}
+
+.help-assistant-header {
+    padding: 16px;
+    border-bottom: 1px solid #e8e8e8;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.help-assistant-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+.help-assistant-subtitle {
+    margin-top: 4px;
+    font-size: .9rem;
+    color: #6b7280;
+}
+
+.help-assistant-header-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.help-assistant-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    background: #f8fafc;
+}
+
+.help-assistant-message {
+    max-width: 88%;
+    margin-bottom: 12px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    white-space: pre-wrap;
+    line-height: 1.45;
+    font-size: .96rem;
+}
+
+.help-assistant-message.user {
+    margin-left: auto;
+    background: #2563eb;
+    color: #ffffff;
+}
+
+.help-assistant-message.assistant {
+    margin-right: auto;
+    background: #ffffff;
+    color: #111827;
+    border: 1px solid #e5e7eb;
+}
+
+.help-assistant-message.loading {
+    opacity: .8;
+    font-style: italic;
+}
+
+.help-assistant-suggestions {
+    padding: 10px 16px 0 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    background: #ffffff;
+}
+
+.help-assistant-suggestions button {
+    border: 1px solid #d1d5db;
+    background: #f9fafb;
+    border-radius: 999px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: .85rem;
+}
+
+.help-assistant-input-wrap {
+    padding: 16px;
+    border-top: 1px solid #e8e8e8;
+    background: #ffffff;
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+}
+
+.help-assistant-input {
+    flex: 1;
+    min-height: 62px;
+    max-height: 180px;
+    resize: vertical;
+    border: 1px solid #d1d5db;
+    border-radius: 12px;
+    padding: 12px;
+    font-size: .95rem;
+    outline: none;
+}
+
+.help-assistant-input:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+}
+
+@media (max-width: 720px) {
+    .help-assistant-panel {
+        width: 100%;
+    }
+}

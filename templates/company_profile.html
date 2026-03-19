@@ -1,0 +1,73 @@
+COMPANY_PROFILE_HTML = """
+<div class="settings-page">
+    <div class="card settings-header">
+        <h1 style="margin-bottom:6px;">Company Profile</h1>
+        <div class="muted">
+            Manage the business information used across your workspace, quotes, jobs, and invoices.
+        </div>
+    </div>
+
+    <form method="POST" class="card">
+        <div class="settings-section-title">
+            <h2 style="margin-bottom:6px;">Business Details</h2>
+            <div class="muted">These details identify your company throughout YardLedger.</div>
+        </div>
+
+        <div class="grid" style="margin-top:18px;">
+            <div>
+                <label>Company Name</label>
+                <input type="text" name="name" value="{{ company['name'] or '' }}" required>
+            </div>
+            <div>
+                <label>Business Phone</label>
+                <input type="text" name="phone" value="{{ company['phone'] or '' }}">
+            </div>
+            <div>
+                <label>Business Email</label>
+                <input type="email" name="email" value="{{ company['email'] or '' }}">
+            </div>
+            <div>
+                <label>Website</label>
+                <input type="text" name="website" value="{{ company['website'] or '' }}" placeholder="https://yourcompany.com">
+            </div>
+            <div>
+                <label>Tax ID / EIN</label>
+                <input type="text" name="tax_id" value="{{ company['tax_id'] or '' }}">
+            </div>
+        </div>
+
+        <div class="settings-section-title" style="margin-top:28px;">
+            <h2 style="margin-bottom:6px;">Business Address</h2>
+            <div class="muted">This address can be used on invoices, quotes, and company records.</div>
+        </div>
+
+        <div class="grid" style="margin-top:18px;">
+            <div style="grid-column:1 / -1;">
+                <label>Address Line 1</label>
+                <input type="text" name="address_line_1" value="{{ company['address_line_1'] or '' }}">
+            </div>
+            <div style="grid-column:1 / -1;">
+                <label>Address Line 2</label>
+                <input type="text" name="address_line_2" value="{{ company['address_line_2'] or '' }}">
+            </div>
+            <div>
+                <label>City</label>
+                <input type="text" name="city" value="{{ company['city'] or '' }}">
+            </div>
+            <div>
+                <label>State</label>
+                <input type="text" name="state" value="{{ company['state'] or '' }}">
+            </div>
+            <div>
+                <label>ZIP Code</label>
+                <input type="text" name="zip_code" value="{{ company['zip_code'] or '' }}">
+            </div>
+        </div>
+
+        <div class="row-actions" style="margin-top:24px;">
+            <button type="submit" class="btn success">Save Company Profile</button>
+            <a href="{{ url_for('settings') }}" class="btn secondary">Back to Settings</a>
+        </div>
+    </form>
+</div>
+"""

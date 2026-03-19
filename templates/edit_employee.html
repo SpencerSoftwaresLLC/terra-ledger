@@ -1,0 +1,173 @@
+EDIT_EMPLOYEE_HTML = """
+<div class="settings-page">
+    <div class="card settings-header">
+        <h1 style="margin-bottom:6px;">Edit Employee</h1>
+        <div class="muted">Update employee details, payroll profile, and federal withholding settings.</div>
+    </div>
+
+    <form method="POST" class="card">
+        <div class="settings-section-title">
+            <h2 style="margin-bottom:6px;">Employee Details</h2>
+            <div class="muted">Basic employee information.</div>
+        </div>
+
+        <div class="grid" style="margin-top:18px;">
+            <div>
+                <label>First Name</label>
+                <input type="text" name="first_name" value="{{ employee['first_name'] or '' }}" required>
+            </div>
+
+            <div>
+                <label>Last Name</label>
+                <input type="text" name="last_name" value="{{ employee['last_name'] or '' }}">
+            </div>
+
+            <div>
+                <label>Phone</label>
+                <input type="text" name="phone" value="{{ employee['phone'] or '' }}">
+            </div>
+
+            <div>
+                <label>Email</label>
+                <input type="email" name="email" value="{{ employee['email'] or '' }}">
+            </div>
+
+            <div>
+                <label>Position</label>
+                <input type="text" name="position" value="{{ employee['position'] or '' }}">
+            </div>
+
+            <div>
+                <label>Hire Date</label>
+                <input type="date" name="hire_date" value="{{ employee['hire_date'] or '' }}">
+            </div>
+        </div>
+
+        <div class="settings-section-title" style="margin-top:28px;">
+            <h2 style="margin-bottom:6px;">Payroll</h2>
+            <div class="muted">Set the employee's pay structure and default payroll values.</div>
+        </div>
+
+        <div class="grid" style="margin-top:18px;">
+            <div>
+                <label>Pay Type</label>
+                <select name="pay_type" id="pay_type" onchange="togglePayFields()">
+                    <option value="Hourly" {% if employee['pay_type'] == 'Hourly' %}selected{% endif %}>Hourly</option>
+                    <option value="Salary" {% if employee['pay_type'] == 'Salary' %}selected{% endif %}>Salary</option>
+                </select>
+            </div>
+
+            <div id="hourly_rate_wrap">
+                <label>Hourly Rate</label>
+                <input type="number" step="0.01" min="0" name="hourly_rate" value="{{ employee['hourly_rate'] if employee['hourly_rate'] is not none else 0 }}">
+            </div>
+
+            <div id="overtime_rate_wrap">
+                <label>Overtime Rate</label>
+                <input type="number" step="0.01" min="0" name="overtime_rate" value="{{ employee['overtime_rate'] if employee['overtime_rate'] is not none else 0 }}">
+            </div>
+
+            <div id="salary_amount_wrap" style="display:none;">
+                <label>Salary Amount</label>
+                <input type="number" step="0.01" min="0" name="salary_amount" value="{{ employee['salary_amount'] if employee['salary_amount'] is not none else 0 }}">
+            </div>
+
+            <div>
+                <label>Default Hours</label>
+                <input type="number" step="0.01" min="0" name="default_hours" value="{{ employee['default_hours'] if employee['default_hours'] is not none else 0 }}">
+            </div>
+
+            <div style="grid-column:1 / -1;">
+                <label>Payroll Notes</label>
+                <textarea name="payroll_notes">{{ employee['payroll_notes'] or '' }}</textarea>
+            </div>
+        </div>
+
+        <div class="settings-section-title" style="margin-top:28px;">
+            <h2 style="margin-bottom:6px;">Federal Withholding (W-4)</h2>
+            <div class="muted">Employee-specific withholding details used during payroll calculations.</div>
+        </div>
+
+        <div class="card" style="margin-top:14px; padding:20px;">
+            <div class="grid">
+                <div>
+                    <label>Federal Filing Status</label>
+                    <select name="federal_filing_status">
+                        <option value="Single" {% if employee['federal_filing_status'] == 'Single' %}selected{% endif %}>Single</option>
+                        <option value="Married Filing Jointly" {% if employee['federal_filing_status'] == 'Married Filing Jointly' %}selected{% endif %}>Married Filing Jointly</option>
+                        <option value="Head of Household" {% if employee['federal_filing_status'] == 'Head of Household' %}selected{% endif %}>Head of Household</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label>Pay Frequency</label>
+                    <select name="pay_frequency">
+                        <option value="Weekly" {% if employee['pay_frequency'] == 'Weekly' %}selected{% endif %}>Weekly</option>
+                        <option value="Biweekly" {% if employee['pay_frequency'] == 'Biweekly' %}selected{% endif %}>Biweekly</option>
+                        <option value="Semimonthly" {% if employee['pay_frequency'] == 'Semimonthly' %}selected{% endif %}>Semimonthly</option>
+                        <option value="Monthly" {% if employee['pay_frequency'] == 'Monthly' %}selected{% endif %}>Monthly</option>
+                        <option value="Quarterly" {% if employee['pay_frequency'] == 'Quarterly' %}selected{% endif %}>Quarterly</option>
+                        <option value="Yearly" {% if employee['pay_frequency'] == 'Yearly' %}selected{% endif %}>Yearly</option>
+                    </select>
+                </div>
+
+                <div class="checkbox-field">
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="w4_step2_checked" value="1" {% if employee['w4_step2_checked'] %}checked{% endif %}>
+                        <span>Step 2 box checked</span>
+                    </label>
+                    <div class="muted small">Use when employee has multiple jobs or spouse also works.</div>
+                </div>
+
+                <div>
+                    <label>Step 3 Credits (Annual $)</label>
+                    <input type="number" step="0.01" min="0" name="w4_step3_amount" value="{{ employee['w4_step3_amount'] if employee['w4_step3_amount'] is not none else 0 }}">
+                </div>
+
+                <div>
+                    <label>Step 4(a) Other Income (Annual $)</label>
+                    <input type="number" step="0.01" min="0" name="w4_step4a_other_income" value="{{ employee['w4_step4a_other_income'] if employee['w4_step4a_other_income'] is not none else 0 }}">
+                </div>
+
+                <div>
+                    <label>Step 4(b) Deductions (Annual $)</label>
+                    <input type="number" step="0.01" min="0" name="w4_step4b_deductions" value="{{ employee['w4_step4b_deductions'] if employee['w4_step4b_deductions'] is not none else 0 }}">
+                </div>
+
+                <div>
+                    <label>Step 4(c) Extra Withholding (Per Paycheck $)</label>
+                    <input type="number" step="0.01" min="0" name="w4_step4c_extra_withholding" value="{{ employee['w4_step4c_extra_withholding'] if employee['w4_step4c_extra_withholding'] is not none else 0 }}">
+                </div>
+            </div>
+        </div>
+
+        <div class="row-actions" style="margin-top:20px;">
+            <button class="btn success" type="submit">Save Changes</button>
+            <a class="btn secondary" href="/employees/{{ employee['id'] }}">Back to Employee</a>
+        </div>
+    </form>
+</div>
+
+<script>
+function togglePayFields() {
+    const payType = document.getElementById("pay_type");
+    const hourlyWrap = document.getElementById("hourly_rate_wrap");
+    const overtimeWrap = document.getElementById("overtime_rate_wrap");
+    const salaryWrap = document.getElementById("salary_amount_wrap");
+
+    if (!payType) return;
+
+    if (payType.value === "Salary") {
+        hourlyWrap.style.display = "none";
+        overtimeWrap.style.display = "none";
+        salaryWrap.style.display = "block";
+    } else {
+        hourlyWrap.style.display = "block";
+        overtimeWrap.style.display = "block";
+        salaryWrap.style.display = "none";
+    }
+}
+
+document.addEventListener("DOMContentLoaded", togglePayFields);
+</script>
+"""
