@@ -1,7 +1,6 @@
 import os
 import sqlite3
-from datetime import date
-from datetime import datetime
+from datetime import date, datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_NAME = os.path.join(BASE_DIR, "yardledger_rebuild.db")
@@ -33,6 +32,48 @@ def table_columns(conn, table_name):
 
 def has_col(conn, table_name, col_name):
     return col_name in table_columns(conn, table_name)
+
+
+def safe_add_column(cur, table_name, col_name, col_def):
+    cols = [row[1] for row in cur.execute(f"PRAGMA table_info({table_name})").fetchall()]
+    if col_name not in cols:
+        cur.execute(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_def}")
+
+
+def ensure_company_profile_table():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS company_profile (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id INTEGER NOT NULL UNIQUE,
+            display_name TEXT,
+            legal_name TEXT,
+            logo_url TEXT,
+            phone TEXT,
+            email TEXT,
+            website TEXT,
+            address_line_1 TEXT,
+            address_line_2 TEXT,
+            city TEXT,
+            state TEXT,
+            county TEXT,
+            zip_code TEXT,
+            invoice_header_name TEXT,
+            quote_header_name TEXT,
+            invoice_footer_note TEXT,
+            quote_footer_note TEXT,
+            email_from_name TEXT,
+            reply_to_email TEXT,
+            platform_sender_enabled INTEGER NOT NULL DEFAULT 1,
+            reply_to_mode TEXT DEFAULT 'company',
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.commit()
+    conn.close()
 
 
 def init_db():
@@ -261,6 +302,32 @@ def init_db():
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS company_profile (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_id INTEGER NOT NULL UNIQUE,
+        display_name TEXT,
+        legal_name TEXT,
+        logo_url TEXT,
+        phone TEXT,
+        email TEXT,
+        website TEXT,
+        address_line_1 TEXT,
+        address_line_2 TEXT,
+        city TEXT,
+        state TEXT,
+        county TEXT,
+        zip_code TEXT,
+        invoice_header_name TEXT,
+        quote_header_name TEXT,
+        invoice_footer_note TEXT,
+        quote_footer_note TEXT,
+        email_from_name TEXT,
+        reply_to_email TEXT,
+        platform_sender_enabled INTEGER NOT NULL DEFAULT 1,
+        reply_to_mode TEXT DEFAULT 'company',
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
     """)
 
     migrations = [
@@ -298,6 +365,7 @@ def init_db():
     conn.commit()
     conn.close()
 
+    ensure_company_profile_table()
     ensure_company_profile_columns()
     ensure_employee_status_column()
     ensure_employee_name_columns()
@@ -343,37 +411,10 @@ def ensure_company_profile_columns():
 
 
 def ensure_company_profile_email_columns():
+    ensure_company_profile_table()
+
     conn = get_db_connection()
     cur = conn.cursor()
-
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS company_profile (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            company_id INTEGER NOT NULL UNIQUE,
-            display_name TEXT,
-            legal_name TEXT,
-            logo_url TEXT,
-            phone TEXT,
-            email TEXT,
-            website TEXT,
-            address_line_1 TEXT,
-            address_line_2 TEXT,
-            city TEXT,
-            state TEXT,
-            zip_code TEXT,
-            invoice_header_name TEXT,
-            quote_header_name TEXT,
-            invoice_footer_note TEXT,
-            quote_footer_note TEXT,
-            email_from_name TEXT,
-            reply_to_email TEXT,
-            platform_sender_enabled INTEGER NOT NULL DEFAULT 1,
-            reply_to_mode TEXT DEFAULT 'company',
-            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
 
     cur.execute("PRAGMA table_info(company_profile)")
     cols = [row[1] for row in cur.fetchall()]
@@ -470,6 +511,8 @@ def ensure_employee_payroll_columns():
 
 
 def ensure_company_profile_location_columns():
+    ensure_company_profile_table()
+
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -774,6 +817,8 @@ def insert_billing_event(
 
 
 def ensure_company_profile_tax_location_columns():
+    ensure_company_profile_table()
+
     conn = get_db_connection()
     cur = conn.cursor()
 
