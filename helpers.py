@@ -1,10 +1,10 @@
 from flask import session
 from datetime import datetime, date, timedelta
 from urllib.parse import quote
-from .db import get_db_connection
+from db import get_db_connection
 from flask_mail import Message
-from .db import get_db_connection
-from .extensions import mail
+from db import get_db_connection
+from extensions import mail
 
 def get_employee_display_name(employee):
     if not employee:

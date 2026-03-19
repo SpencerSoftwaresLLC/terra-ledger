@@ -3,7 +3,7 @@ import base64
 import mimetypes
 import requests
 
-from ..db import get_db_connection
+from db import get_db_connection
 
 
 def get_company_email_settings(company_id, user_id=None):

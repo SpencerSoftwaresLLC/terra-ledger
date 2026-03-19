@@ -1,4 +1,4 @@
-from .db import get_db_connection
+from db import get_db_connection
 
 def get_role_defaults(role):
     role = (role or "").strip().lower()
