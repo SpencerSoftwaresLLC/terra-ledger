@@ -13,7 +13,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 
-from db import get_db_connection, ensure_job_cost_ledger
+from db import get_db_connection, ensure_job_cost_ledger, get_next_quote_number, ensure_document_number_columns
 from decorators import login_required, require_permission, subscription_required
 from page_helpers import *
 from helpers import *
@@ -279,6 +279,7 @@ def build_quote_pdf(quote, items, company, profile):
 @require_permission("can_manage_jobs")
 def quotes():
     ensure_quote_item_cost_columns()
+    ensure_document_number_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -292,6 +293,24 @@ def quotes():
         """,
         (cid,),
     ).fetchall()
+
+    company_row = conn.execute(
+        """
+        SELECT default_quote_notes, next_quote_number
+        FROM companies
+        WHERE id = ?
+        """,
+        (cid,),
+    ).fetchone()
+
+    default_quote_notes = ""
+    next_quote_number_preview = "1001"
+
+    if company_row:
+        if "default_quote_notes" in company_row.keys():
+            default_quote_notes = company_row["default_quote_notes"] or ""
+        if "next_quote_number" in company_row.keys() and company_row["next_quote_number"] is not None:
+            next_quote_number_preview = str(company_row["next_quote_number"])
 
     customer_list = [
         {
@@ -311,21 +330,18 @@ def quotes():
             flash("Please select a customer from the search results.")
             return redirect(url_for("quotes.quotes"))
 
-        company_row = conn.execute(
-            "SELECT default_quote_notes FROM companies WHERE id = ?",
-            (cid,),
-        ).fetchone()
-
-        default_quote_notes = ""
-        if company_row and "default_quote_notes" in company_row.keys():
-            default_quote_notes = company_row["default_quote_notes"] or ""
-
-        quote_number = (request.form.get("quote_number") or "").strip() or f"Q-{int(datetime.now().timestamp())}"
+        quote_number = (request.form.get("quote_number") or "").strip()
         quote_date = (request.form.get("quote_date") or "").strip() or date.today().isoformat()
         expiration_date = (request.form.get("expiration_date") or "").strip()
         status = (request.form.get("status") or "Draft").strip()
         notes = (request.form.get("notes") or "").strip() or default_quote_notes
 
+        conn.close()
+
+        if not quote_number:
+            quote_number = get_next_quote_number(cid)
+
+        conn = get_db_connection()
         cur = conn.cursor()
         cur.execute(
             """
@@ -348,7 +364,7 @@ def quotes():
         quote_id = cur.lastrowid
         conn.close()
 
-        flash("Quote created. Add items next.")
+        flash(f"Quote #{quote_number} created. Add items next.")
         return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
     rows = conn.execute(
@@ -362,6 +378,8 @@ def quotes():
         """,
         (cid,),
     ).fetchall()
+
+    conn.close()
 
     quote_rows = "".join(
         f"""<tr>
@@ -440,13 +458,18 @@ def quotes():
                     <div id='customer_results' class='customer-results'></div>
                 </div>
 
-                <div><label>Quote Number</label><input name='quote_number' placeholder='Q-1001'></div>
+                <div>
+                    <label>Quote Number</label>
+                    <input name='quote_number' placeholder='Auto: {escape(next_quote_number_preview)}'>
+                    <div class='muted' style='margin-top:6px;'>Leave blank to auto-assign the next quote number.</div>
+                </div>
+
                 <div><label>Quote Date</label><input type='date' name='quote_date' value='{date.today().isoformat()}'></div>
                 <div><label>Expiration Date</label><input type='date' name='expiration_date'></div>
                 <div><label>Status</label><select name='status'><option>Draft</option><option>Sent</option><option>Approved</option></select></div>
             </div>
 
-            <br><label>Notes</label><textarea name='notes'></textarea><br>
+            <br><label>Notes</label><textarea name='notes'>{escape(default_quote_notes)}</textarea><br>
             <button class='btn'>Create Quote</button>
         </form>
     </div>

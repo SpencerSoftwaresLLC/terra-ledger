@@ -385,6 +385,7 @@ def init_db():
     ensure_billing_tables()
     ensure_company_profile_location_columns()
     ensure_company_profile_email_columns()
+    ensure_document_number_columns()
 
 
 def ensure_company_profile_columns():
@@ -818,6 +819,72 @@ def insert_billing_event(
     ))
     conn.commit()
     conn.close()
+
+def ensure_document_number_columns():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("PRAGMA table_info(companies)")
+    cols = [row[1] for row in cur.fetchall()]
+
+    if "next_quote_number" not in cols:
+        cur.execute("ALTER TABLE companies ADD COLUMN next_quote_number INTEGER NOT NULL DEFAULT 1001")
+
+    if "next_invoice_number" not in cols:
+        cur.execute("ALTER TABLE companies ADD COLUMN next_invoice_number INTEGER NOT NULL DEFAULT 1001")
+
+    conn.commit()
+    conn.close()
+
+
+def get_next_invoice_number(company_id):
+    ensure_document_number_columns()
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    row = cur.execute(
+        "SELECT next_invoice_number FROM companies WHERE id = ?",
+        (company_id,),
+    ).fetchone()
+
+    next_number = 1001
+    if row and row["next_invoice_number"] is not None:
+        next_number = int(row["next_invoice_number"])
+
+    cur.execute(
+        "UPDATE companies SET next_invoice_number = ? WHERE id = ?",
+        (next_number + 1, company_id),
+    )
+
+    conn.commit()
+    conn.close()
+    return str(next_number)
+
+
+def get_next_quote_number(company_id):
+    ensure_document_number_columns()
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    row = cur.execute(
+        "SELECT next_quote_number FROM companies WHERE id = ?",
+        (company_id,),
+    ).fetchone()
+
+    next_number = 1001
+    if row and row["next_quote_number"] is not None:
+        next_number = int(row["next_quote_number"])
+
+    cur.execute(
+        "UPDATE companies SET next_quote_number = ? WHERE id = ?",
+        (next_number + 1, company_id),
+    )
+
+    conn.commit()
+    conn.close()
+    return str(next_number)
 
 
 def ensure_company_profile_tax_location_columns():

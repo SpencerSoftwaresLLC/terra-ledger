@@ -30,6 +30,13 @@ def get_stripe_config():
     stripe_webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
     app_base_url = os.environ.get("APP_BASE_URL", "http://127.0.0.1:5000").strip().rstrip("/")
 
+    stripe_price_monthly = os.environ.get("STRIPE_PRICE_MONTHLY", "").strip()
+    stripe_price_yearly = os.environ.get("STRIPE_PRICE_YEARLY", "").strip()
+
+    stripe_owner_email = os.environ.get("STRIPE_OWNER_EMAIL", "").strip().lower()
+    stripe_owner_coupon_id = os.environ.get("STRIPE_OWNER_COUPON_ID", "").strip()
+    stripe_owner_promo_code_id = os.environ.get("STRIPE_OWNER_PROMO_CODE_ID", "").strip()
+
     stripe_enabled = bool(STRIPE_IMPORT_OK and stripe_secret_key)
 
     if stripe_enabled:
@@ -40,6 +47,11 @@ def get_stripe_config():
         "publishable_key": stripe_publishable_key,
         "webhook_secret": stripe_webhook_secret,
         "app_base_url": app_base_url,
+        "price_monthly": stripe_price_monthly,
+        "price_yearly": stripe_price_yearly,
+        "owner_email": stripe_owner_email,
+        "owner_coupon_id": stripe_owner_coupon_id,
+        "owner_promo_code_id": stripe_owner_promo_code_id,
         "enabled": stripe_enabled,
     }
 
@@ -473,6 +485,80 @@ def customer_portal():
     )
 
     return redirect(portal_session.url)
+
+@billing_bp.route("/settings/billing/checkout")
+@login_required
+def create_checkout_session():
+    cfg = get_stripe_config()
+
+    if not cfg["enabled"]:
+        flash("Stripe billing is not configured yet.")
+        return redirect(url_for("billing.billing_page"))
+
+    plan = (request.args.get("plan") or "monthly").strip().lower()
+
+    if plan == "yearly":
+        price_id = cfg["price_yearly"]
+    else:
+        plan = "monthly"
+        price_id = cfg["price_monthly"]
+
+    if not price_id:
+        flash("The selected billing plan is not configured yet.")
+        return redirect(url_for("billing.billing_page"))
+
+    cid = session["company_id"]
+    company = _get_company(cid)
+    user_email = (_get_user_email() or "").strip().lower()
+
+    sub = get_company_subscription(cid)
+    stripe_customer_id = None
+    if sub and sub["stripe_customer_id"]:
+        stripe_customer_id = sub["stripe_customer_id"]
+
+    discounts = []
+
+    # Auto-apply owner free access
+    if user_email and user_email == cfg["owner_email"]:
+        if cfg["owner_promo_code_id"]:
+            discounts.append({"promotion_code": cfg["owner_promo_code_id"]})
+        elif cfg["owner_coupon_id"]:
+            discounts.append({"coupon": cfg["owner_coupon_id"]})
+
+    session_kwargs = {
+        "mode": "subscription",
+        "line_items": [
+            {
+                "price": price_id,
+                "quantity": 1,
+            }
+        ],
+        "success_url": f"{cfg['app_base_url']}/settings/billing?checkout=success",
+        "cancel_url": f"{cfg['app_base_url']}/settings/billing?checkout=cancelled",
+        "allow_promotion_codes": True,
+        "client_reference_id": str(cid),
+        "metadata": {
+            "company_id": str(cid),
+            "company_name": company["company_name"] if company and "company_name" in company.keys() else "",
+            "user_email": user_email,
+            "selected_plan": plan,
+        },
+    }
+
+    if stripe_customer_id:
+        session_kwargs["customer"] = stripe_customer_id
+    elif user_email:
+        session_kwargs["customer_email"] = user_email
+
+    if discounts:
+        session_kwargs["discounts"] = discounts
+
+    try:
+        checkout_session = stripe.checkout.Session.create(**session_kwargs)
+        return redirect(checkout_session.url)
+    except Exception as e:
+        flash(f"Could not start checkout: {e}")
+        return redirect(url_for("billing.billing_page"))
 
 
 @billing_bp.route("/stripe-webhook", methods=["POST"])

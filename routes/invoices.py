@@ -12,7 +12,7 @@ import csv
 from urllib.request import urlopen
 from urllib.parse import urlparse
 
-from db import get_db_connection, update_invoice_balance
+from db import get_db_connection, update_invoice_balance, get_next_invoice_number, ensure_document_number_columns
 from decorators import login_required, require_permission, subscription_required
 from page_helpers import *
 from helpers import *
@@ -496,6 +496,8 @@ def export_invoices():
 @login_required
 @require_permission("can_manage_invoices")
 def new_invoice():
+    ensure_document_number_columns()
+
     conn = get_db_connection()
     cid = session["company_id"]
 
@@ -508,6 +510,19 @@ def new_invoice():
         """,
         (cid,),
     ).fetchall()
+
+    company_row = conn.execute(
+        """
+        SELECT next_invoice_number
+        FROM companies
+        WHERE id = ?
+        """,
+        (cid,),
+    ).fetchone()
+
+    next_invoice_number_preview = "1001"
+    if company_row and company_row["next_invoice_number"] is not None:
+        next_invoice_number_preview = str(company_row["next_invoice_number"])
 
     customer_list = [
         {
@@ -533,6 +548,12 @@ def new_invoice():
             flash("Please select a customer.")
             return redirect(url_for("invoices.new_invoice"))
 
+        conn.close()
+
+        if not invoice_number:
+            invoice_number = get_next_invoice_number(cid)
+
+        conn = get_db_connection()
         conn.execute(
             """
             INSERT INTO invoices (
@@ -551,7 +572,7 @@ def new_invoice():
             (
                 cid,
                 customer_id,
-                invoice_number or None,
+                invoice_number,
                 invoice_date or None,
                 due_date or None,
                 description,
@@ -563,7 +584,7 @@ def new_invoice():
         conn.commit()
         conn.close()
 
-        flash("Invoice created successfully.")
+        flash(f"Invoice #{invoice_number} created successfully.")
         return redirect(url_for("invoices.invoices"))
 
     conn.close()
@@ -625,7 +646,8 @@ def new_invoice():
 
                 <div>
                     <label>Invoice Number</label>
-                    <input type='text' name='invoice_number' placeholder='Optional'>
+                    <input type='text' name='invoice_number' placeholder='Auto: {escape(next_invoice_number_preview)}'>
+                    <div class='muted' style='margin-top:6px;'>Leave blank to auto-assign the next invoice number.</div>
                 </div>
 
                 <div>
