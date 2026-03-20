@@ -67,7 +67,7 @@ def _get_company(company_id):
 
 
 def _get_user_email():
-    return session.get("user_email") or ""
+    return (session.get("user_email") or "").strip().lower()
 
 
 def _normalize_status(status):
@@ -248,8 +248,6 @@ def _refresh_company_subscription_from_stripe(company_id):
 @billing_bp.route("/subscription-required")
 @login_required
 def subscription_required_page():
-    print("INSIDE subscription_required_page()")
-
     cid = session["company_id"]
     sub = get_company_subscription(cid)
 
@@ -293,6 +291,7 @@ def subscription_required_page():
     )
 
     return render_page(content, title="Subscription Required")
+
 
 @billing_bp.route("/settings/billing")
 @login_required
@@ -374,6 +373,8 @@ def billing_page():
 
             <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
                 {% if stripe_enabled %}
+                    <a class="btn" href="{{ url_for('billing.create_checkout_session', plan='monthly') }}">Start Monthly</a>
+                    <a class="btn secondary" href="{{ url_for('billing.create_checkout_session', plan='yearly') }}">Start Yearly</a>
                     <a class="btn secondary" href="{{ url_for('billing.refresh_billing_status') }}">Refresh Status</a>
                 {% endif %}
                 {% if stripe_enabled and sub and sub['stripe_customer_id'] %}
@@ -486,6 +487,7 @@ def customer_portal():
 
     return redirect(portal_session.url)
 
+
 @billing_bp.route("/settings/billing/checkout")
 @login_required
 def create_checkout_session():
@@ -509,7 +511,7 @@ def create_checkout_session():
 
     cid = session["company_id"]
     company = _get_company(cid)
-    user_email = (_get_user_email() or "").strip().lower()
+    user_email = _get_user_email()
 
     sub = get_company_subscription(cid)
     stripe_customer_id = None
@@ -518,7 +520,6 @@ def create_checkout_session():
 
     discounts = []
 
-    # Auto-apply owner free access
     if user_email and user_email == cfg["owner_email"]:
         if cfg["owner_promo_code_id"]:
             discounts.append({"promotion_code": cfg["owner_promo_code_id"]})
@@ -539,7 +540,7 @@ def create_checkout_session():
         "client_reference_id": str(cid),
         "metadata": {
             "company_id": str(cid),
-            "company_name": company["company_name"] if company and "company_name" in company.keys() else "",
+            "company_name": company["name"] if company and "name" in company.keys() else "",
             "user_email": user_email,
             "selected_plan": plan,
         },
@@ -592,7 +593,45 @@ def stripe_webhook():
         conn.close()
         return row["company_id"] if row else None
 
-    if event_type in (
+    if event_type == "checkout.session.completed":
+        customer_id = obj.get("customer")
+        subscription_id = obj.get("subscription")
+
+        company_id = None
+        metadata = obj.get("metadata") or {}
+
+        if metadata.get("company_id"):
+            try:
+                company_id = int(metadata.get("company_id"))
+            except Exception:
+                company_id = None
+
+        if company_id:
+            try:
+                if subscription_id:
+                    _sync_subscription_from_stripe(company_id, subscription_id)
+                else:
+                    upsert_company_subscription(
+                        company_id=company_id,
+                        stripe_customer_id=customer_id,
+                        stripe_subscription_id=None,
+                        stripe_price_id=None,
+                        plan_name="Subscription",
+                        billing_interval=None,
+                        amount_cents=None,
+                        status="active",
+                        auto_renew=1,
+                        cancel_at_period_end=0,
+                        current_period_start=None,
+                        current_period_end=None,
+                        payment_method_type=None,
+                        payment_method_last4=None,
+                        payment_method_label=None,
+                    )
+            except Exception:
+                pass
+
+    elif event_type in (
         "customer.subscription.created",
         "customer.subscription.updated",
         "customer.subscription.deleted",

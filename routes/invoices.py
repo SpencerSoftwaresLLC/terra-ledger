@@ -498,6 +498,16 @@ def export_invoices():
 def new_invoice():
     ensure_document_number_columns()
 
+    def clean_text_input(value):
+        if value is None:
+            return ""
+        text = str(value).strip()
+        if not text:
+            return ""
+        if text.lower() in {"none", "null", "n/a", "0", "0.0", "0.00"}:
+            return ""
+        return text
+
     conn = get_db_connection()
     cid = session["company_id"]
 
@@ -527,21 +537,25 @@ def new_invoice():
     customer_list = [
         {
             "id": c["id"],
-            "name": c["name"] or "",
-            "company": c["company"] or "",
-            "email": c["email"] or "",
+            "name": clean_text_input(c["name"]),
+            "company": clean_text_input(c["company"]),
+            "email": clean_text_input(c["email"]),
         }
         for c in customers
     ]
 
     if request.method == "POST":
         customer_id = request.form.get("customer_id", type=int)
-        invoice_number = (request.form.get("invoice_number") or "").strip()
-        invoice_date = (request.form.get("invoice_date") or "").strip()
-        due_date = (request.form.get("due_date") or "").strip()
-        description = (request.form.get("description") or "").strip()
-        total = float(request.form.get("total") or 0)
-        status = (request.form.get("status") or "Unpaid").strip()
+        invoice_number = clean_text_input(request.form.get("invoice_number", ""))
+        invoice_date = clean_text_input(request.form.get("invoice_date", ""))
+        due_date = clean_text_input(request.form.get("due_date", ""))
+        description = clean_text_input(request.form.get("description", ""))
+        status = clean_text_input(request.form.get("status", "Unpaid")) or "Unpaid"
+
+        try:
+            total = float((request.form.get("total") or "0").strip())
+        except Exception:
+            total = 0.0
 
         if not customer_id:
             conn.close()
@@ -726,7 +740,7 @@ def new_invoice():
                     customerIdInput.value = customer.id;
                     searchInput.value = customer.company
                         ? `${{customer.name}} - ${{customer.company}}`
-                        : customer.name;
+                        : (customer.name || "Unnamed Customer");
 
                     resultsBox.innerHTML = "";
                 }});

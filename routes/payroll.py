@@ -23,6 +23,22 @@ def safe_float(value, default=0.0):
         return default
 
 
+def clean_text_input(value):
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    if text.lower() in {"none", "null", "n/a", "0", "0.0", "0.00"}:
+        return ""
+    return text
+
+
+def clean_text_display(value, fallback="-"):
+    text = clean_text_input(value)
+    return text if text else fallback
+
+
 def get_salary_period_amount(annual_salary, pay_frequency):
     annual_salary = safe_float(annual_salary, 0)
     pay_frequency = (pay_frequency or "Biweekly").strip()
@@ -44,8 +60,8 @@ def get_salary_period_amount(annual_salary, pay_frequency):
 
 
 def build_gross_pay(employee, hours_regular, hours_overtime, rate_regular, rate_overtime):
-    pay_type = (employee["pay_type"] or "Hourly").strip()
-    pay_frequency = (employee["pay_frequency"] or "Biweekly").strip()
+    pay_type = clean_text_input(employee["pay_type"]) or "Hourly"
+    pay_frequency = clean_text_input(employee["pay_frequency"]) or "Biweekly"
 
     if pay_type == "Salary":
         annual_salary = safe_float(employee["salary_amount"], 0)
@@ -90,7 +106,7 @@ def payroll_preview():
     conn = get_db_connection()
     cid = session["company_id"]
 
-    employee_id_raw = str(request.form.get("employee_id") or "").strip()
+    employee_id_raw = clean_text_input(request.form.get("employee_id", ""))
     if not employee_id_raw.isdigit():
         conn.close()
         return jsonify({
@@ -186,14 +202,14 @@ def payroll_preview():
         "local_tax": local_tax,
         "other_deductions": round(other_deductions, 2),
         "net_pay": net_pay,
-        "provider": taxes.get("provider", "internal"),
-        "state_name": taxes.get("state_name", "") or "-",
-        "local_name": taxes.get("local_name", "") or "-",
+        "provider": clean_text_input(taxes.get("provider", "internal")) or "internal",
+        "state_name": clean_text_display(taxes.get("state_name", ""), "-"),
+        "local_name": clean_text_display(taxes.get("local_name", ""), "-"),
         "hours_regular": gross_data["hours_regular"],
         "hours_overtime": gross_data["hours_overtime"],
         "rate_regular": gross_data["rate_regular"],
         "rate_overtime": gross_data["rate_overtime"],
-        "w4_filing_status": employee["w4_filing_status"] or employee["federal_filing_status"] or "Single",
+        "w4_filing_status": clean_text_input(employee["w4_filing_status"]) or clean_text_input(employee["federal_filing_status"]) or "Single",
         "w4_step2_checked": 1 if (employee["w4_step2_checked"] or 0) else 0,
         "w4_step3_amount": float(employee["w4_step3_amount"] or 0),
         "w4_step4a_other_income": float(employee["w4_step4a_other_income"] or 0),
@@ -215,22 +231,22 @@ def employee_payroll():
     cid = session["company_id"]
 
     if request.method == "POST":
-        employee_id_raw = (request.form.get("employee_id") or "").strip()
+        employee_id_raw = clean_text_input(request.form.get("employee_id", ""))
         if not employee_id_raw.isdigit():
             flash("Please select an employee.")
             conn.close()
             return redirect(url_for("payroll.employee_payroll"))
 
         employee_id = int(employee_id_raw)
-        pay_date = (request.form.get("pay_date") or "").strip() or date.today().isoformat()
-        pay_period_start = (request.form.get("pay_period_start") or "").strip()
-        pay_period_end = (request.form.get("pay_period_end") or "").strip()
+        pay_date = clean_text_input(request.form.get("pay_date", "")) or date.today().isoformat()
+        pay_period_start = clean_text_input(request.form.get("pay_period_start", ""))
+        pay_period_end = clean_text_input(request.form.get("pay_period_end", ""))
         hours_regular = safe_float(request.form.get("hours_regular"), 0)
         hours_overtime = safe_float(request.form.get("hours_overtime"), 0)
         rate_regular = safe_float(request.form.get("rate_regular"), 0)
         rate_overtime = safe_float(request.form.get("rate_overtime"), 0)
         other_deductions = safe_float(request.form.get("other_deductions"), 0)
-        notes = (request.form.get("notes") or "").strip()
+        notes = clean_text_input(request.form.get("notes", ""))
 
         employee = conn.execute(
             """
@@ -401,19 +417,19 @@ def employee_payroll():
         f"""
         <option
             value='{e["id"]}'
-            data-pay-type='{e["pay_type"] or "Hourly"}'
-            data-pay-frequency='{e["pay_frequency"] or "Biweekly"}'
+            data-pay-type='{clean_text_input(e["pay_type"]) or "Hourly"}'
+            data-pay-frequency='{clean_text_input(e["pay_frequency"]) or "Biweekly"}'
             data-hourly-rate='{e["hourly_rate"] or 0}'
             data-overtime-rate='{e["overtime_rate"] or 0}'
             data-salary-amount='{e["salary_amount"] or 0}'
-            data-filing-status='{e["w4_filing_status"] or e["federal_filing_status"] or "Single"}'
+            data-filing-status='{clean_text_input(e["w4_filing_status"]) or clean_text_input(e["federal_filing_status"]) or "Single"}'
             data-step2-checked='{1 if (e["w4_step2_checked"] or 0) else 0}'
             data-step3-amount='{e["w4_step3_amount"] or 0}'
             data-step4a='{e["w4_step4a_other_income"] or 0}'
             data-step4b='{e["w4_step4b_deductions"] or 0}'
             data-step4c='{e["w4_step4c_extra_withholding"] or 0}'
         >
-            {e["first_name"]} {e["last_name"]}
+            {clean_text_display(e["first_name"], "").strip()} {clean_text_display(e["last_name"], "").strip()}
         </option>
         """
         for e in employees
@@ -422,9 +438,9 @@ def employee_payroll():
     payroll_rows = "".join(
         f"""
         <tr>
-            <td>{r['pay_date'] or '-'}</td>
-            <td>{(r['first_name'] or '').strip()} {(r['last_name'] or '').strip()}</td>
-            <td>{r['pay_type'] or '-'}</td>
+            <td>{clean_text_display(r['pay_date'])}</td>
+            <td>{(clean_text_input(r['first_name']) + ' ' + clean_text_input(r['last_name'])).strip() or '-'}</td>
+            <td>{clean_text_display(r['pay_type'])}</td>
             <td>${float(r['gross_pay'] or 0):.2f}</td>
             <td>${float(r['federal_withholding'] or 0):.2f}</td>
             <td>${float(r['state_withholding'] or 0):.2f}</td>
@@ -450,11 +466,11 @@ def employee_payroll():
     <div class='card'>
         <h2>Current Tax Defaults</h2>
         <div class='grid'>
-            <div><strong>Provider</strong><br>{preview_taxes.get('provider', 'internal')}</div>
-            <div><strong>State</strong><br>{preview_taxes.get('state_name', '-') or '-'}</div>
+            <div><strong>Provider</strong><br>{clean_text_display(preview_taxes.get('provider', 'internal'), 'internal')}</div>
+            <div><strong>State</strong><br>{clean_text_display(preview_taxes.get('state_name', '-'), '-')}</div>
             <div><strong>Social Security</strong><br>6.20%</div>
             <div><strong>Medicare</strong><br>1.45%</div>
-            <div><strong>Local</strong><br>{preview_taxes.get('local_name', '-') or '-'}</div>
+            <div><strong>Local</strong><br>{clean_text_display(preview_taxes.get('local_name', '-'), '-')}</div>
         </div>
     </div>
     """
@@ -864,15 +880,15 @@ def export_payroll():
     ])
 
     for r in rows:
-        employee_name = f"{r['first_name'] or ''} {r['last_name'] or ''}".strip()
+        employee_name = f"{clean_text_input(r['first_name'])} {clean_text_input(r['last_name'])}".strip()
 
         writer.writerow([
             r["id"] or "",
-            r["pay_date"] or "",
+            clean_text_input(r["pay_date"]),
             employee_name,
-            r["pay_type"] or "",
-            r["pay_period_start"] or "",
-            r["pay_period_end"] or "",
+            clean_text_input(r["pay_type"]),
+            clean_text_input(r["pay_period_start"]),
+            clean_text_input(r["pay_period_end"]),
             float(r["hours_regular"] or 0),
             float(r["hours_overtime"] or 0),
             float(r["rate_regular"] or 0),
@@ -885,7 +901,7 @@ def export_payroll():
             float(r["local_tax"] or 0),
             float(r["other_deductions"] or 0),
             float(r["net_pay"] or 0),
-            r["notes"] or "",
+            clean_text_input(r["notes"]),
         ])
 
     conn.close()

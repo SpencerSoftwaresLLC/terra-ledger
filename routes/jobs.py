@@ -14,6 +14,29 @@ from calculations import recalc_job, recalc_invoice
 jobs_bp = Blueprint("jobs", __name__)
 
 
+def clean_text_input(value):
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    if text.lower() in {"none", "null", "n/a", "0", "0.0", "0.00"}:
+        return ""
+    return text
+
+
+def clean_text_display(value, fallback="-"):
+    text = clean_text_input(value)
+    return text if text else fallback
+
+
+def safe_float(value, default=0.0):
+    try:
+        return float(value or 0)
+    except Exception:
+        return default
+
+
 @jobs_bp.route("/jobs", methods=["GET", "POST"])
 @login_required
 @subscription_required
@@ -35,9 +58,9 @@ def jobs():
     customer_list = [
         {
             "id": c["id"],
-            "name": c["name"] or "",
-            "company": c["company"] or "",
-            "email": c["email"] or "",
+            "name": clean_text_input(c["name"]),
+            "company": clean_text_input(c["company"]),
+            "email": clean_text_input(c["email"]),
         }
         for c in customers
     ]
@@ -50,11 +73,11 @@ def jobs():
             flash("Please select a customer from the search results.")
             return redirect(url_for("jobs.jobs"))
 
-        title = (request.form.get("title") or "").strip()
-        scheduled_date = (request.form.get("scheduled_date") or "").strip()
-        status = (request.form.get("status") or "Scheduled").strip()
-        address = (request.form.get("address") or "").strip()
-        notes = (request.form.get("notes") or "").strip()
+        title = clean_text_input(request.form.get("title", ""))
+        scheduled_date = clean_text_input(request.form.get("scheduled_date", ""))
+        status = clean_text_input(request.form.get("status", "Scheduled")) or "Scheduled"
+        address = clean_text_input(request.form.get("address", ""))
+        notes = clean_text_input(request.form.get("notes", ""))
 
         if not title:
             conn.close()
@@ -92,12 +115,12 @@ def jobs():
         f"""
         <tr>
             <td>#{r['id']}</td>
-            <td>{escape(r['title'] or '-')}</td>
-            <td>{escape(r['customer_name'] or '-')}</td>
-            <td>{escape(r['status'] or '-')}</td>
-            <td>${float(r['revenue'] or 0):.2f}</td>
-            <td>${float(r['cost_total'] or 0):.2f}</td>
-            <td>${float(r['profit'] or 0):.2f}</td>
+            <td>{escape(clean_text_display(r['title']))}</td>
+            <td>{escape(clean_text_display(r['customer_name']))}</td>
+            <td>{escape(clean_text_display(r['status']))}</td>
+            <td>${safe_float(r['revenue']):.2f}</td>
+            <td>${safe_float(r['cost_total']):.2f}</td>
+            <td>${safe_float(r['profit']):.2f}</td>
             <td>
                 <div class='row-actions'>
                     <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
@@ -263,7 +286,7 @@ def jobs():
                     customerIdInput.value = customer.id;
                     searchInput.value = customer.company
                         ? `${{customer.name}} - ${{customer.company}}`
-                        : customer.name;
+                        : (customer.name || "Unnamed Customer");
 
                     resultsBox.innerHTML = "";
                 }});
@@ -347,16 +370,16 @@ def export_jobs():
     for r in rows:
         writer.writerow([
             r["id"] or "",
-            r["title"] or "",
-            r["customer_name"] or "",
-            r["customer_email"] or "",
-            r["scheduled_date"] or "",
-            r["status"] or "",
-            r["address"] or "",
-            float(r["revenue"] or 0),
-            float(r["cost_total"] or 0),
-            float(r["profit"] or 0),
-            r["notes"] or "",
+            clean_text_input(r["title"]),
+            clean_text_input(r["customer_name"]),
+            clean_text_input(r["customer_email"]),
+            clean_text_input(r["scheduled_date"]),
+            clean_text_input(r["status"]),
+            clean_text_input(r["address"]),
+            safe_float(r["revenue"]),
+            safe_float(r["cost_total"]),
+            safe_float(r["profit"]),
+            clean_text_input(r["notes"]),
         ])
 
     conn.close()
@@ -394,12 +417,12 @@ def view_job(job_id):
         abort(404)  # type: ignore
 
     if request.method == "POST":
-        item_type = (request.form.get("item_type") or "").strip().lower()
-        description = (request.form.get("description") or "").strip()
-        qty = float(request.form.get("quantity") or 0)
-        unit = (request.form.get("unit") or "").strip()
-        sale_price = float(request.form.get("sale_price") or 0)
-        unit_cost = float(request.form.get("cost_amount") or 0)
+        item_type = clean_text_input(request.form.get("item_type", "")).lower()
+        description = clean_text_input(request.form.get("description", ""))
+        qty = safe_float(request.form.get("quantity"))
+        unit = clean_text_input(request.form.get("unit", ""))
+        sale_price = safe_float(request.form.get("sale_price"))
+        unit_cost = safe_float(request.form.get("cost_amount"))
         billable = 1 if request.form.get("billable") == "1" else 0
 
         if not description:
@@ -457,15 +480,15 @@ def view_job(job_id):
     item_rows = "".join(
         f"""
         <tr>
-            <td>{escape(i['item_type'] or '-')}</td>
-            <td>{escape(i['description'] or '-')}</td>
-            <td>{float(i['quantity'] or 0):g}</td>
-            <td>{escape(i['unit'] or '-')}</td>
-            <td>${float(i['sale_price'] or 0):.2f}</td>
-            <td>${((float(i['cost_amount'] or 0) / float(i['quantity'] or 0)) if float(i['quantity'] or 0) else 0):.2f}</td>
-            <td>${float(i['cost_amount'] or 0):.2f}</td>
+            <td>{escape(clean_text_display(i['item_type']))}</td>
+            <td>{escape(clean_text_display(i['description']))}</td>
+            <td>{safe_float(i['quantity']):g}</td>
+            <td>{escape(clean_text_display(i['unit']))}</td>
+            <td>${safe_float(i['sale_price']):.2f}</td>
+            <td>${((safe_float(i['cost_amount']) / safe_float(i['quantity'])) if safe_float(i['quantity']) else 0):.2f}</td>
+            <td>${safe_float(i['cost_amount']):.2f}</td>
             <td>{'Yes' if i['billable'] else 'No'}</td>
-            <td>${float(i['line_total'] or 0):.2f}</td>
+            <td>${safe_float(i['line_total']):.2f}</td>
             <td>
                 <div class='row-actions'>
                     <a class='btn secondary small' href='{url_for("jobs.edit_job_item", job_id=job_id, item_id=i["id"])}'>Edit</a>
@@ -484,15 +507,15 @@ def view_job(job_id):
 
     content = f"""
         <div class='card'>
-            <h1>Job #{job['id']} - {escape(job['title'] or '-')}</h1>
+            <h1>Job #{job['id']} - {escape(clean_text_display(job['title']))}</h1>
             <p>
-                <strong>Customer:</strong> {escape(job['customer_name'] or '-')}<br>
-                <strong>Status:</strong> {escape(job['status'] or '-')}<br>
-                <strong>Revenue:</strong> ${float(job['revenue'] or 0):.2f}
+                <strong>Customer:</strong> {escape(clean_text_display(job['customer_name']))}<br>
+                <strong>Status:</strong> {escape(clean_text_display(job['status']))}<br>
+                <strong>Revenue:</strong> ${safe_float(job['revenue']):.2f}
                 |
-                <strong>Costs:</strong> ${float(job['cost_total'] or 0):.2f}
+                <strong>Costs:</strong> ${safe_float(job['cost_total']):.2f}
                 |
-                <strong>Profit/Loss:</strong> ${float(job['profit'] or 0):.2f}
+                <strong>Profit/Loss:</strong> ${safe_float(job['profit']):.2f}
             </p>
 
             <div class="row-actions">
@@ -642,11 +665,11 @@ def edit_job(job_id):
 
     if request.method == "POST":
         customer_id = request.form.get("customer_id", type=int)
-        title = (request.form.get("title") or "").strip()
-        scheduled_date = (request.form.get("scheduled_date") or "").strip()
-        status = (request.form.get("status") or "").strip()
-        address = (request.form.get("address") or "").strip()
-        notes = (request.form.get("notes") or "").strip()
+        title = clean_text_input(request.form.get("title", ""))
+        scheduled_date = clean_text_input(request.form.get("scheduled_date", ""))
+        status = clean_text_input(request.form.get("status", ""))
+        address = clean_text_input(request.form.get("address", ""))
+        notes = clean_text_input(request.form.get("notes", ""))
 
         if not customer_id or not title:
             conn.close()
@@ -668,7 +691,7 @@ def edit_job(job_id):
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     customer_opts = "".join(
-        f"<option value='{c['id']}' {'selected' if c['id'] == job['customer_id'] else ''}>{escape(c['name'] or ('Customer #' + str(c['id'])))}</option>"
+        f"<option value='{c['id']}' {'selected' if c['id'] == job['customer_id'] else ''}>{escape(clean_text_display(c['name'], 'Customer #' + str(c['id'])))}</option>"
         for c in customers
     )
 
@@ -686,11 +709,11 @@ def edit_job(job_id):
                 </div>
                 <div>
                     <label>Title</label>
-                    <input name='title' value="{escape(job['title'] or '')}" required>
+                    <input name='title' value="{escape(clean_text_input(job['title']))}" required>
                 </div>
                 <div>
                     <label>Scheduled Date</label>
-                    <input type='date' name='scheduled_date' value="{escape(job['scheduled_date'] or '')}">
+                    <input type='date' name='scheduled_date' value="{escape(clean_text_input(job['scheduled_date']))}">
                 </div>
                 <div>
                     <label>Status</label>
@@ -702,12 +725,12 @@ def edit_job(job_id):
                 </div>
                 <div>
                     <label>Address</label>
-                    <input name='address' value="{escape(job['address'] or '')}">
+                    <input name='address' value="{escape(clean_text_input(job['address']))}">
                 </div>
             </div>
             <br>
             <label>Notes</label>
-            <textarea name='notes'>{escape(job['notes'] or '')}</textarea>
+            <textarea name='notes'>{escape(clean_text_input(job['notes']))}</textarea>
             <br>
             <button class='btn'>Save Changes</button>
             <a class='btn secondary' href='{url_for("jobs.view_job", job_id=job_id)}'>Cancel</a>
@@ -755,12 +778,12 @@ def edit_job_item(job_id, item_id):
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     if request.method == "POST":
-        item_type = (request.form.get("item_type") or "").strip().lower()
-        description = (request.form.get("description") or "").strip()
-        unit = (request.form.get("unit") or "").strip()
-        qty = float(request.form.get("quantity") or 0)
-        sale_price = float(request.form.get("sale_price") or 0)
-        unit_cost = float(request.form.get("cost_amount") or 0)
+        item_type = clean_text_input(request.form.get("item_type", "")).lower()
+        description = clean_text_input(request.form.get("description", ""))
+        unit = clean_text_input(request.form.get("unit", ""))
+        qty = safe_float(request.form.get("quantity"))
+        sale_price = safe_float(request.form.get("sale_price"))
+        unit_cost = safe_float(request.form.get("cost_amount"))
         billable = 1 if request.form.get("billable") == "1" else 0
 
         if not description:
@@ -817,8 +840,8 @@ def edit_job_item(job_id, item_id):
     <div class='card'>
         <h1>Edit Job Item</h1>
         <p>
-            <strong>Job:</strong> #{job['id']} - {escape(job['title'] or '-')}<br>
-            <strong>Customer:</strong> {escape(job['customer_name'] or '-')}
+            <strong>Job:</strong> #{job['id']} - {escape(clean_text_display(job['title']))}<br>
+            <strong>Customer:</strong> {escape(clean_text_display(job['customer_name']))}
         </p>
 
         <form method='post'>
@@ -837,27 +860,27 @@ def edit_job_item(job_id, item_id):
 
                 <div>
                     <label>Description</label>
-                    <input name='description' value="{escape(item['description'] or '')}" required>
+                    <input name='description' value="{escape(clean_text_input(item['description']))}" required>
                 </div>
 
                 <div>
                     <label>Quantity</label>
-                    <input type='number' step='0.01' name='quantity' value="{float(item['quantity'] or 0):.2f}" required>
+                    <input type='number' step='0.01' name='quantity' value="{safe_float(item['quantity']):.2f}" required>
                 </div>
 
                 <div>
                     <label>Unit</label>
-                    <input name='unit' value="{escape(item['unit'] or '')}">
+                    <input name='unit' value="{escape(clean_text_input(item['unit']))}">
                 </div>
 
                 <div>
                     <label>Sale Price</label>
-                    <input type='number' step='0.01' name='sale_price' value="{float(item['sale_price'] or 0):.2f}">
+                    <input type='number' step='0.01' name='sale_price' value="{safe_float(item['sale_price']):.2f}">
                 </div>
 
                 <div>
                     <label>Unit Cost</label>
-                    <input type='number' step='0.01' name='cost_amount' value="{((float(item['cost_amount'] or 0) / float(item['quantity'] or 0)) if float(item['quantity'] or 0) else 0):.2f}">
+                    <input type='number' step='0.01' name='cost_amount' value="{((safe_float(item['cost_amount']) / safe_float(item['quantity'])) if safe_float(item['quantity']) else 0):.2f}">
                 </div>
 
                 <div>
@@ -931,7 +954,6 @@ def convert_job_to_invoice(job_id):
         conn.close()
         abort(404)  # type: ignore
 
-    # Prevent duplicate invoice conversion if an invoice already exists for this job
     existing_invoice = conn.execute(
         """
         SELECT id
@@ -991,7 +1013,7 @@ def convert_job_to_invoice(job_id):
                 f"INV-{int(datetime.now().timestamp())}",
                 date.today().isoformat(),
                 date.today().isoformat(),
-                job["notes"],
+                clean_text_input(job["notes"]),
             ),
         )
         invoice_id = cur.lastrowid
@@ -1011,11 +1033,11 @@ def convert_job_to_invoice(job_id):
                 """,
                 (
                     invoice_id,
-                    i["description"],
-                    i["quantity"],
-                    i["unit"],
-                    i["sale_price"],
-                    i["line_total"],
+                    clean_text_input(i["description"]),
+                    safe_float(i["quantity"]),
+                    clean_text_input(i["unit"]),
+                    safe_float(i["sale_price"]),
+                    safe_float(i["line_total"]),
                 ),
             )
 
@@ -1071,6 +1093,7 @@ def delete_job(job_id):
     flash("Job deleted.")
     return redirect(url_for("jobs.jobs"))
 
+
 @jobs_bp.route("/jobs/finished")
 @login_required
 @require_permission("can_manage_jobs")
@@ -1096,12 +1119,12 @@ def finished_jobs():
         f"""
         <tr>
             <td>#{r['id']}</td>
-            <td>{escape(r['title'] or '-')}</td>
-            <td>{escape(r['customer_name'] or '-')}</td>
-            <td>{escape(r['status'] or '-')}</td>
-            <td>${float(r['revenue'] or 0):.2f}</td>
-            <td>${float(r['cost_total'] or 0):.2f}</td>
-            <td>${float(r['profit'] or 0):.2f}</td>
+            <td>{escape(clean_text_display(r['title']))}</td>
+            <td>{escape(clean_text_display(r['customer_name']))}</td>
+            <td>{escape(clean_text_display(r['status']))}</td>
+            <td>${safe_float(r['revenue']):.2f}</td>
+            <td>${safe_float(r['cost_total']):.2f}</td>
+            <td>${safe_float(r['profit']):.2f}</td>
             <td>
                 <div class='row-actions'>
                     <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
@@ -1143,6 +1166,7 @@ def finished_jobs():
     </div>
     """
     return render_page(content, "Finished Jobs")
+
 
 @jobs_bp.route("/jobs/<int:job_id>/reopen")
 @login_required

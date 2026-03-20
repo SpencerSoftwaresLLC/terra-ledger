@@ -195,3 +195,18 @@ def ensure_customer_name_columns():
 
     conn.commit()
     conn.close()
+
+def clean_input_value(value):
+    if value is None:
+        return ""
+
+    text = str(value).strip()
+    lowered = text.lower()
+
+    if text == "" or lowered in {"none", "null", "n/a"}:
+        return ""
+
+    if lowered in {"0", "0.0", "0.00"}:
+        return ""
+
+    return text

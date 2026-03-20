@@ -19,7 +19,6 @@ settings_bp = Blueprint("settings", __name__)
 
 ALLOWED_LOGO_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp", "svg"}
 
-
 def allowed_logo_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_LOGO_EXTENSIONS
 
@@ -282,6 +281,16 @@ def settings_company():
     ensure_company_profile_location_columns()
     ensure_company_profile_table()
 
+    def clean_text_input(value):
+        if value is None:
+            return ""
+        text = str(value).strip()
+        if not text:
+            return ""
+        if text.lower() in {"none", "null", "n/a", "0", "0.0", "0.00"}:
+            return ""
+        return text
+
     company_id = session.get("company_id")
     if not company_id:
         flash("No company is associated with this account.")
@@ -290,17 +299,17 @@ def settings_company():
     conn = get_db_connection()
 
     if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        phone = request.form.get("phone", "").strip()
-        email = request.form.get("email", "").strip()
-        website = request.form.get("website", "").strip()
-        tax_id = request.form.get("tax_id", "").strip()
-        address_line_1 = request.form.get("address_line_1", "").strip()
-        address_line_2 = request.form.get("address_line_2", "").strip()
-        city = request.form.get("city", "").strip()
-        state = request.form.get("state", "").strip().upper()
-        county = request.form.get("county", "").strip()
-        zip_code = request.form.get("zip_code", "").strip()
+        name = clean_text_input(request.form.get("name", ""))
+        phone = clean_text_input(request.form.get("phone", ""))
+        email = clean_text_input(request.form.get("email", ""))
+        website = clean_text_input(request.form.get("website", ""))
+        tax_id = clean_text_input(request.form.get("tax_id", ""))
+        address_line_1 = clean_text_input(request.form.get("address_line_1", ""))
+        address_line_2 = clean_text_input(request.form.get("address_line_2", ""))
+        city = clean_text_input(request.form.get("city", ""))
+        state = clean_text_input(request.form.get("state", "")).upper()
+        county = clean_text_input(request.form.get("county", ""))
+        zip_code = clean_text_input(request.form.get("zip_code", ""))
 
         conn.execute(
             """
@@ -341,7 +350,8 @@ def settings_company():
             conn.execute(
                 """
                 UPDATE company_profile
-                SET phone = ?,
+                SET display_name = ?,
+                    phone = ?,
                     email = ?,
                     website = ?,
                     address_line_1 = ?,
@@ -354,6 +364,7 @@ def settings_company():
                 WHERE company_id = ?
                 """,
                 (
+                    name,
                     phone,
                     email,
                     website,
@@ -402,7 +413,7 @@ def settings_company():
         conn.commit()
         conn.close()
 
-        session["company_name"] = name
+        session["company_name"] = name or "TerraLedger"
         flash("Company profile updated successfully.")
         return redirect(url_for("settings.settings_company"))
 
@@ -427,9 +438,7 @@ def settings_company():
 
     conn.close()
 
-    company_county = ""
-    if profile and "county" in profile.keys() and profile["county"]:
-        company_county = profile["county"]
+    company_county = clean_text_input(profile["county"]) if profile and "county" in profile.keys() else ""
 
     company_profile_html = """
     <div class='card'>
@@ -449,47 +458,47 @@ def settings_company():
             <div class='grid'>
                 <div>
                     <label>Company Name</label>
-                    <input name='name' value='{{ company["name"] if company else "" }}'>
+                    <input name='name' value='{{ clean_text_input(company["name"]) if company else "" }}'>
                 </div>
                 <div>
                     <label>Phone</label>
-                    <input name='phone' value='{{ company["phone"] if company else "" }}'>
+                    <input name='phone' value='{{ clean_text_input(company["phone"]) if company else "" }}'>
                 </div>
                 <div>
                     <label>Email</label>
-                    <input name='email' value='{{ company["email"] if company else "" }}'>
+                    <input name='email' value='{{ clean_text_input(company["email"]) if company else "" }}'>
                 </div>
                 <div>
                     <label>Website</label>
-                    <input name='website' value='{{ company["website"] if company else "" }}'>
+                    <input name='website' value='{{ clean_text_input(company["website"]) if company else "" }}'>
                 </div>
                 <div>
                     <label>Tax ID</label>
-                    <input name='tax_id' value='{{ company["tax_id"] if company else "" }}'>
+                    <input name='tax_id' value='{{ clean_text_input(company["tax_id"]) if company else "" }}'>
                 </div>
                 <div>
                     <label>Address Line 1</label>
-                    <input name='address_line_1' value='{{ company["address_line_1"] if company else "" }}'>
+                    <input name='address_line_1' value='{{ clean_text_input(company["address_line_1"]) if company else "" }}'>
                 </div>
                 <div>
                     <label>Address Line 2</label>
-                    <input name='address_line_2' value='{{ company["address_line_2"] if company else "" }}'>
+                    <input name='address_line_2' value='{{ clean_text_input(company["address_line_2"]) if company else "" }}'>
                 </div>
                 <div>
                     <label>City</label>
-                    <input name='city' value='{{ company["city"] if company else "" }}'>
+                    <input name='city' value='{{ clean_text_input(company["city"]) if company else "" }}'>
                 </div>
                 <div>
                     <label>State</label>
-                    <input name='state' value='{{ company["state"] if company else "" }}' maxlength='2'>
+                    <input name='state' value='{{ clean_text_input(company["state"]) if company else "" }}' maxlength='2'>
                 </div>
                 <div>
                     <label>County</label>
-                    <input name='county' value='{{ company_county }}' placeholder='Tippecanoe'>
+                    <input name='county' value='{{ clean_text_input(company_county) }}' placeholder='Tippecanoe'>
                 </div>
                 <div>
                     <label>Zip Code</label>
-                    <input name='zip_code' value='{{ company["zip_code"] if company else "" }}'>
+                    <input name='zip_code' value='{{ clean_text_input(company["zip_code"]) if company else "" }}'>
                 </div>
             </div>
             <div class='row-actions' style='margin-top:20px;'>
@@ -500,7 +509,12 @@ def settings_company():
     """
 
     return render_page(
-        render_template_string(company_profile_html, company=company, company_county=company_county),
+        render_template_string(
+            company_profile_html,
+            company=company,
+            company_county=company_county,
+            clean_text_input=clean_text_input,
+        ),
         "Company Info",
     )
 
