@@ -1,6 +1,6 @@
 {
   "name": "terraledger-desktop",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Desktop app for TerraLedger",
   "author": "Spencer Softwares LLC",
   "main": "main.js",

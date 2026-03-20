@@ -161,6 +161,37 @@ def get_company_profile_values(profile):
 @require_permission("can_manage_settings")
 def settings():
     settings_html = f"""
+    <style>
+        .settings-card {{
+            display: flex;
+            flex-direction: column;
+            min-height: 230px;
+        }}
+
+        .settings-card-head {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }}
+
+        .settings-card p {{
+            flex-grow: 1;
+        }}
+
+        .settings-actions {{
+            margin-top: auto;
+            display: flex;
+        }}
+
+        .settings-actions .btn {{
+            width: 100%;
+            min-width: 0;
+        }}
+    </style>
+
     <div class="settings-page">
         <div class="settings-header card">
             <div>

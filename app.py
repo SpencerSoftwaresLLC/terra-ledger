@@ -27,40 +27,62 @@ from routes.billing import billing_bp
 from routes.bookkeeping import bookkeeping_bp
 from routes.help_assistant import help_assistant_bp
 
-app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "your-secret-key")
 
-# Mail config
-app.config["MAIL_SERVER"] = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
-app.config["MAIL_PORT"] = int(os.environ.get("MAIL_PORT", 587))
-app.config["MAIL_USE_TLS"] = str(os.environ.get("MAIL_USE_TLS", "true")).lower() == "true"
-app.config["MAIL_USE_SSL"] = str(os.environ.get("MAIL_USE_SSL", "false")).lower() == "true"
-app.config["MAIL_USERNAME"] = os.environ.get("MAIL_USERNAME", "yourplatformsender@gmail.com")
-app.config["MAIL_PASSWORD"] = os.environ.get("MAIL_PASSWORD", "your_app_password_here")
-app.config["MAIL_DEFAULT_SENDER"] = os.environ.get("MAIL_DEFAULT_SENDER", "yourplatformsender@gmail.com")
+def create_app():
+    app = Flask(__name__)
 
-mail.init_app(app)
+    app.secret_key = os.environ.get("SECRET_KEY", "change-this-in-production")
 
-# Database setup
-init_db()
-ensure_company_profile_location_columns()
-ensure_company_profile_email_columns()
+    # Session / cookie settings
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["SESSION_COOKIE_SECURE"] = str(
+        os.environ.get("SESSION_COOKIE_SECURE", "false")
+    ).lower() == "true"
 
-# Blueprint registration
-app.register_blueprint(auth_bp)
-app.register_blueprint(dashboard_bp)
-app.register_blueprint(customers_bp)
-app.register_blueprint(jobs_bp)
-app.register_blueprint(quotes_bp)
-app.register_blueprint(invoices_bp)
-app.register_blueprint(ledger_bp)
-app.register_blueprint(payroll_bp)
-app.register_blueprint(employees_bp)
-app.register_blueprint(users_bp)
-app.register_blueprint(settings_bp)
-app.register_blueprint(billing_bp)
-app.register_blueprint(bookkeeping_bp)
-app.register_blueprint(help_assistant_bp)
+    # Mail config
+    app.config["MAIL_SERVER"] = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
+    app.config["MAIL_PORT"] = int(os.environ.get("MAIL_PORT", 587))
+    app.config["MAIL_USE_TLS"] = str(os.environ.get("MAIL_USE_TLS", "true")).lower() == "true"
+    app.config["MAIL_USE_SSL"] = str(os.environ.get("MAIL_USE_SSL", "false")).lower() == "true"
+    app.config["MAIL_USERNAME"] = os.environ.get("MAIL_USERNAME", "yourplatformsender@gmail.com")
+    app.config["MAIL_PASSWORD"] = os.environ.get("MAIL_PASSWORD", "your_app_password_here")
+    app.config["MAIL_DEFAULT_SENDER"] = os.environ.get(
+        "MAIL_DEFAULT_SENDER",
+        "yourplatformsender@gmail.com"
+    )
+
+    mail.init_app(app)
+
+    # Database setup
+    init_db()
+    ensure_company_profile_location_columns()
+    ensure_company_profile_email_columns()
+
+    # Blueprint registration
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(dashboard_bp)
+    app.register_blueprint(customers_bp)
+    app.register_blueprint(jobs_bp)
+    app.register_blueprint(quotes_bp)
+    app.register_blueprint(invoices_bp)
+    app.register_blueprint(ledger_bp)
+    app.register_blueprint(payroll_bp)
+    app.register_blueprint(employees_bp)
+    app.register_blueprint(users_bp)
+    app.register_blueprint(settings_bp)
+    app.register_blueprint(billing_bp)
+    app.register_blueprint(bookkeeping_bp)
+    app.register_blueprint(help_assistant_bp)
+
+    return app
+
+
+app = create_app()
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000)),
+        debug=str(os.environ.get("FLASK_DEBUG", "true")).lower() == "true",
+    )

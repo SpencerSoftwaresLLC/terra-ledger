@@ -12,6 +12,8 @@ from db import (
 from decorators import login_required
 from page_helpers import render_page
 
+print("LOADED BILLING FILE:", __file__)
+
 billing_bp = Blueprint("billing", __name__)
 
 try:
@@ -26,14 +28,11 @@ def get_stripe_config():
     stripe_secret_key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
     stripe_publishable_key = os.environ.get("STRIPE_PUBLISHABLE_KEY", "").strip()
     stripe_webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
-    app_base_url = os.environ.get("APP_BASE_URL", "http://127.0.0.1:5000").strip()
-
-    parent_website_url = os.environ.get("PARENT_WEBSITE_URL", "").strip()
-    parent_billing_url = os.environ.get("PARENT_BILLING_URL", "").strip()
+    app_base_url = os.environ.get("APP_BASE_URL", "http://127.0.0.1:5000").strip().rstrip("/")
 
     stripe_enabled = bool(STRIPE_IMPORT_OK and stripe_secret_key)
 
-    if STRIPE_IMPORT_OK and stripe_secret_key:
+    if stripe_enabled:
         stripe.api_key = stripe_secret_key
 
     return {
@@ -41,8 +40,6 @@ def get_stripe_config():
         "publishable_key": stripe_publishable_key,
         "webhook_secret": stripe_webhook_secret,
         "app_base_url": app_base_url,
-        "parent_website_url": parent_website_url,
-        "parent_billing_url": parent_billing_url or parent_website_url,
         "enabled": stripe_enabled,
     }
 
@@ -68,9 +65,7 @@ def _normalize_status(status):
         return "Active"
     if value == "past_due":
         return "Past Due"
-    if value == "canceled":
-        return "Canceled"
-    if value == "cancelled":
+    if value in ("canceled", "cancelled"):
         return "Canceled"
     if value == "unpaid":
         return "Unpaid"
@@ -107,11 +102,6 @@ def _get_subscription_css_class(status):
 
 
 def _find_best_subscription_for_customer(customer_id):
-    """
-    Find the best/current Stripe subscription for a customer.
-    Preference order:
-    active -> trialing -> past_due -> unpaid -> incomplete -> canceled -> anything newest
-    """
     subscriptions = stripe.Subscription.list(customer=customer_id, status="all", limit=20)
 
     items = subscriptions.get("data", []) if subscriptions else []
@@ -238,7 +228,7 @@ def _refresh_company_subscription_from_stripe(company_id):
                 _sync_subscription_from_stripe(company_id, best["id"])
                 return True, "Subscription status refreshed."
 
-        return False, "No Stripe subscription found for this account."
+        return False, "No Stripe subscription was found for this account."
     except Exception as e:
         return False, f"Could not refresh billing status: {e}"
 
@@ -246,50 +236,51 @@ def _refresh_company_subscription_from_stripe(company_id):
 @billing_bp.route("/subscription-required")
 @login_required
 def subscription_required_page():
+    print("INSIDE subscription_required_page()")
+
     cid = session["company_id"]
     sub = get_company_subscription(cid)
-    cfg = get_stripe_config()
 
     status_text = _normalize_status(sub["status"]) if sub else "Inactive"
     plan_name = sub["plan_name"] if sub and sub["plan_name"] else "No active plan"
 
-    content = render_template_string("""
+    content = """
     <div class="card" style="max-width:900px;margin:0 auto;">
         <h1>Subscription Required</h1>
         <p class="muted">
-            TerraLedger access is currently locked for this account. A subscription must be purchased
-            on the parent website before the app can be used.
+            TerraLedger access is currently locked for this account.
         </p>
 
-        <div style="margin-top:20px;display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+        <div style="margin-top:20px;">
             <div class="card" style="margin:0;">
                 <h2>Current Status</h2>
-                <p><strong>Plan:</strong> {{ plan_name }}</p>
-                <p><strong>Status:</strong> {{ status_text }}</p>
-                <p><strong>Renewal Date:</strong> {{ sub['current_period_end'] if sub and sub['current_period_end'] else '-' }}</p>
+                <p><strong>Plan:</strong> {plan_name}</p>
+                <p><strong>Status:</strong> {status_text}</p>
+                <p><strong>Renewal Date:</strong> {renewal}</p>
             </div>
 
-            <div class="card" style="margin:0;">
+            <div class="card" style="margin-top:20px;">
                 <h2>What To Do</h2>
-                <p style="margin:0 0 12px 0;">
-                    Purchase or manage your TerraLedger subscription on the parent website first.
-                    Then come back here and refresh access.
+                <p>
+                    Your account needs an active subscription to continue using TerraLedger.
                 </p>
 
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                    {% if parent_billing_url %}
-                        <a class="btn" href="{{ parent_billing_url }}" target="_blank">Go To Billing Website</a>
-                    {% endif %}
-                    <a class="btn secondary" href="{{ url_for('billing.refresh_billing_status') }}">Refresh Access</a>
-                    <a class="btn secondary" href="{{ url_for('billing.billing_page') }}">View Billing Page</a>
+                    <a class="btn secondary" href="{refresh_url}">Refresh Access</a>
+                    <a class="btn secondary" href="{billing_url}">View Billing Page</a>
                 </div>
             </div>
         </div>
     </div>
-    """, sub=sub, plan_name=plan_name, status_text=status_text, parent_billing_url=cfg["parent_billing_url"])
+    """.format(
+        plan_name=plan_name,
+        status_text=status_text,
+        renewal=sub["current_period_end"] if sub and sub["current_period_end"] else "-",
+        refresh_url=url_for("billing.refresh_billing_status"),
+        billing_url=url_for("billing.billing_page"),
+    )
 
     return render_page(content, title="Subscription Required")
-
 
 @billing_bp.route("/settings/billing")
 @login_required
@@ -335,7 +326,9 @@ def billing_page():
 
     <div class="card">
         <h1>Billing</h1>
-        <p class="muted">View your current subscription and billing history. New purchases are handled on the parent website.</p>
+        <p class="muted">
+            Manage your subscription status, account access, and billing history here.
+        </p>
     </div>
 
     {% if billing_notice %}
@@ -368,9 +361,6 @@ def billing_page():
             {% endif %}
 
             <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
-                {% if parent_billing_url %}
-                    <a class="btn" href="{{ parent_billing_url }}" target="_blank">Subscribe / Manage On Website</a>
-                {% endif %}
                 {% if stripe_enabled %}
                     <a class="btn secondary" href="{{ url_for('billing.refresh_billing_status') }}">Refresh Status</a>
                 {% endif %}
@@ -381,21 +371,21 @@ def billing_page():
         </div>
 
         <div class="card">
-            <h2>Subscription Access Rules</h2>
+            <h2>Access Rules</h2>
 
             <div style="border:1px solid #d9e1ea;border-radius:14px;padding:16px;margin-bottom:12px;">
                 <div style="font-weight:700;">App Access</div>
                 <div class="muted" style="margin-top:6px;">
-                    TerraLedger should only be accessible when the subscription status is
+                    TerraLedger access should only be available when the subscription status is
                     <strong>Active</strong> or <strong>Trialing</strong>.
                 </div>
             </div>
 
             <div style="border:1px solid #d9e1ea;border-radius:14px;padding:16px;">
-                <div style="font-weight:700;">Purchase Flow</div>
+                <div style="font-weight:700;">Billing Visibility</div>
                 <div class="muted" style="margin-top:6px;">
-                    Customers must subscribe on the parent website first. This page is now read-only
-                    for status, history, and account management.
+                    This page is for subscription status, billing history, refresh actions,
+                    and customer billing visibility.
                 </div>
             </div>
         </div>
@@ -426,7 +416,7 @@ def billing_page():
                     <td>{{ row['status'] or '-' }}</td>
                     <td>
                         {% if row['hosted_invoice_url'] %}
-                            <a href="{{ row['hosted_invoice_url'] }}" target="_blank">View</a>
+                            <a href="{{ row['hosted_invoice_url'] }}" target="_blank" rel="noopener noreferrer">View</a>
                         {% else %}
                             -
                         {% endif %}
@@ -445,7 +435,6 @@ def billing_page():
     history=history,
     stripe_enabled=cfg["enabled"],
     billing_notice=billing_notice,
-    parent_billing_url=cfg["parent_billing_url"],
     status_text=status_text,
     status_css=status_css,
     access_text=access_text)
