@@ -38,7 +38,9 @@ def recalc_invoice(conn, invoice_id):
         (invoice_id,),
     ).fetchone()
 
-    subtotal = _safe_float(subtotal_row["subtotal"] if subtotal_row and "subtotal" in subtotal_row else 0)
+    subtotal = _safe_float(
+        subtotal_row["subtotal"] if subtotal_row and "subtotal" in subtotal_row else 0
+    )
 
     invoice_row = conn.execute(
         """
@@ -49,7 +51,9 @@ def recalc_invoice(conn, invoice_id):
         (invoice_id,),
     ).fetchone()
 
-    amount_paid = _safe_float(invoice_row["amount_paid"] if invoice_row and "amount_paid" in invoice_row else 0)
+    amount_paid = _safe_float(
+        invoice_row["amount_paid"] if invoice_row and "amount_paid" in invoice_row else 0
+    )
 
     total = subtotal
     balance_due = total - amount_paid
@@ -156,7 +160,7 @@ def get_2026_tax_config(filing_status: str):
 
 
 def compute_annual_tax_from_brackets(taxable_income: float, brackets) -> float:
-    taxable_income = max(0.0, float(taxable_income or 0))
+    taxable_income = max(0.0, _safe_float(taxable_income))
     tax = 0.0
 
     for i, (lower, rate) in enumerate(brackets):
@@ -189,7 +193,11 @@ def calculate_federal_withholding_2026(
     periods = get_pay_periods_per_year(pay_frequency)
     standard_deduction, brackets = get_2026_tax_config(filing_status)
 
-    gross_pay = _safe_float(gross_pay)
+    gross_pay = max(0.0, _safe_float(gross_pay))
+    step3_amount = _safe_float(step3_amount)
+    step4a_other_income = _safe_float(step4a_other_income)
+    step4b_deductions = _safe_float(step4b_deductions)
+    step4c_extra_withholding = _safe_float(step4c_extra_withholding)
 
     annual_wages = gross_pay * periods
     annual_taxable = annual_wages + step4a_other_income
@@ -211,19 +219,76 @@ def calculate_federal_withholding_2026(
     return max(0.0, round(period_withholding, 2))
 
 
+def calculate_federal_tax_annual(annual_income, filing_status="single"):
+    annual_income = max(_safe_float(annual_income), 0)
+    filing_status = (filing_status or "single").strip().lower()
+
+    if filing_status in ("married", "married filing jointly"):
+        standard_deduction = 29200
+        brackets = [
+            (23200, 0.10),
+            (94300, 0.12),
+            (201050, 0.22),
+            (383900, 0.24),
+            (487450, 0.32),
+            (731200, 0.35),
+            (float("inf"), 0.37),
+        ]
+    else:
+        standard_deduction = 14600
+        brackets = [
+            (11600, 0.10),
+            (47150, 0.12),
+            (100525, 0.22),
+            (191950, 0.24),
+            (243725, 0.32),
+            (609350, 0.35),
+            (float("inf"), 0.37),
+        ]
+
+    taxable_income = max(annual_income - standard_deduction, 0)
+
+    tax = 0
+    previous_limit = 0
+
+    for limit, rate in brackets:
+        if taxable_income > limit:
+            taxed_amount = limit - previous_limit
+        else:
+            taxed_amount = taxable_income - previous_limit
+
+        if taxed_amount > 0:
+            tax += taxed_amount * rate
+
+        if taxable_income <= limit:
+            break
+
+        previous_limit = limit
+
+    return round(tax, 2)
+
+
 def get_company_tax_rates(company_id, conn):
     profile = conn.execute(
         """
-        SELECT state, county, city
+        SELECT
+            state,
+            county,
+            city
         FROM company_profile
         WHERE company_id = ?
         """,
         (company_id,),
     ).fetchone()
 
-    state = (profile["state"] or "").strip().upper() if profile else ""
-    county = (profile["county"] or "").strip() if profile else ""
-    city = (profile["city"] or "").strip() if profile else ""
+    state = ""
+    county = ""
+    city = ""
+
+    if profile:
+        state = (profile["state"] or "").strip().upper()
+        county = (profile["county"] or "").strip()
+        city = (profile["city"] or "").strip()
 
     result = {
         "state": state,
@@ -251,3 +316,116 @@ def get_company_tax_rates(company_id, conn):
             result["local_name"] = f"{county_key} County Income Tax"
 
     return result
+
+
+def calculate_state_withholding(gross_pay, state_rate=0.0):
+    gross_pay = max(_safe_float(gross_pay), 0.0)
+    return round(gross_pay * _safe_float(state_rate), 2)
+
+
+def calculate_local_withholding(gross_pay, local_rate=0.0):
+    gross_pay = max(_safe_float(gross_pay), 0.0)
+    return round(gross_pay * _safe_float(local_rate), 2)
+
+
+def calculate_payroll_taxes(
+    gross_pay,
+    pay_schedule="Biweekly",
+    filing_status="Single",
+    state_tax_rate=0.0,
+    local_tax_rate=0.0,
+    include_social_security=True,
+    include_medicare=True,
+    step2_checked=False,
+    step3_amount=0.0,
+    step4a_other_income=0.0,
+    step4b_deductions=0.0,
+    step4c_extra_withholding=0.0,
+):
+    gross_pay = max(_safe_float(gross_pay), 0)
+
+    federal_tax = calculate_federal_withholding_2026(
+        gross_pay=gross_pay,
+        filing_status=filing_status,
+        pay_frequency=pay_schedule,
+        step2_checked=step2_checked,
+        step3_amount=step3_amount,
+        step4a_other_income=step4a_other_income,
+        step4b_deductions=step4b_deductions,
+        step4c_extra_withholding=step4c_extra_withholding,
+    )
+
+    state_tax = calculate_state_withholding(gross_pay, state_tax_rate)
+    local_tax = calculate_local_withholding(gross_pay, local_tax_rate)
+
+    social_security = gross_pay * 0.062 if include_social_security else 0
+    medicare = gross_pay * 0.0145 if include_medicare else 0
+
+    net_pay = gross_pay - federal_tax - state_tax - local_tax - social_security - medicare
+    pay_periods = get_pay_periods_per_year(pay_schedule)
+    annual_income = gross_pay * pay_periods
+
+    return {
+        "annual_income": round(annual_income, 2),
+        "federal_tax": round(federal_tax, 2),
+        "state_tax": round(state_tax, 2),
+        "local_tax": round(local_tax, 2),
+        "social_security": round(social_security, 2),
+        "medicare": round(medicare, 2),
+        "net_pay": round(net_pay, 2),
+    }
+
+
+def calculate_payroll_taxes_for_employee(employee, gross_pay, company_id, conn):
+    gross_pay = max(_safe_float(gross_pay), 0.0)
+
+    pay_frequency = (
+        employee["pay_frequency"]
+        if "pay_frequency" in employee.keys() and employee["pay_frequency"]
+        else "Biweekly"
+    )
+
+    filing_status = (
+        employee["w4_filing_status"]
+        if "w4_filing_status" in employee.keys() and employee["w4_filing_status"]
+        else "Single"
+    )
+
+    step2_checked = False
+    if "w4_step2_checked" in employee.keys():
+        step2_checked = bool(employee["w4_step2_checked"])
+
+    step3_amount = 0.0
+    if "w4_step3_amount" in employee.keys():
+        step3_amount = _safe_float(employee["w4_step3_amount"])
+
+    step4a_other_income = 0.0
+    if "w4_step4a_other_income" in employee.keys():
+        step4a_other_income = _safe_float(employee["w4_step4a_other_income"])
+
+    step4b_deductions = 0.0
+    if "w4_step4b_deductions" in employee.keys():
+        step4b_deductions = _safe_float(employee["w4_step4b_deductions"])
+
+    step4c_extra_withholding = 0.0
+    if "w4_step4c_extra_withholding" in employee.keys():
+        step4c_extra_withholding = _safe_float(employee["w4_step4c_extra_withholding"])
+
+    tax_rates = get_company_tax_rates(company_id, conn)
+    state_tax_rate = _safe_float(tax_rates.get("state_rate", 0))
+    local_tax_rate = _safe_float(tax_rates.get("local_rate", 0))
+
+    return calculate_payroll_taxes(
+        gross_pay=gross_pay,
+        pay_schedule=pay_frequency,
+        filing_status=filing_status,
+        state_tax_rate=state_tax_rate,
+        local_tax_rate=local_tax_rate,
+        include_social_security=True,
+        include_medicare=True,
+        step2_checked=step2_checked,
+        step3_amount=step3_amount,
+        step4a_other_income=step4a_other_income,
+        step4b_deductions=step4b_deductions,
+        step4c_extra_withholding=step4c_extra_withholding,
+    )
