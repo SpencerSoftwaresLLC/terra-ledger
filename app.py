@@ -41,13 +41,23 @@ def create_app():
 
     app.config["MAIL_SERVER"] = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
     app.config["MAIL_PORT"] = int(os.environ.get("MAIL_PORT", 587))
-    app.config["MAIL_USE_TLS"] = str(os.environ.get("MAIL_USE_TLS", "true")).lower() == "true"
-    app.config["MAIL_USE_SSL"] = str(os.environ.get("MAIL_USE_SSL", "false")).lower() == "true"
-    app.config["MAIL_USERNAME"] = os.environ.get("MAIL_USERNAME", "yourplatformsender@gmail.com")
-    app.config["MAIL_PASSWORD"] = os.environ.get("MAIL_PASSWORD", "your_app_password_here")
+    app.config["MAIL_USE_TLS"] = str(
+        os.environ.get("MAIL_USE_TLS", "true")
+    ).lower() == "true"
+    app.config["MAIL_USE_SSL"] = str(
+        os.environ.get("MAIL_USE_SSL", "false")
+    ).lower() == "true"
+    app.config["MAIL_USERNAME"] = os.environ.get(
+        "MAIL_USERNAME",
+        "yourplatformsender@gmail.com",
+    )
+    app.config["MAIL_PASSWORD"] = os.environ.get(
+        "MAIL_PASSWORD",
+        "your_app_password_here",
+    )
     app.config["MAIL_DEFAULT_SENDER"] = os.environ.get(
         "MAIL_DEFAULT_SENDER",
-        "yourplatformsender@gmail.com"
+        "yourplatformsender@gmail.com",
     )
 
     mail.init_app(app)
@@ -82,7 +92,6 @@ def create_app():
     return app
 
 
-app = create_app()
-
 if __name__ == "__main__":
+    app = create_app()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
