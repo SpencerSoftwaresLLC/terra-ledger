@@ -621,6 +621,18 @@ def stripe_webhook():
         conn.close()
         return row["company_id"] if row else None
 
+    def company_id_from_user_email(email):
+        if not email:
+            return None
+
+        conn = get_db_connection()
+        row = conn.execute(
+            "SELECT company_id FROM users WHERE LOWER(email) = ? ORDER BY id LIMIT 1",
+            ((email or "").strip().lower(),)
+        ).fetchone()
+        conn.close()
+        return row["company_id"] if row else None
+
     if event_type == "checkout.session.completed":
         customer_id = obj.get("customer")
         subscription_id = obj.get("subscription")
@@ -634,14 +646,34 @@ def stripe_webhook():
             except Exception:
                 company_id = None
 
-        # Fallback to client_reference_id if metadata is empty
         if not company_id and obj.get("client_reference_id"):
             try:
                 company_id = int(obj.get("client_reference_id"))
             except Exception:
                 company_id = None
 
+        checkout_email = None
+
+        customer_details = obj.get("customer_details") or {}
+        if customer_details.get("email"):
+            checkout_email = (customer_details.get("email") or "").strip().lower()
+
+        if not checkout_email and obj.get("customer_email"):
+            checkout_email = (obj.get("customer_email") or "").strip().lower()
+
+        if not checkout_email and customer_id:
+            try:
+                stripe_customer = stripe.Customer.retrieve(customer_id)
+                if stripe_customer and stripe_customer.get("email"):
+                    checkout_email = (stripe_customer.get("email") or "").strip().lower()
+            except Exception as e:
+                print("Could not retrieve Stripe customer email:", e)
+
+        if not company_id and checkout_email:
+            company_id = company_id_from_user_email(checkout_email)
+
         print("checkout.session.completed resolved company_id:", company_id)
+        print("checkout.session.completed resolved email:", checkout_email)
 
         if company_id:
             try:
