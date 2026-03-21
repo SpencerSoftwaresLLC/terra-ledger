@@ -116,7 +116,9 @@ def dashboard():
     for row in ledger_rows:
         amount = abs(_safe_float(row["amount"]))
         entry_type = row["entry_type"] or ""
+        source_type = str(row["source_type"] or "").strip().lower()
 
+        # avoid double counting invoice payments if they are also represented in ledger_entries
         if source_type in {"invoice_payment", "invoice_paid", "invoice_mark_paid"}:
             continue
 
