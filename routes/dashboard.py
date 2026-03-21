@@ -1,4 +1,5 @@
 from flask import Blueprint, session, url_for
+from datetime import date, datetime
 from db import get_db_connection
 from decorators import login_required, subscription_required
 from page_helpers import render_page
@@ -30,6 +31,11 @@ def _safe_float(value):
         return 0.0
 
 
+def _safe_text(value, fallback="-"):
+    text = str(value or "").strip()
+    return text if text else fallback
+
+
 def _is_expense_type(entry_type):
     text = str(entry_type or "").strip().lower()
     if not text:
@@ -37,6 +43,31 @@ def _is_expense_type(entry_type):
     if text in EXPENSE_TYPES:
         return True
     return any(term in text for term in EXPENSE_TYPES)
+
+
+def _parse_possible_date(value):
+    if value is None:
+        return None
+
+    if hasattr(value, "year") and hasattr(value, "month") and hasattr(value, "day"):
+        try:
+            if isinstance(value, datetime):
+                return value.date()
+            return value
+        except Exception:
+            pass
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(text[:19], fmt).date()
+        except Exception:
+            continue
+
+    return None
 
 
 @dashboard_bp.route("/dashboard")
@@ -85,7 +116,6 @@ def dashboard():
     for row in ledger_rows:
         amount = abs(_safe_float(row["amount"]))
         entry_type = row["entry_type"] or ""
-        source_type = str(row["source_type"] or "").strip().lower()
 
         if source_type in {"invoice_payment", "invoice_paid", "invoice_mark_paid"}:
             continue
@@ -122,7 +152,8 @@ def dashboard():
 
     unpaid_invoices = conn.execute(
         """
-        SELECT i.id, i.status, i.total, i.balance_due, c.name AS customer_name
+        SELECT i.id, i.invoice_number, i.status, i.total, i.balance_due,
+               i.invoice_date, i.due_date, c.name AS customer_name
         FROM invoices i
         JOIN customers c ON i.customer_id = c.id
         WHERE i.company_id = %s
@@ -133,7 +164,7 @@ def dashboard():
         (cid,),
     ).fetchall()
 
-    aging_rows = conn.execute(
+    aging_source_rows = conn.execute(
         """
         SELECT
             i.id,
@@ -142,33 +173,20 @@ def dashboard():
             i.due_date,
             i.status,
             i.balance_due,
-            c.name AS customer_name,
-            CASE
-                WHEN (
-                    CURRENT_DATE - COALESCE(i.due_date, i.invoice_date, CURRENT_DATE)
-                ) <= 0 THEN 'Current'
-                WHEN (
-                    CURRENT_DATE - COALESCE(i.due_date, i.invoice_date, CURRENT_DATE)
-                ) BETWEEN 1 AND 30 THEN '1-30'
-                WHEN (
-                    CURRENT_DATE - COALESCE(i.due_date, i.invoice_date, CURRENT_DATE)
-                ) BETWEEN 31 AND 60 THEN '31-60'
-                WHEN (
-                    CURRENT_DATE - COALESCE(i.due_date, i.invoice_date, CURRENT_DATE)
-                ) BETWEEN 61 AND 90 THEN '61-90'
-                ELSE '90+'
-            END AS aging_bucket
+            c.name AS customer_name
         FROM invoices i
         JOIN customers c ON i.customer_id = c.id
         WHERE i.company_id = %s
           AND COALESCE(i.balance_due, 0) > 0
-        ORDER BY COALESCE(i.due_date, i.invoice_date, CURRENT_DATE) ASC
+        ORDER BY i.id DESC
         """,
         (cid,),
     ).fetchall()
 
     conn.close()
 
+    today = date.today()
+    aging_rows = []
     aging_totals = {
         "Current": 0.0,
         "1-30": 0.0,
@@ -177,9 +195,39 @@ def dashboard():
         "90+": 0.0,
     }
 
-    for row in aging_rows:
-        bucket = row["aging_bucket"] or "Current"
-        aging_totals[bucket] = aging_totals.get(bucket, 0.0) + _safe_float(row["balance_due"])
+    for row in aging_source_rows:
+        due_dt = _parse_possible_date(row["due_date"])
+        invoice_dt = _parse_possible_date(row["invoice_date"])
+        base_date = due_dt or invoice_dt or today
+
+        days_past_due = (today - base_date).days
+
+        if days_past_due <= 0:
+            bucket = "Current"
+        elif days_past_due <= 30:
+            bucket = "1-30"
+        elif days_past_due <= 60:
+            bucket = "31-60"
+        elif days_past_due <= 90:
+            bucket = "61-90"
+        else:
+            bucket = "90+"
+
+        balance_due = _safe_float(row["balance_due"])
+        aging_totals[bucket] += balance_due
+
+        aging_rows.append(
+            {
+                "id": row["id"],
+                "invoice_number": row["invoice_number"],
+                "invoice_date": row["invoice_date"],
+                "due_date": row["due_date"],
+                "status": row["status"],
+                "balance_due": balance_due,
+                "customer_name": row["customer_name"],
+                "aging_bucket": bucket,
+            }
+        )
 
     total_outstanding = sum(aging_totals.values())
 
@@ -187,9 +235,9 @@ def dashboard():
         f"""
         <tr>
             <td>#{r['id']}</td>
-            <td>{r['title'] or '-'}</td>
-            <td>{r['customer_name'] or '-'}</td>
-            <td>{r['status'] or '-'}</td>
+            <td>{_safe_text(r['title'])}</td>
+            <td>{_safe_text(r['customer_name'])}</td>
+            <td>{_safe_text(r['status'])}</td>
             <td>
                 <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
             </td>
@@ -202,8 +250,8 @@ def dashboard():
         f"""
         <tr>
             <td>#{r['id']}</td>
-            <td>{r['customer_name'] or '-'}</td>
-            <td>{r['status'] or '-'}</td>
+            <td>{_safe_text(r['customer_name'])}</td>
+            <td>{_safe_text(r['status'])}</td>
             <td>${_safe_float(r['balance_due']):,.2f}</td>
             <td>
                 <a class='btn secondary small' href='{url_for("invoices.view_invoice", invoice_id=r["id"])}'>View</a>
@@ -216,10 +264,10 @@ def dashboard():
     aging_table_rows = "".join(
         f"""
         <tr>
-            <td>{r['invoice_number'] or f"#{r['id']}"}</td>
-            <td>{r['customer_name'] or '-'}</td>
-            <td>{r['invoice_date'] or '-'}</td>
-            <td>{r['due_date'] or '-'}</td>
+            <td>{_safe_text(r['invoice_number'], f"#{r['id']}")}</td>
+            <td>{_safe_text(r['customer_name'])}</td>
+            <td>{_safe_text(r['invoice_date'])}</td>
+            <td>{_safe_text(r['due_date'])}</td>
             <td>{r['aging_bucket']}</td>
             <td>${_safe_float(r['balance_due']):,.2f}</td>
             <td>
@@ -283,19 +331,14 @@ def dashboard():
     </div>
 
     <div style="display:flex; gap:16px; justify-content:center; flex-wrap:wrap; margin-top:18px;">
-
         <div class='card stat-card' style="width:260px;">
             <div class='stat-label'>Income</div>
-            <div class='stat-value' style="color:#16a34a;">
-                +${income_total:,.2f}
-            </div>
+            <div class='stat-value' style="color:#16a34a;">+${income_total:,.2f}</div>
         </div>
 
         <div class='card stat-card' style="width:260px;">
             <div class='stat-label'>Expenses</div>
-            <div class='stat-value' style="color:#dc2626;">
-                -${expense_total:,.2f}
-            </div>
+            <div class='stat-value' style="color:#dc2626;">-${expense_total:,.2f}</div>
         </div>
 
         <div class='card stat-card' style="width:260px;">
@@ -304,7 +347,6 @@ def dashboard():
                 {'+' if profit_total >= 0 else '-'}${abs(profit_total):,.2f}
             </div>
         </div>
-
     </div>
 
     <div class='card' style='padding:20px;'>
@@ -354,7 +396,6 @@ def dashboard():
     </div>
 
     <div class='dashboard-grid'>
-
         <div class='card'>
             <div class='section-head'>
                 <h2>Upcoming Jobs</h2>
@@ -394,7 +435,6 @@ def dashboard():
                 </table>
             </div>
         </div>
-
     </div>
     """
 
