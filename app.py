@@ -55,9 +55,19 @@ def create_app():
     mail.init_app(app)
 
     # Database setup
-    init_db()
-    ensure_company_profile_location_columns()
-    ensure_company_profile_email_columns()
+    try:
+        print("STARTING DB INIT")
+        init_db()
+        print("INIT_DB SUCCESS")
+
+        ensure_company_profile_location_columns()
+        print("ensure_company_profile_location_columns SUCCESS")
+
+        ensure_company_profile_email_columns()
+        print("ensure_company_profile_email_columns SUCCESS")
+    except Exception as e:
+        print("DATABASE STARTUP ERROR:", repr(e))
+        raise
 
     # Blueprint registration
     app.register_blueprint(auth_bp)
@@ -75,6 +85,7 @@ def create_app():
     app.register_blueprint(bookkeeping_bp)
     app.register_blueprint(help_assistant_bp)
 
+    print("APP CREATE SUCCESS")
     return app
 
 
