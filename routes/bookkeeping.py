@@ -1,4 +1,4 @@
-from flask import Blueprint, session, url_for
+from flask import Blueprint, session, url_for, request
 from html import escape
 
 from db import get_db_connection, ensure_bookkeeping_history_table, table_columns
@@ -58,6 +58,14 @@ def _is_expense_entry(entry_type, description=""):
             return True
 
     return False
+
+
+def _get_ledger_date_column(conn):
+    ledger_cols = table_columns(conn, "ledger_entries")
+    for possible in ["entry_date", "date", "posted_at", "created_at"]:
+        if possible in ledger_cols:
+            return possible
+    return None
 
 
 @bookkeeping_bp.route("/bookkeeping")
@@ -577,19 +585,57 @@ def bookkeeping_pnl():
     conn = get_db_connection()
     cid = session["company_id"]
 
-    rows = conn.execute(
-        """
-        SELECT
-            id,
-            entry_type,
-            description,
-            amount
-        FROM ledger_entries
-        WHERE company_id = %s
-        ORDER BY id DESC
-        """,
-        (cid,),
-    ).fetchall()
+    date_col = _get_ledger_date_column(conn)
+
+    date_from = (request.args.get("date_from") or "").strip()
+    date_to = (request.args.get("date_to") or "").strip()
+
+    where_clauses = ["company_id = %s"]
+    params = [cid]
+
+    if date_col and date_from:
+        where_clauses.append(f"{date_col} >= %s")
+        params.append(date_from)
+
+    if date_col and date_to:
+        where_clauses.append(f"{date_col} <= %s")
+        params.append(date_to)
+
+    where_sql = " AND ".join(where_clauses)
+
+    if date_col:
+        rows = conn.execute(
+            f"""
+            SELECT
+                id,
+                {date_col} AS entry_date,
+                entry_type,
+                description,
+                amount
+            FROM ledger_entries
+            WHERE {where_sql}
+            ORDER BY
+                CASE WHEN {date_col} IS NULL THEN 1 ELSE 0 END,
+                {date_col} DESC,
+                id DESC
+            """,
+            tuple(params),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            f"""
+            SELECT
+                id,
+                NULL AS entry_date,
+                entry_type,
+                description,
+                amount
+            FROM ledger_entries
+            WHERE {where_sql}
+            ORDER BY id DESC
+            """,
+            tuple(params),
+        ).fetchall()
 
     conn.close()
 
@@ -603,7 +649,6 @@ def bookkeeping_pnl():
         description = str(r["description"] or "")
 
         is_expense = _is_expense_entry(entry_type, description)
-
         category = entry_type if entry_type else "Other"
 
         if category not in breakdown:
@@ -630,6 +675,11 @@ def bookkeeping_pnl():
 
     net_color = "#16a34a" if net_profit >= 0 else "#dc2626"
 
+    if date_from or date_to:
+        range_text = f"{escape(date_from or 'Beginning')} to {escape(date_to or 'Today')}"
+    else:
+        range_text = "All dates"
+
     content = f"""
     <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
@@ -638,6 +688,28 @@ def bookkeeping_pnl():
                 <a href="{url_for('bookkeeping.bookkeeping')}" class="btn secondary">Back</a>
                 <a href="{url_for('bookkeeping.bookkeeping_history')}" class="btn secondary">History</a>
             </div>
+        </div>
+
+        <form method="get" style="margin-top:18px;">
+            <div class="grid">
+                <div>
+                    <label>From Date</label>
+                    <input type="date" name="date_from" value="{escape(date_from)}">
+                </div>
+                <div>
+                    <label>To Date</label>
+                    <input type="date" name="date_to" value="{escape(date_to)}">
+                </div>
+            </div>
+
+            <div class="row-actions" style="margin-top:14px;">
+                <button class="btn success" type="submit">Apply Date Filter</button>
+                <a href="{url_for('bookkeeping.bookkeeping_pnl')}" class="btn secondary">Clear</a>
+            </div>
+        </form>
+
+        <div class="muted" style="margin-top:14px;">
+            <strong>Date Range:</strong> {range_text}
         </div>
 
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:20px;">
@@ -668,7 +740,7 @@ def bookkeeping_pnl():
                         </tr>
                     </thead>
                     <tbody>
-                        {rows_html or '<tr><td colspan="2" class="muted">No P&amp;L data yet.</td></tr>'}
+                        {rows_html or '<tr><td colspan="2" class="muted">No P&amp;L data for this date range.</td></tr>'}
                     </tbody>
                 </table>
             </div>
