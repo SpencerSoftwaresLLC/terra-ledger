@@ -617,6 +617,7 @@ def view_job(job_id):
 
         <div class='card'>
             <h2>Job Items</h2>
+            <div class='table-wrap'>
             <table>
                 <tr>
                     <th>Type</th>

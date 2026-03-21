@@ -671,6 +671,7 @@ def view_quote(quote_id):
 
         <div class='card'>
             <h2>Items</h2>
+            <div class='table-wrap'>
             <table>
                 <tr>
                     <th>Description</th>

@@ -317,6 +317,7 @@ def employees():
 
     <div class='card'>
         <h2>{'All Employees' if show == 'all' else 'Active Employees'}</h2>
+        <div class='table-wrap'>
         <table>
             <tr>
                 <th>Name</th>

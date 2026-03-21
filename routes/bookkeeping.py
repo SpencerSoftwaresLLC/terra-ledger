@@ -53,9 +53,9 @@ def bookkeeping():
                 {desc_sql} AS description,
                 {date_col} AS entry_date
             FROM ledger_entries
-            WHERE company_id = ?
+            WHERE company_id = %s
             ORDER BY
-                CASE WHEN {date_col} IS NULL OR {date_col} = '' THEN 1 ELSE 0 END,
+                CASE WHEN {date_col} IS NULL THEN 1 ELSE 0 END,
                 {date_col} DESC,
                 id DESC
             """,
@@ -71,7 +71,7 @@ def bookkeeping():
                 {desc_sql} AS description,
                 '' AS entry_date
             FROM ledger_entries
-            WHERE company_id = ?
+            WHERE company_id = %s
             ORDER BY id DESC
             """,
             (cid,),
@@ -92,9 +92,9 @@ def bookkeeping():
         f"""
         <tr>
             <td>#{r['id']}</td>
-            <td>{escape((r['entry_date'] if 'entry_date' in r.keys() else '-') or '-')}</td>
-            <td>{escape((r['entry_type'] or '-'))}</td>
-            <td>{escape((r['description'] or '-'))}</td>
+            <td>{escape(str((r['entry_date'] if 'entry_date' in r.keys() else '-') or '-'))}</td>
+            <td>{escape(str(r['entry_type'] or '-'))}</td>
+            <td>{escape(str(r['description'] or '-'))}</td>
             <td class="amount-cell">${float(r['amount'] or 0):.2f}</td>
             <td class="balance-cell">${balances.get(r['id'], 0):.2f}</td>
         </tr>
@@ -135,16 +135,16 @@ def bookkeeping():
             <div class="muted" id="ledgerCount"></div>
         </div>
 
-        <div style="max-height:500px; overflow-y:auto; border:1px solid #ddd; border-radius:10px; margin-top:16px;">
+        <div class="table-wrap" style="margin-top:16px;">
             <table id="ledgerTable" style="width:100%; border-collapse:collapse;">
                 <thead>
                     <tr>
-                        <th style="position:sticky;top:0;background:#fff;z-index:2;">ID</th>
-                        <th style="position:sticky;top:0;background:#fff;z-index:2;">Date</th>
-                        <th style="position:sticky;top:0;background:#fff;z-index:2;">Type</th>
-                        <th style="position:sticky;top:0;background:#fff;z-index:2;">Description</th>
-                        <th style="position:sticky;top:0;background:#fff;z-index:2;">Amount</th>
-                        <th style="position:sticky;top:0;background:#fff;z-index:2;">Running Balance</th>
+                        <th>ID</th>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>Description</th>
+                        <th>Amount</th>
+                        <th>Running Balance</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -310,7 +310,7 @@ def bookkeeping_history():
             <div><strong>Total Money Out:</strong> ${total_out:.2f}</div>
             <div><strong>Net:</strong> ${net:.2f}</div>
         </div>
-
+        <div class='table-wrap'>
         <table>
             <tr>
                 <th>Date</th>

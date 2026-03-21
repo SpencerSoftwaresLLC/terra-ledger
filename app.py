@@ -26,6 +26,7 @@ from routes.settings import settings_bp
 from routes.billing import billing_bp
 from routes.bookkeeping import bookkeeping_bp
 from routes.help_assistant import help_assistant_bp
+from routes.mobile import mobile_bp
 
 
 def create_app():
@@ -84,7 +85,7 @@ def create_app():
     app.register_blueprint(billing_bp)
     app.register_blueprint(bookkeeping_bp)
     app.register_blueprint(help_assistant_bp)
-
+    app.register_blueprint(mobile_bp)
     print("APP CREATE SUCCESS")
     return app
 

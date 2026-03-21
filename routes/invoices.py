@@ -1274,6 +1274,7 @@ def view_invoice(invoice_id):
 
     <div class='card'>
         <h2>Payment History</h2>
+        <div class='table-wrap'>
         <table>
             <tr>
                 <th>Date</th>

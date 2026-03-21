@@ -74,7 +74,7 @@ def customers():
     <div class='card'>
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
             <h1 style="margin:0;">Customers</h1>
-
+            <div class='table-wrap'>
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
                 <a class='btn secondary' href='{url_for("customers.export_customers")}'>Export CSV</a>
                 <a class='btn' href='{url_for("customers.add_customer")}'>Add Customer</a>

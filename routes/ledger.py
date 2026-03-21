@@ -542,6 +542,7 @@ def ledger():
         yoy_html = f"""
         <div class='card'>
             <h2>Year over Year Comparison</h2>
+            <div class='table-wrap'>
             <table>
                 <tr>
                     <th>Year</th>
@@ -607,6 +608,7 @@ def ledger():
     category_html = f"""
     <div class='card'>
         <h2>P&amp;L by Category</h2>
+        <div class='table-wrap'>
         <table>
             <tr>
                 <th>Category</th>
@@ -772,7 +774,7 @@ def ledger():
 
     <div class='card'>
         <h2>Ledger Entries</h2>
-
+        <div class='table-wrap'>
         <div style="max-height:500px; overflow-y:auto; border:1px solid #ddd; border-radius:10px;">
             <table style="width:100%; border-collapse:collapse;">
                 <thead>

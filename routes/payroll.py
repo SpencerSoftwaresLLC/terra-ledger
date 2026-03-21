@@ -607,6 +607,7 @@ def employee_payroll():
 
     <div class='card'>
         <h2>Payroll History</h2>
+        <div class='table-wrap'>
         <table>
             <tr>
                 <th>Date</th>
