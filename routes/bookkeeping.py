@@ -24,6 +24,18 @@ EXPENSE_TYPES = {
     "payroll",
 }
 
+JOB_COST_CATEGORY_MAP = {
+    "material": "Material",
+    "materials": "Material",
+    "labor": "Labor",
+    "labour": "Labor",
+    "fuel": "Fuel",
+    "equipment": "Equipment",
+    "delivery": "Delivery",
+    "misc": "Misc",
+    "payroll": "Payroll",
+}
+
 
 def _safe_float(value):
     try:
@@ -41,18 +53,39 @@ def _fmt_money(value, show_plus=False):
     return f"${amount:,.2f}"
 
 
-def _is_expense_entry(entry_type, description=""):
-    et = str(entry_type or "").strip().lower()
-    desc = str(description or "").strip().lower()
+def _normalize_text(value):
+    return str(value or "").strip().lower()
 
-    if et in EXPENSE_TYPES:
+
+def _is_expense_entry(entry_type, description="", category="", source_type="", reference_type=""):
+    et = _normalize_text(entry_type)
+    desc = _normalize_text(description)
+    cat = _normalize_text(category)
+    src = _normalize_text(source_type)
+    ref = _normalize_text(reference_type)
+
+    if et in EXPENSE_TYPES or cat in EXPENSE_TYPES:
         return True
 
     for keyword in EXPENSE_TYPES:
-        if keyword and keyword in et:
+        if keyword and (keyword in et or keyword in cat):
             return True
 
-    desc_keywords = {"labor", "labour", "mulch", "stone", "fuel", "equipment", "delivery", "payroll"}
+    if src in {"job_item", "payroll"} or ref in {"job_item", "payroll"}:
+        return True
+
+    desc_keywords = {
+        "labor",
+        "labour",
+        "mulch",
+        "stone",
+        "fuel",
+        "equipment",
+        "delivery",
+        "payroll",
+        "material",
+        "materials",
+    }
     for keyword in desc_keywords:
         if keyword in desc:
             return True
@@ -68,17 +101,11 @@ def _get_ledger_date_column(conn):
     return None
 
 
-@bookkeeping_bp.route("/bookkeeping")
-@login_required
-@require_permission("can_view_bookkeeping")
-def bookkeeping():
-    conn = get_db_connection()
-    cid = session["company_id"]
-
+def _get_ledger_select_parts(conn):
     ledger_cols = table_columns(conn, "ledger_entries")
 
     date_col = None
-    for possible in ["created_at", "entry_date", "date", "posted_at"]:
+    for possible in ["entry_date", "date", "posted_at", "created_at"]:
         if possible in ledger_cols:
             date_col = possible
             break
@@ -98,15 +125,120 @@ def bookkeeping():
     desc_sql = "COALESCE(" + ", ".join(description_expr) + ", '')" if description_expr else "''"
     entry_type_expr = "entry_type" if "entry_type" in ledger_cols else "'Entry'"
     amount_expr = "amount" if "amount" in ledger_cols else "0"
+    category_expr = "category" if "category" in ledger_cols else "NULL"
+    source_type_expr = "source_type" if "source_type" in ledger_cols else "NULL"
+    reference_type_expr = "reference_type" if "reference_type" in ledger_cols else "NULL"
+
+    return {
+        "ledger_cols": ledger_cols,
+        "date_col": date_col,
+        "desc_sql": desc_sql,
+        "entry_type_expr": entry_type_expr,
+        "amount_expr": amount_expr,
+        "category_expr": category_expr,
+        "source_type_expr": source_type_expr,
+        "reference_type_expr": reference_type_expr,
+    }
+
+
+def _guess_job_cost_category(entry_type="", description="", category="", source_type="", reference_type=""):
+    et = _normalize_text(entry_type)
+    desc = _normalize_text(description)
+    cat = _normalize_text(category)
+    src = _normalize_text(source_type)
+    ref = _normalize_text(reference_type)
+
+    for key, label in JOB_COST_CATEGORY_MAP.items():
+        if cat == key or et == key:
+            return label
+
+    for key, label in JOB_COST_CATEGORY_MAP.items():
+        if key in cat or key in et:
+            return label
+
+    if src == "job_item" or ref == "job_item":
+        if "labor" in desc or "labour" in desc or "hour" in desc or "hours" in desc or "hr" in desc or "hrs" in desc:
+            return "Labor"
+        if "fuel" in desc:
+            return "Fuel"
+        if "equipment" in desc:
+            return "Equipment"
+        if "delivery" in desc:
+            return "Delivery"
+        if "misc" in desc:
+            return "Misc"
+        return "Material"
+
+    if src == "payroll" or ref == "payroll" or "payroll" in desc:
+        return "Payroll"
+
+    return ""
+
+
+def _get_pl_bucket(entry_type="", description="", category="", source_type="", reference_type=""):
+    is_expense = _is_expense_entry(
+        entry_type=entry_type,
+        description=description,
+        category=category,
+        source_type=source_type,
+        reference_type=reference_type,
+    )
+
+    if not is_expense:
+        normalized_category = _normalize_text(category)
+        normalized_entry_type = _normalize_text(entry_type)
+        normalized_desc = _normalize_text(description)
+
+        if "invoice payment" in normalized_category or "invoice payment" in normalized_entry_type:
+            return "Invoice Payments"
+        if "income" in normalized_category:
+            return "Income"
+        if "invoice" in normalized_desc and "payment" in normalized_desc:
+            return "Invoice Payments"
+        return "Income"
+
+    job_cost_bucket = _guess_job_cost_category(
+        entry_type=entry_type,
+        description=description,
+        category=category,
+        source_type=source_type,
+        reference_type=reference_type,
+    )
+    if job_cost_bucket:
+        return job_cost_bucket
+
+    normalized_category = _normalize_text(category)
+    normalized_entry_type = _normalize_text(entry_type)
+
+    if normalized_category:
+        return normalized_category.title()
+    if normalized_entry_type:
+        return normalized_entry_type.title()
+
+    return "Expense"
+
+
+@bookkeeping_bp.route("/bookkeeping")
+@login_required
+@require_permission("can_view_bookkeeping")
+def bookkeeping():
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    select_parts = _get_ledger_select_parts(conn)
+    date_col = select_parts["date_col"]
 
     if date_col:
         rows = conn.execute(
             f"""
             SELECT
                 id,
-                {entry_type_expr} AS entry_type,
-                {amount_expr} AS amount,
-                {desc_sql} AS description,
+                {select_parts["entry_type_expr"]} AS entry_type,
+                {select_parts["amount_expr"]} AS amount,
+                {select_parts["desc_sql"]} AS description,
+                {select_parts["category_expr"]} AS category,
+                {select_parts["source_type_expr"]} AS source_type,
+                {select_parts["reference_type_expr"]} AS reference_type,
                 {date_col} AS entry_date
             FROM ledger_entries
             WHERE company_id = %s
@@ -122,9 +254,12 @@ def bookkeeping():
             f"""
             SELECT
                 id,
-                {entry_type_expr} AS entry_type,
-                {amount_expr} AS amount,
-                {desc_sql} AS description,
+                {select_parts["entry_type_expr"]} AS entry_type,
+                {select_parts["amount_expr"]} AS amount,
+                {select_parts["desc_sql"]} AS description,
+                {select_parts["category_expr"]} AS category,
+                {select_parts["source_type_expr"]} AS source_type,
+                {select_parts["reference_type_expr"]} AS reference_type,
                 NULL AS entry_date
             FROM ledger_entries
             WHERE company_id = %s
@@ -166,8 +301,17 @@ def bookkeeping():
         raw_amount = abs(_safe_float(r["amount"]))
         entry_type = str(r["entry_type"] or "")
         description = str(r["description"] or "")
+        category = str(r["category"] or "")
+        source_type = str(r["source_type"] or "")
+        reference_type = str(r["reference_type"] or "")
 
-        is_expense = _is_expense_entry(entry_type, description)
+        is_expense = _is_expense_entry(
+            entry_type=entry_type,
+            description=description,
+            category=category,
+            source_type=source_type,
+            reference_type=reference_type,
+        )
         signed_amount = -raw_amount if is_expense else raw_amount
 
         if is_expense:
@@ -181,6 +325,9 @@ def bookkeeping():
                 "entry_date": r["entry_date"],
                 "entry_type": entry_type,
                 "description": description,
+                "category": category,
+                "source_type": source_type,
+                "reference_type": reference_type,
                 "raw_amount": raw_amount,
                 "signed_amount": signed_amount,
             }
@@ -585,7 +732,8 @@ def bookkeeping_pnl():
     conn = get_db_connection()
     cid = session["company_id"]
 
-    date_col = _get_ledger_date_column(conn)
+    select_parts = _get_ledger_select_parts(conn)
+    date_col = select_parts["date_col"]
 
     date_from = (request.args.get("date_from") or "").strip()
     date_to = (request.args.get("date_to") or "").strip()
@@ -609,9 +757,12 @@ def bookkeeping_pnl():
             SELECT
                 id,
                 {date_col} AS entry_date,
-                entry_type,
-                description,
-                amount
+                {select_parts["entry_type_expr"]} AS entry_type,
+                {select_parts["desc_sql"]} AS description,
+                {select_parts["amount_expr"]} AS amount,
+                {select_parts["category_expr"]} AS category,
+                {select_parts["source_type_expr"]} AS source_type,
+                {select_parts["reference_type_expr"]} AS reference_type
             FROM ledger_entries
             WHERE {where_sql}
             ORDER BY
@@ -627,9 +778,12 @@ def bookkeeping_pnl():
             SELECT
                 id,
                 NULL AS entry_date,
-                entry_type,
-                description,
-                amount
+                {select_parts["entry_type_expr"]} AS entry_type,
+                {select_parts["desc_sql"]} AS description,
+                {select_parts["amount_expr"]} AS amount,
+                {select_parts["category_expr"]} AS category,
+                {select_parts["source_type_expr"]} AS source_type,
+                {select_parts["reference_type_expr"]} AS reference_type
             FROM ledger_entries
             WHERE {where_sql}
             ORDER BY id DESC
@@ -645,21 +799,37 @@ def bookkeeping_pnl():
 
     for r in rows:
         amount = abs(_safe_float(r["amount"]))
-        entry_type = str(r["entry_type"] or "Other")
+        entry_type = str(r["entry_type"] or "")
         description = str(r["description"] or "")
+        category = str(r["category"] or "")
+        source_type = str(r["source_type"] or "")
+        reference_type = str(r["reference_type"] or "")
 
-        is_expense = _is_expense_entry(entry_type, description)
-        category = entry_type if entry_type else "Other"
+        bucket = _get_pl_bucket(
+            entry_type=entry_type,
+            description=description,
+            category=category,
+            source_type=source_type,
+            reference_type=reference_type,
+        )
 
-        if category not in breakdown:
-            breakdown[category] = 0.0
+        is_expense = _is_expense_entry(
+            entry_type=entry_type,
+            description=description,
+            category=category,
+            source_type=source_type,
+            reference_type=reference_type,
+        )
+
+        if bucket not in breakdown:
+            breakdown[bucket] = 0.0
 
         if is_expense:
             total_expenses += amount
-            breakdown[category] -= amount
+            breakdown[bucket] -= amount
         else:
             total_income += amount
-            breakdown[category] += amount
+            breakdown[bucket] += amount
 
     net_profit = total_income - total_expenses
 

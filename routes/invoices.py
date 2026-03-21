@@ -1,12 +1,23 @@
-from flask import Blueprint, request, redirect, url_for, session, flash, abort
+from flask import Blueprint, request, redirect, url_for, session, flash, abort, make_response, current_app
 from datetime import date, datetime
 from html import escape
 import json
 import re
+import os
+import tempfile
+import io
+
+from urllib.parse import urlparse
+from urllib.request import urlopen
+
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
 
 from db import get_db_connection
 from decorators import login_required, require_permission
 from page_helpers import render_page
+from utils.emailing import send_company_email
 
 
 invoices_bp = Blueprint("invoices", __name__)
@@ -261,9 +272,6 @@ def recalc_invoice(conn, invoice_id):
     items_total = _safe_float(item_row["items_total"] if item_row else 0)
     paid_total = _safe_float(payment_row["paid_total"] if payment_row else 0)
 
-    # IMPORTANT:
-    # If invoice has line items, trust the sum of line items.
-    # If it has no line items, preserve the stored total instead of dropping to 0.
     if item_count > 0:
         subtotal = items_total
         total = items_total
@@ -468,6 +476,251 @@ def _sync_invoice_status_and_bookkeeping(invoice_id):
         conn.commit()
     finally:
         conn.close()
+
+
+def build_invoice_pdf(invoice, items, company, profile):
+    pdf_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    pdf_temp.close()
+
+    try:
+        invoice_number = invoice["invoice_number"] or invoice["id"]
+
+        company_name = (
+            profile["invoice_header_name"]
+            if profile and "invoice_header_name" in profile.keys() and profile["invoice_header_name"]
+            else (
+                profile["display_name"]
+                if profile and "display_name" in profile.keys() and profile["display_name"]
+                else (company["name"] if company else "Your Company")
+            )
+        )
+
+        footer_note = (
+            profile["invoice_footer_note"]
+            if profile and "invoice_footer_note" in profile.keys() and profile["invoice_footer_note"]
+            else ""
+        )
+        logo_url = profile["logo_url"] if profile and "logo_url" in profile.keys() and profile["logo_url"] else ""
+
+        address_parts = []
+        if company:
+            if "address_line_1" in company.keys() and company["address_line_1"] and str(company["address_line_1"]).strip().lower() != "none":
+                address_parts.append(company["address_line_1"])
+            if "address_line_2" in company.keys() and company["address_line_2"] and str(company["address_line_2"]).strip().lower() != "none":
+                address_parts.append(company["address_line_2"])
+
+            city_state_zip = " ".join(
+                part for part in [
+                    f"{company['city']}," if "city" in company.keys() and company["city"] and str(company["city"]).strip().lower() != "none" else "",
+                    company["state"] if "state" in company.keys() and company["state"] and str(company["state"]).strip().lower() != "none" else "",
+                    company["zip_code"] if "zip_code" in company.keys() and company["zip_code"] and str(company["zip_code"]).strip().lower() != "none" else "",
+                ] if part
+            ).strip()
+
+            if city_state_zip:
+                address_parts.append(city_state_zip)
+
+        company_contact_lines = []
+        if address_parts:
+            company_contact_lines.extend(address_parts)
+        if company and "phone" in company.keys() and company["phone"] and str(company["phone"]).strip().lower() != "none":
+            company_contact_lines.append(company["phone"])
+        if company and "email" in company.keys() and company["email"] and str(company["email"]).strip().lower() != "none":
+            company_contact_lines.append(company["email"])
+        if company and "website" in company.keys() and company["website"] and str(company["website"]).strip().lower() != "none":
+            company_contact_lines.append(company["website"])
+
+        def load_logo_reader(logo_path_or_url):
+            if not logo_path_or_url:
+                return None
+
+            try:
+                parsed = urlparse(logo_path_or_url)
+
+                if parsed.scheme in ("http", "https"):
+                    with urlopen(logo_path_or_url, timeout=5) as resp:
+                        return ImageReader(io.BytesIO(resp.read()))
+
+                cleaned = str(logo_path_or_url).strip()
+
+                if cleaned.startswith("/"):
+                    full_path = os.path.join(current_app.root_path, cleaned.lstrip("/"))
+                else:
+                    full_path = os.path.join(current_app.root_path, cleaned)
+
+                if os.path.exists(full_path):
+                    return ImageReader(full_path)
+
+            except Exception:
+                return None
+
+            return None
+
+        logo_reader = load_logo_reader(logo_url)
+
+        c = canvas.Canvas(pdf_temp.name, pagesize=letter)
+        width, height = letter
+
+        footer_chunks = [footer_note[i:i + 95] for i in range(0, len(footer_note), 95)] if footer_note else []
+
+        def draw_footer():
+            if not footer_chunks:
+                return
+
+            c.setFont("Helvetica-Oblique", 9)
+            footer_y = 40
+            for chunk in footer_chunks[:3]:
+                c.drawCentredString(width / 2, footer_y, chunk)
+                footer_y -= 11
+
+        def draw_header():
+            y_pos = height - 50
+            text_x = 50
+
+            if logo_reader:
+                try:
+                    max_width = 180
+                    max_height = 70
+                    logo_x = 50
+                    logo_top_y = height - 50
+
+                    img_width, img_height = logo_reader.getSize()
+
+                    if img_width and img_height:
+                        width_ratio = max_width / float(img_width)
+                        height_ratio = max_height / float(img_height)
+                        scale = min(width_ratio, height_ratio)
+                        draw_width = img_width * scale
+                        draw_height = img_height * scale
+                    else:
+                        draw_width = max_width
+                        draw_height = max_height
+
+                    logo_y = (logo_top_y - max_height) + ((max_height - draw_height) / 2)
+
+                    c.drawImage(
+                        logo_reader,
+                        logo_x,
+                        logo_y,
+                        width=draw_width,
+                        height=draw_height,
+                        mask="auto"
+                    )
+
+                    text_x = 250
+                except Exception:
+                    text_x = 50
+
+            c.setFont("Helvetica-Bold", 18)
+            c.drawString(text_x, y_pos, str(company_name or "Your Company")[:45])
+
+            c.setFont("Helvetica-Bold", 20)
+            c.drawRightString(width - 50, height - 50, "INVOICE")
+
+            info_y = y_pos - 22
+            c.setFont("Helvetica", 10)
+            for line in company_contact_lines:
+                c.drawString(text_x, info_y, str(line)[:85])
+                info_y -= 14
+
+            draw_footer()
+            return min(info_y - 10, height - 125 if logo_reader else info_y - 10)
+
+        def new_page():
+            c.showPage()
+            return draw_header()
+
+        y = draw_header()
+
+        def ensure_space(required_height):
+            nonlocal y
+            if y - required_height < 85:
+                y = new_page()
+
+        ensure_space(110)
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(50, y, f"Invoice #: {invoice_number}")
+        y -= 16
+        c.drawString(50, y, f"Customer: {invoice['customer_name'] or ''}")
+        y -= 16
+        c.drawString(50, y, f"Status: {invoice['status'] or ''}")
+        y -= 16
+        c.drawString(50, y, f"Invoice Date: {invoice['invoice_date'] or date.today().isoformat()}")
+        y -= 16
+        c.drawString(50, y, f"Due Date: {invoice['due_date'] or '-'}")
+        y -= 24
+
+        ensure_space(40)
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(50, y, "Description")
+        c.drawString(280, y, "Qty")
+        c.drawString(330, y, "Unit")
+        c.drawString(390, y, "Unit Price")
+        c.drawString(480, y, "Line Total")
+        y -= 10
+
+        c.line(50, y, 560, y)
+        y -= 18
+
+        c.setFont("Helvetica", 10)
+
+        if items:
+            for i in items:
+                ensure_space(24)
+
+                description = str(i["description"] or "")[:38]
+                qty = f"{float(i['quantity'] or 0):g}"
+                unit = str(i["unit"] or "")[:8]
+                unit_price = f"${float(i['unit_price'] or 0):.2f}"
+                line_total = f"${float(i['line_total'] or 0):.2f}"
+
+                c.drawString(50, y, description)
+                c.drawString(280, y, qty)
+                c.drawString(330, y, unit)
+                c.drawRightString(460, y, unit_price)
+                c.drawRightString(560, y, line_total)
+
+                y -= 18
+        else:
+            c.drawString(50, y, "No items.")
+            y -= 18
+
+        ensure_space(80)
+        y -= 8
+        c.line(380, y, 560, y)
+        y -= 18
+        c.setFont("Helvetica-Bold", 12)
+        c.drawRightString(560, y, f"Total: ${float(invoice['total'] or 0):.2f}")
+        y -= 16
+        c.drawRightString(560, y, f"Amount Paid: ${float(invoice['amount_paid'] or 0):.2f}")
+        y -= 16
+        c.drawRightString(560, y, f"Balance Due: ${float(invoice['balance_due'] or 0):.2f}")
+        y -= 24
+
+        if invoice["notes"]:
+            ensure_space(50)
+            c.setFont("Helvetica-Bold", 11)
+            c.drawString(50, y, "Notes:")
+            y -= 18
+
+            c.setFont("Helvetica", 10)
+            notes_text = str(invoice["notes"])
+            note_chunks = [notes_text[i:i + 95] for i in range(0, len(notes_text), 95)]
+
+            for chunk in note_chunks:
+                ensure_space(18)
+                c.drawString(50, y, chunk)
+                y -= 15
+
+        draw_footer()
+        c.save()
+
+        with open(pdf_temp.name, "rb") as f:
+            return f.read()
+
+    finally:
+        if os.path.exists(pdf_temp.name):
+            os.remove(pdf_temp.name)
 
 
 # =========================================================
@@ -761,6 +1014,10 @@ def new_invoice():
         .customer-result-item:hover {{
             background: #f8fbff;
         }}
+
+        .grid {{
+            align-items: start;
+        }}
     </style>
 
     <div class='card'>
@@ -784,8 +1041,7 @@ def new_invoice():
 
                 <div>
                     <label>Invoice Number</label>
-                    <input type='text' name='invoice_number' placeholder='Auto: {escape(next_invoice_number_preview)}'>
-                    <div class='muted' style='margin-top:6px;'>Leave blank to auto-assign the next invoice number.</div>
+                    <input type='text' name='invoice_number' placeholder='Auto-assigned if left blank'>
                 </div>
 
                 <div>
@@ -1017,6 +1273,8 @@ def view_invoice(invoice_id):
             <div style='display:flex; gap:8px; flex-wrap:wrap;'>
                 <a class='btn secondary' href='{url_for("invoices.invoices")}'>Back</a>
 
+                <a class='btn' href='{url_for("invoices.email_invoice_preview", invoice_id=invoice_id)}'>Email Invoice</a>
+
                 <form method='post' action='{url_for("invoices.mark_invoice_paid", invoice_id=invoice_id)}' style='display:inline;'>
                     <button class='btn success' type='submit'>Mark Paid</button>
                 </form>
@@ -1125,6 +1383,218 @@ def view_invoice(invoice_id):
     </div>
     """
     return render_page(content, f"Invoice #{invoice['invoice_number'] or invoice_id}")
+
+
+@invoices_bp.route("/invoices/<int:invoice_id>/email")
+@login_required
+@require_permission("can_manage_invoices")
+def email_invoice_preview(invoice_id):
+    ensure_invoice_payment_table()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    invoice = conn.execute(
+        """
+        SELECT i.*, c.name AS customer_name, c.email AS customer_email
+        FROM invoices i
+        JOIN customers c ON i.customer_id = c.id
+        WHERE i.id = %s AND i.company_id = %s
+        """,
+        (invoice_id, cid),
+    ).fetchone()
+
+    if not invoice:
+        conn.close()
+        abort(404)
+
+    recipient = (invoice["customer_email"] or "").strip()
+    conn.close()
+
+    preview_url = url_for("invoices.preview_invoice_pdf", invoice_id=invoice_id)
+    send_url = url_for("invoices.send_invoice_email", invoice_id=invoice_id)
+
+    content = f"""
+    <div class='card'>
+        <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
+            <div>
+                <h1 style='margin-bottom:6px;'>Email Invoice #{invoice['invoice_number'] or invoice['id']}</h1>
+                <p style='margin:0;'>
+                    <strong>Customer:</strong> {escape(invoice['customer_name'] or '-')}<br>
+                    <strong>Email:</strong> {escape(recipient or 'No email on file')}<br>
+                    <strong>Total:</strong> ${_safe_float(invoice['total']):.2f}<br>
+                    <strong>Balance Due:</strong> ${_safe_float(invoice['balance_due']):.2f}
+                </p>
+            </div>
+            <div class='row-actions'>
+                <a class='btn secondary' href='{url_for("invoices.view_invoice", invoice_id=invoice_id)}'>Back to Invoice</a>
+                <a class='btn secondary' href='{preview_url}' target='_blank'>Open PDF Preview</a>
+            </div>
+        </div>
+    </div>
+
+    <div class='card'>
+        <h2>Preview</h2>
+        <div style='margin-bottom:14px;'>
+            <iframe src='{preview_url}' style='width:100%; height:820px; border:1px solid #dbe2ea; border-radius:12px; background:#fff;'></iframe>
+        </div>
+
+        {"<div class='notice warning'>This customer does not have an email address yet. Add one before sending.</div>" if not recipient else ""}
+
+        <form method='post' action='{send_url}' onsubmit="return confirm('Send this invoice by email now?');">
+            <button class='btn' type='submit' {"disabled" if not recipient else ""}>Send Email Now</button>
+        </form>
+    </div>
+    """
+    return render_page(content, f"Email Invoice #{invoice['invoice_number'] or invoice_id}")
+
+
+@invoices_bp.route("/invoices/<int:invoice_id>/preview_pdf")
+@login_required
+@require_permission("can_manage_invoices")
+def preview_invoice_pdf(invoice_id):
+    ensure_invoice_payment_table()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    invoice = conn.execute(
+        """
+        SELECT i.*, c.name AS customer_name, c.email AS customer_email
+        FROM invoices i
+        JOIN customers c ON i.customer_id = c.id
+        WHERE i.id = %s AND i.company_id = %s
+        """,
+        (invoice_id, cid),
+    ).fetchone()
+
+    if not invoice:
+        conn.close()
+        abort(404)
+
+    items = conn.execute(
+        """
+        SELECT *
+        FROM invoice_items
+        WHERE invoice_id = %s
+        ORDER BY id
+        """,
+        (invoice_id,),
+    ).fetchall()
+
+    company = conn.execute(
+        """
+        SELECT name, email, phone, website, address_line_1, address_line_2, city, state, zip_code
+        FROM companies
+        WHERE id = %s
+        """,
+        (cid,),
+    ).fetchone()
+
+    profile = conn.execute(
+        """
+        SELECT display_name, legal_name, logo_url, invoice_header_name, invoice_footer_note, email
+        FROM company_profile
+        WHERE company_id = %s
+        """,
+        (cid,),
+    ).fetchone()
+
+    conn.close()
+
+    pdf_data = build_invoice_pdf(invoice, items, company, profile)
+
+    response = make_response(pdf_data)
+    response.headers["Content-Type"] = "application/pdf"
+    response.headers["Content-Disposition"] = f"inline; filename=Invoice_{invoice['invoice_number'] or invoice_id}.pdf"
+    return response
+
+
+@invoices_bp.route("/invoices/<int:invoice_id>/send_email", methods=["POST"])
+@login_required
+@require_permission("can_manage_invoices")
+def send_invoice_email(invoice_id):
+    ensure_invoice_payment_table()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    invoice = conn.execute(
+        """
+        SELECT i.*, c.name AS customer_name, c.email AS customer_email
+        FROM invoices i
+        JOIN customers c ON i.customer_id = c.id
+        WHERE i.id = %s AND i.company_id = %s
+        """,
+        (invoice_id, cid),
+    ).fetchone()
+
+    if not invoice:
+        conn.close()
+        abort(404)
+
+    items = conn.execute(
+        """
+        SELECT *
+        FROM invoice_items
+        WHERE invoice_id = %s
+        ORDER BY id
+        """,
+        (invoice_id,),
+    ).fetchall()
+
+    company = conn.execute(
+        """
+        SELECT name, email, phone, website, address_line_1, address_line_2, city, state, zip_code
+        FROM companies
+        WHERE id = %s
+        """,
+        (cid,),
+    ).fetchone()
+
+    profile = conn.execute(
+        """
+        SELECT display_name, legal_name, logo_url, invoice_header_name, invoice_footer_note, email
+        FROM company_profile
+        WHERE company_id = %s
+        """,
+        (cid,),
+    ).fetchone()
+
+    conn.close()
+
+    recipient = (invoice["customer_email"] or "").strip()
+    if not recipient:
+        flash("This customer does not have an email address.")
+        return redirect(url_for("invoices.email_invoice_preview", invoice_id=invoice_id))
+
+    invoice_number = invoice["invoice_number"] or invoice["id"]
+
+    try:
+        pdf_data = build_invoice_pdf(invoice, items, company, profile)
+
+        send_company_email(
+            company_id=cid,
+            to_email=recipient,
+            subject=f"Invoice #{invoice_number}",
+            body=(
+                f"Hello {invoice['customer_name']},\n\n"
+                f"Please find attached Invoice #{invoice_number}.\n\n"
+                f"Total: ${_safe_float(invoice['total']):.2f}\n"
+                f"Balance Due: ${_safe_float(invoice['balance_due']):.2f}\n\n"
+                f"Thank you."
+            ),
+            attachment_bytes=pdf_data,
+            attachment_filename=f"Invoice_{invoice_number}.pdf",
+            user_id=session.get("user_id"),
+        )
+
+        flash("Invoice emailed successfully as PDF.")
+
+    except Exception as e:
+        flash(f"Could not email invoice: {e}")
+
+    return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
 
 @invoices_bp.route("/invoices/<int:invoice_id>/delete", methods=["POST"])
