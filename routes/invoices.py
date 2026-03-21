@@ -220,9 +220,28 @@ def get_next_invoice_number(company_id):
 
 
 def recalc_invoice(conn, invoice_id):
+    invoice_row = conn.execute(
+        """
+        SELECT
+            id,
+            subtotal,
+            total,
+            amount_paid,
+            balance_due
+        FROM invoices
+        WHERE id = %s
+        """,
+        (invoice_id,),
+    ).fetchone()
+
+    if not invoice_row:
+        return
+
     item_row = conn.execute(
         """
-        SELECT COALESCE(SUM(line_total), 0) AS items_total
+        SELECT
+            COALESCE(SUM(line_total), 0) AS items_total,
+            COUNT(*) AS item_count
         FROM invoice_items
         WHERE invoice_id = %s
         """,
@@ -238,29 +257,42 @@ def recalc_invoice(conn, invoice_id):
         (invoice_id,),
     ).fetchone()
 
+    item_count = int(item_row["item_count"] or 0) if item_row else 0
     items_total = _safe_float(item_row["items_total"] if item_row else 0)
     paid_total = _safe_float(payment_row["paid_total"] if payment_row else 0)
-    balance_due = max(0.0, items_total - paid_total)
 
-    if items_total <= 0:
+    # IMPORTANT:
+    # If invoice has line items, trust the sum of line items.
+    # If it has no line items, preserve the stored total instead of dropping to 0.
+    if item_count > 0:
+        subtotal = items_total
+        total = items_total
+    else:
+        subtotal = _safe_float(invoice_row["subtotal"])
+        total = _safe_float(invoice_row["total"])
+
+    balance_due = max(0.0, total - paid_total)
+
+    if total <= 0:
         status = "Draft"
-    elif balance_due <= 0 and paid_total > 0:
-        status = "Paid"
-    elif paid_total > 0:
+    elif paid_total <= 0:
+        status = "Unpaid"
+    elif balance_due > 0:
         status = "Partial"
     else:
-        status = "Unpaid"
+        status = "Paid"
 
     conn.execute(
         """
         UPDATE invoices
-        SET total = %s,
+        SET subtotal = %s,
+            total = %s,
             amount_paid = %s,
             balance_due = %s,
             status = %s
         WHERE id = %s
         """,
-        (items_total, paid_total, balance_due, status, invoice_id),
+        (subtotal, total, paid_total, balance_due, status, invoice_id),
     )
 
 
@@ -600,12 +632,13 @@ def new_invoice():
                 invoice_date,
                 due_date,
                 notes,
+                subtotal,
                 total,
                 amount_paid,
                 balance_due,
                 status
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -616,12 +649,21 @@ def new_invoice():
                 due_date or None,
                 description,
                 total,
+                total,
                 total if status == "Paid" else 0,
                 0 if status == "Paid" else total,
                 status,
             ),
         )
-        invoice_id = cur.fetchone()[0]
+
+        row = cur.fetchone()
+        if not row or "id" not in row:
+            conn.rollback()
+            conn.close()
+            flash("Could not create invoice.")
+            return redirect(url_for("invoices.new_invoice"))
+
+        invoice_id = row["id"]
 
         if total > 0:
             conn.execute(
@@ -960,7 +1002,6 @@ def view_invoice(invoice_id):
     content = f"""
     <div class='card'>
         <div style='display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;'>
-
             <div>
                 <h1>Invoice #{escape(str(invoice["invoice_number"] or invoice["id"]))}</h1>
                 <p class='muted'>
@@ -974,24 +1015,22 @@ def view_invoice(invoice_id):
             </div>
 
             <div style='display:flex; gap:8px; flex-wrap:wrap;'>
-
                 <a class='btn secondary' href='{url_for("invoices.invoices")}'>Back</a>
 
-                <form method='post' action='{url_for("invoices.mark_invoice_paid", invoice_id=invoice_id)}'>
-                    <button class='btn success'>Mark Paid</button>
+                <form method='post' action='{url_for("invoices.mark_invoice_paid", invoice_id=invoice_id)}' style='display:inline;'>
+                    <button class='btn success' type='submit'>Mark Paid</button>
                 </form>
 
-                <form method='post' action='{url_for("invoices.mark_invoice_unpaid", invoice_id=invoice_id)}'>
-                    <button class='btn secondary'>Mark Unpaid</button>
+                <form method='post' action='{url_for("invoices.mark_invoice_unpaid", invoice_id=invoice_id)}' style='display:inline;'>
+                    <button class='btn secondary' type='submit'>Mark Unpaid</button>
                 </form>
 
-                <!-- ✅ FIX: DELETE BUTTON RESTORED -->
                 <form method='post'
                       action='{url_for("invoices.delete_invoice", invoice_id=invoice_id)}'
-                      onsubmit="return confirm('Delete this invoice? This cannot be undone.');">
-                    <button class='btn danger'>Delete Invoice</button>
+                      style='display:inline;'
+                      onsubmit="return confirm('Delete this invoice? This will also remove its items and payments.');">
+                    <button class='btn danger' type='submit'>Delete Invoice</button>
                 </form>
-
             </div>
         </div>
     </div>
@@ -1009,6 +1048,39 @@ def view_invoice(invoice_id):
             <div class='stat-label'>Balance Due</div>
             <div class='stat-value' style='color:#dc2626;'>${_safe_float(invoice["balance_due"]):,.2f}</div>
         </div>
+    </div>
+
+    <div class='card'>
+        <h2>Add Payment</h2>
+        <p class='muted'>Use this for partial payments. Example: if a $500 invoice gets a $200 payment, TerraLedger will mark it as Partial and leave $300 due.</p>
+
+        <form method='post' action='{url_for("invoices.add_invoice_payment", invoice_id=invoice_id)}'>
+            <div class='grid'>
+                <div>
+                    <label>Amount</label>
+                    <input type='number' step='0.01' min='0.01' name='amount' required>
+                </div>
+                <div>
+                    <label>Payment Date</label>
+                    <input type='date' name='payment_date' value='{date.today().isoformat()}'>
+                </div>
+                <div>
+                    <label>Payment Method</label>
+                    <input name='payment_method' placeholder='Cash, Check, Card, ACH'>
+                </div>
+                <div>
+                    <label>Reference</label>
+                    <input name='reference' placeholder='Check # or transaction ID'>
+                </div>
+                <div style='grid-column:1 / -1;'>
+                    <label>Notes</label>
+                    <textarea name='notes'></textarea>
+                </div>
+            </div>
+
+            <br>
+            <button class='btn success' type='submit'>Record Payment</button>
+        </form>
     </div>
 
     <div class='card'>
@@ -1046,8 +1118,12 @@ def view_invoice(invoice_id):
             </tbody>
         </table>
     </div>
-    """
 
+    <div class='card'>
+        <h2>Notes</h2>
+        <p>{escape(_clean_display(invoice["notes"]))}</p>
+    </div>
+    """
     return render_page(content, f"Invoice #{invoice['invoice_number'] or invoice_id}")
 
 

@@ -467,6 +467,10 @@ def quotes():
         .customer-result-item:hover {{
             background: #f8fbff;
         }}
+
+        .grid {{
+            align-items: start;
+        }}
     </style>
 
     <div class='card'>
@@ -488,13 +492,27 @@ def quotes():
 
                 <div>
                     <label>Quote Number</label>
-                    <input name='quote_number' placeholder='Auto: {escape(next_quote_number_preview)}'>
-                    <div class='muted' style='margin-top:6px;'>Leave blank to auto-assign the next quote number.</div>
+                    <input name='quote_number' placeholder='Auto-assigned if left blank'>
                 </div>
 
-                <div><label>Quote Date</label><input type='date' name='quote_date' value='{date.today().isoformat()}'></div>
-                <div><label>Expiration Date</label><input type='date' name='expiration_date'></div>
-                <div><label>Status</label><select name='status'><option>Draft</option><option>Sent</option><option>Approved</option></select></div>
+                <div>
+                    <label>Quote Date</label>
+                    <input type='date' name='quote_date' value='{date.today().isoformat()}'>
+                </div>
+
+                <div>
+                    <label>Expiration Date</label>
+                    <input type='date' name='expiration_date'>
+                </div>
+
+                <div>
+                    <label>Status</label>
+                    <select name='status'>
+                        <option>Draft</option>
+                        <option>Sent</option>
+                        <option>Approved</option>
+                    </select>
+                </div>
             </div>
 
             <br><label>Notes</label><textarea name='notes'>{escape(default_quote_notes)}</textarea><br>
@@ -630,10 +648,8 @@ def view_quote(quote_id):
             flash("Description is required.")
             return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
-        if item_type == "labor":
-            unit_cost = 0.0
-            if not unit:
-                unit = "hr"
+        if item_type == "labor" and not unit:
+            unit = "hr"
 
         line_total = quantity * unit_price
 
@@ -665,7 +681,7 @@ def view_quote(quote_id):
             <td>{float(i['quantity'] or 0):g}</td>
             <td>{escape(i['unit'] or '-')}</td>
             <td>${float(i['unit_price'] or 0):.2f}</td>
-            <td>{"-" if (i['item_type'] or '').lower() == 'labor' else f"${float(i['unit_cost'] or 0):.2f}"}</td>
+            <td>${float(i['unit_cost'] or 0):.2f}</td>
             <td>${float(i['line_total'] or 0):.2f}</td>
             <td>
                 <form method="post"
@@ -735,7 +751,7 @@ def view_quote(quote_id):
                         <input name='unit_price' type='number' step='0.01' min='0' required>
                     </div>
                     <div id='unit_cost_wrap'>
-                        <label>Your Cost (Internal)</label>
+                        <label id='unit_cost_label'>Your Cost (Internal)</label>
                         <input name='unit_cost' type='number' step='0.01' min='0' value='0.00' required>
                     </div>
                 </div>
@@ -753,7 +769,7 @@ def view_quote(quote_id):
                         <th>Description</th>
                         <th>Qty</th>
                         <th>Unit</th>
-                        <th>Customer Price / Hours</th>
+                        <th>Customer Price / Rate</th>
                         <th>Your Cost (Internal)</th>
                         <th>Line Total</th>
                         <th>Actions</th>
@@ -766,30 +782,24 @@ def view_quote(quote_id):
         <script>
             function toggleQuoteItemType() {{
                 var typeEl = document.getElementById("quote_item_type");
-                var unitCostWrap = document.getElementById("unit_cost_wrap");
                 var unitPriceLabel = document.getElementById("unit_price_label");
                 var quantityLabel = document.getElementById("quantity_label");
                 var unitField = document.getElementById("quote_unit");
+                var unitCostLabel = document.getElementById("unit_cost_label");
 
                 if (!typeEl) return;
 
                 if (typeEl.value === "labor") {{
-                    if (unitCostWrap) {{
-                        unitCostWrap.style.display = "none";
-                        var costInput = unitCostWrap.querySelector("input");
-                        if (costInput) costInput.value = "0.00";
-                    }}
-                    if (unitPriceLabel) unitPriceLabel.textContent = "Billable Hours";
-                    if (quantityLabel) quantityLabel.textContent = "Quantity";
+                    if (unitPriceLabel) unitPriceLabel.textContent = "Customer Rate / Hr";
+                    if (quantityLabel) quantityLabel.textContent = "Hours";
+                    if (unitCostLabel) unitCostLabel.textContent = "Your Cost / Hr (Internal)";
                     if (unitField && !unitField.value.trim()) {{
                         unitField.value = "hr";
                     }}
                 }} else {{
-                    if (unitCostWrap) {{
-                        unitCostWrap.style.display = "";
-                    }}
                     if (unitPriceLabel) unitPriceLabel.textContent = "Customer Price";
                     if (quantityLabel) quantityLabel.textContent = "Quantity";
+                    if (unitCostLabel) unitCostLabel.textContent = "Your Cost (Internal)";
                 }}
             }}
 
@@ -1095,8 +1105,10 @@ def convert_quote_to_job(quote_id):
         for i in items:
             qty = float(i["quantity"] or 0)
             sale_price = float(i["unit_price"] or 0)
+            unit_cost = float(i["unit_cost"] or 0)
             raw_item_type = ((i["item_type"] or "").strip().lower() if "item_type" in i.keys() and i["item_type"] else "")
             desc = (i["description"] or "").strip()
+            unit = (i["unit"] or "").strip()
 
             if raw_item_type:
                 item_type = raw_item_type
@@ -1115,7 +1127,9 @@ def convert_quote_to_job(quote_id):
                 else:
                     item_type = "material"
 
-            unit_cost = 0.0 if item_type == "labor" else float(i["unit_cost"] or 0)
+            if item_type == "labor" and not unit:
+                unit = "hr"
+
             line_total = qty * sale_price
             cost_amount = qty * unit_cost
 
@@ -1142,7 +1156,7 @@ def convert_quote_to_job(quote_id):
                     item_type,
                     desc,
                     qty,
-                    i["unit"],
+                    unit,
                     unit_cost,
                     sale_price,
                     sale_price,
