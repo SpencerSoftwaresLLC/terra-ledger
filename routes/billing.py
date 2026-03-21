@@ -526,7 +526,7 @@ def create_checkout_session():
         elif cfg["owner_coupon_id"]:
             discounts.append({"coupon": cfg["owner_coupon_id"]})
 
-    metadata = {
+        metadata = {
         "company_id": str(cid),
         "company_name": company["name"] if company and "name" in company.keys() else "",
         "user_email": user_email,
@@ -547,7 +547,7 @@ def create_checkout_session():
         "client_reference_id": str(cid),
         "metadata": metadata,
         "subscription_data": {
-            "metadata": metadata
+            "metadata": metadata,
         },
     }
 
@@ -566,9 +566,15 @@ def create_checkout_session():
 
     try:
         checkout_session = stripe.checkout.Session.create(**session_kwargs)
-        print("CHECKOUT SESSION CREATED:", checkout_session.get("id"))
-        print("CHECKOUT SESSION RETURNED METADATA:", checkout_session.get("metadata"))
-        print("CHECKOUT SESSION RETURNED CLIENT_REFERENCE_ID:", checkout_session.get("client_reference_id"))
+
+        verified_session = stripe.checkout.Session.retrieve(checkout_session.id)
+
+        print("CHECKOUT SESSION CREATED ID:", checkout_session.id)
+        print("CHECKOUT SESSION CREATED URL:", checkout_session.url)
+        print("CHECKOUT SESSION VERIFIED METADATA:", verified_session.get("metadata"))
+        print("CHECKOUT SESSION VERIFIED CLIENT_REFERENCE_ID:", verified_session.get("client_reference_id"))
+        print("CHECKOUT SESSION VERIFIED MODE:", verified_session.get("mode"))
+
         return redirect(checkout_session.url)
     except Exception as e:
         flash(f"Could not start checkout: {e}")
