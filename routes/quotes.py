@@ -376,7 +376,15 @@ def quotes():
                 notes,
             ),
         )
-        quote_id = cur.fetchone()[0]
+
+        row = cur.fetchone()
+        if not row or "id" not in row:
+            conn.rollback()
+            conn.close()
+            flash("Could not create quote.")
+            return redirect(url_for("quotes.quotes"))
+
+        quote_id = row["id"]
         conn.commit()
         conn.close()
 
@@ -429,18 +437,23 @@ def quotes():
         }}
 
         .customer-results {{
+            display: none;
             position: absolute;
-            top: 100%;
+            top: calc(100% + 4px);
             left: 0;
             right: 0;
             background: #fff;
             border: 1px solid #dbe2ea;
             border-radius: 10px;
-            margin-top: 6px;
+            margin-top: 0;
             box-shadow: 0 8px 20px rgba(0,0,0,.08);
             z-index: 1000;
             max-height: 260px;
             overflow-y: auto;
+        }}
+
+        .customer-results.show {{
+            display: block;
         }}
 
         .customer-result-item {{
@@ -517,9 +530,15 @@ def quotes():
                 .replace(/'/g, "&#039;");
         }}
 
+        function closeResults() {{
+            resultsBox.innerHTML = "";
+            resultsBox.classList.remove("show");
+        }}
+
         function renderCustomerResults(matches) {{
             if (!matches.length) {{
                 resultsBox.innerHTML = "<div class='customer-result-item muted'>No customers found</div>";
+                resultsBox.classList.add("show");
                 return;
             }}
 
@@ -530,6 +549,8 @@ def quotes():
                     ${{c.email ? `<div class="muted small">${{escapeHtml(c.email)}}</div>` : ""}}
                 </div>
             `).join("");
+
+            resultsBox.classList.add("show");
 
             document.querySelectorAll(".customer-result-item[data-id]").forEach(item => {{
                 item.addEventListener("click", function () {{
@@ -542,7 +563,7 @@ def quotes():
                         ? `${{customer.name}} - ${{customer.company}}`
                         : customer.name;
 
-                    resultsBox.innerHTML = "";
+                    closeResults();
                 }});
             }});
         }}
@@ -552,7 +573,7 @@ def quotes():
             customerIdInput.value = "";
 
             if (!q) {{
-                resultsBox.innerHTML = "";
+                closeResults();
                 return;
             }}
 
@@ -567,7 +588,7 @@ def quotes():
 
         document.addEventListener("click", function (e) {{
             if (!e.target.closest(".customer-search-wrap")) {{
-                resultsBox.innerHTML = "";
+                closeResults();
             }}
         }});
     </script>
@@ -1042,10 +1063,10 @@ def convert_quote_to_job(quote_id):
             ),
         )
         row = cur.fetchone()
-        if not row:
+        if not row or "id" not in row:
             raise Exception("Failed to create job record.")
 
-        job_id = row[0]
+        job_id = row["id"]
 
         for i in items:
             qty = float(i["quantity"] or 0)
@@ -1082,13 +1103,14 @@ def convert_quote_to_job(quote_id):
                     description,
                     quantity,
                     unit,
+                    unit_cost,
                     unit_price,
                     sale_price,
                     cost_amount,
                     line_total,
                     billable
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -1097,6 +1119,7 @@ def convert_quote_to_job(quote_id):
                     desc,
                     qty,
                     i["unit"],
+                    unit_cost,
                     sale_price,
                     sale_price,
                     cost_amount,
@@ -1106,10 +1129,10 @@ def convert_quote_to_job(quote_id):
             )
 
             item_row = cur.fetchone()
-            if not item_row:
+            if not item_row or "id" not in item_row:
                 raise Exception(f"Failed to create job item for quote item {i['id']}.")
 
-            job_item_id = item_row[0]
+            job_item_id = item_row["id"]
             ensure_job_cost_ledger(conn, job_item_id)
 
         recalc_job(conn, job_id)
