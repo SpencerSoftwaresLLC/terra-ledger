@@ -2,7 +2,6 @@ import os
 from dotenv import load_dotenv
 from flask import Flask
 
-# Load environment variables first
 load_dotenv()
 
 from extensions import mail
@@ -34,14 +33,12 @@ def create_app():
 
     app.secret_key = os.environ.get("SECRET_KEY", "change-this-in-production")
 
-    # Session / cookie settings
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
     app.config["SESSION_COOKIE_SECURE"] = str(
         os.environ.get("SESSION_COOKIE_SECURE", "false")
     ).lower() == "true"
 
-    # Mail config
     app.config["MAIL_SERVER"] = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
     app.config["MAIL_PORT"] = int(os.environ.get("MAIL_PORT", 587))
     app.config["MAIL_USE_TLS"] = str(os.environ.get("MAIL_USE_TLS", "true")).lower() == "true"
@@ -55,22 +52,16 @@ def create_app():
 
     mail.init_app(app)
 
-    # Database setup
-    try:
-        print("STARTING DB INIT")
-        init_db()
-        print("INIT_DB SUCCESS")
+    print("STARTING DB INIT", flush=True)
+    init_db()
+    print("INIT_DB SUCCESS", flush=True)
 
-        ensure_company_profile_location_columns()
-        print("ensure_company_profile_location_columns SUCCESS")
+    ensure_company_profile_location_columns()
+    print("ensure_company_profile_location_columns SUCCESS", flush=True)
 
-        ensure_company_profile_email_columns()
-        print("ensure_company_profile_email_columns SUCCESS")
-    except Exception as e:
-        print("DATABASE STARTUP ERROR:", repr(e))
-        raise
+    ensure_company_profile_email_columns()
+    print("ensure_company_profile_email_columns SUCCESS", flush=True)
 
-    # Blueprint registration
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(customers_bp)
@@ -86,15 +77,12 @@ def create_app():
     app.register_blueprint(bookkeeping_bp)
     app.register_blueprint(help_assistant_bp)
     app.register_blueprint(mobile_bp)
-    print("APP CREATE SUCCESS")
+
+    print("APP CREATE SUCCESS", flush=True)
     return app
 
 
 app = create_app()
 
 if __name__ == "__main__":
-    app.run(
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 10000)),
-        debug=False,
-    )
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
