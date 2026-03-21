@@ -22,6 +22,13 @@ from utils.emailing import send_company_email
 invoices_bp = Blueprint("invoices", __name__)
 
 
+def _safe_float(value):
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def build_invoice_pdf(invoice, items, company, profile):
     pdf_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     pdf_temp.close()
@@ -209,7 +216,7 @@ def build_invoice_pdf(invoice, items, company, profile):
 
                 description = str(i["description"] or "")[:38]
                 qty = f"{float(i['quantity'] or 0):g}"
-                unit = str(i["unit"] or "")[:8]
+                unit = str(i["unit"] or "")[:8] if "unit" in i.keys() else ""
                 unit_price = f"${float(i['unit_price'] or 0):.2f}"
                 line_total = f"${float(i['line_total'] or 0):.2f}"
 
@@ -271,11 +278,13 @@ def invoices():
         SELECT i.*, c.name AS customer_name
         FROM invoices i
         JOIN customers c ON i.customer_id = c.id
-        WHERE i.company_id = ?
+        WHERE i.company_id = %s
           AND COALESCE(i.status, '') != 'Paid'
-        ORDER BY LOWER(COALESCE(c.name, '')) ASC,
-                 COALESCE(i.invoice_date, '') DESC,
-                 i.id DESC
+        ORDER BY
+            LOWER(COALESCE(c.name, '')) ASC,
+            CASE WHEN i.invoice_date IS NULL THEN 1 ELSE 0 END,
+            i.invoice_date DESC,
+            i.id DESC
         """,
         (cid,),
     ).fetchall()
@@ -286,7 +295,7 @@ def invoices():
             <td>#{r['id']}</td>
             <td>{escape(r['invoice_number'] or '-')}</td>
             <td>{escape(r['customer_name'] or '-')}</td>
-            <td>{escape(r['invoice_date'] or '-')}</td>
+            <td>{escape(str(r['invoice_date'] or '-'))}</td>
             <td>${float(r['total'] or 0):.2f}</td>
             <td>${float(r['balance_due'] or 0):.2f}</td>
             <td>{escape(r['status'] or '-')}</td>
@@ -317,19 +326,21 @@ def invoices():
 
     <div class='card'>
         <h2>Open Invoice List</h2>
-        <table>
-            <tr>
-                <th>ID</th>
-                <th>Number</th>
-                <th>Customer</th>
-                <th>Date</th>
-                <th>Total</th>
-                <th>Balance Due</th>
-                <th>Status</th>
-                <th>Actions</th>
-            </tr>
-            {invoice_rows or '<tr><td colspan="8" class="muted">No open invoices yet.</td></tr>'}
-        </table>
+        <div class='table-wrap'>
+            <table>
+                <tr>
+                    <th>ID</th>
+                    <th>Number</th>
+                    <th>Customer</th>
+                    <th>Date</th>
+                    <th>Total</th>
+                    <th>Balance Due</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+                {invoice_rows or '<tr><td colspan="8" class="muted">No open invoices yet.</td></tr>'}
+            </table>
+        </div>
     </div>
     """
     return render_page(content, "Invoices")
@@ -347,9 +358,13 @@ def paid_invoices():
         SELECT i.*, c.name AS customer_name
         FROM invoices i
         JOIN customers c ON i.customer_id = c.id
-        WHERE i.company_id = ?
+        WHERE i.company_id = %s
           AND i.status = 'Paid'
-        ORDER BY LOWER(COALESCE(c.name, '')), COALESCE(i.invoice_date, '') DESC, i.id DESC
+        ORDER BY
+            LOWER(COALESCE(c.name, '')) ASC,
+            CASE WHEN i.invoice_date IS NULL THEN 1 ELSE 0 END,
+            i.invoice_date DESC,
+            i.id DESC
         """,
         (cid,),
     ).fetchall()
@@ -362,7 +377,7 @@ def paid_invoices():
             <td>#{r['id']}</td>
             <td>{escape(r['invoice_number'] or '-')}</td>
             <td>{escape(r['customer_name'] or '-')}</td>
-            <td>{escape(r['invoice_date'] or '-')}</td>
+            <td>{escape(str(r['invoice_date'] or '-'))}</td>
             <td>${float(r['total'] or 0):.2f}</td>
             <td>
                 {
@@ -393,19 +408,21 @@ def paid_invoices():
     </div>
 
     <div class='card'>
-        <table>
-            <tr>
-                <th>ID</th>
-                <th>Invoice #</th>
-                <th>Customer</th>
-                <th>Date</th>
-                <th>Total</th>
-                <th>Status</th>
-                <th>Balance</th>
-                <th>Actions</th>
-            </tr>
-            {invoice_rows or '<tr><td colspan="8" class="muted">No paid invoices yet.</td></tr>'}
-        </table>
+        <div class='table-wrap'>
+            <table>
+                <tr>
+                    <th>ID</th>
+                    <th>Invoice #</th>
+                    <th>Customer</th>
+                    <th>Date</th>
+                    <th>Total</th>
+                    <th>Status</th>
+                    <th>Balance</th>
+                    <th>Actions</th>
+                </tr>
+                {invoice_rows or '<tr><td colspan="8" class="muted">No paid invoices yet.</td></tr>'}
+            </table>
+        </div>
     </div>
     """
     return render_page(content, "Paid Invoices")
@@ -438,10 +455,11 @@ def export_invoices():
             ) AS paid_total
         FROM invoices i
         JOIN customers c ON i.customer_id = c.id
-        WHERE i.company_id = ?
+        WHERE i.company_id = %s
         ORDER BY
-            LOWER(COALESCE(c.name, '')),
-            COALESCE(i.invoice_date, '') DESC,
+            LOWER(COALESCE(c.name, '')) ASC,
+            CASE WHEN i.invoice_date IS NULL THEN 1 ELSE 0 END,
+            i.invoice_date DESC,
             i.id DESC
         """,
         (cid,),
@@ -515,7 +533,7 @@ def new_invoice():
         """
         SELECT id, name, company, email
         FROM customers
-        WHERE company_id = ?
+        WHERE company_id = %s
         ORDER BY name
         """,
         (cid,),
@@ -525,7 +543,7 @@ def new_invoice():
         """
         SELECT next_invoice_number
         FROM companies
-        WHERE id = ?
+        WHERE id = %s
         """,
         (cid,),
     ).fetchone()
@@ -562,12 +580,9 @@ def new_invoice():
             flash("Please select a customer.")
             return redirect(url_for("invoices.new_invoice"))
 
-        conn.close()
-
         if not invoice_number:
             invoice_number = get_next_invoice_number(cid)
 
-        conn = get_db_connection()
         conn.execute(
             """
             INSERT INTO invoices (
@@ -581,7 +596,7 @@ def new_invoice():
                 balance_due,
                 status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 cid,
@@ -786,7 +801,7 @@ def add_invoice_payment(invoice_id):
         """
         SELECT id, total, balance_due, customer_id, invoice_number
         FROM invoices
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (invoice_id, cid),
     ).fetchone()
@@ -816,7 +831,7 @@ def add_invoice_payment(invoice_id):
         """
         INSERT INTO invoice_payments
         (company_id, invoice_id, payment_date, amount, payment_method, reference, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         """,
         (cid, invoice_id, payment_date, amount, payment_method, reference, notes),
     )
@@ -841,7 +856,7 @@ def edit_invoice_payment(invoice_id, payment_id):
         """
         SELECT *
         FROM invoices
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (invoice_id, cid),
     ).fetchone()
@@ -855,7 +870,7 @@ def edit_invoice_payment(invoice_id, payment_id):
         """
         SELECT *
         FROM invoice_payments
-        WHERE id = ? AND invoice_id = ? AND company_id = ?
+        WHERE id = %s AND invoice_id = %s AND company_id = %s
         """,
         (payment_id, invoice_id, cid),
     ).fetchone()
@@ -881,7 +896,7 @@ def edit_invoice_payment(invoice_id, payment_id):
             """
             SELECT COALESCE(SUM(amount), 0) AS other_paid_total
             FROM invoice_payments
-            WHERE invoice_id = ? AND id != ?
+            WHERE invoice_id = %s AND id != %s
             """,
             (invoice_id, payment_id),
         ).fetchone()
@@ -897,8 +912,8 @@ def edit_invoice_payment(invoice_id, payment_id):
         conn.execute(
             """
             UPDATE invoice_payments
-            SET payment_date = ?, amount = ?, payment_method = ?, reference = ?, notes = ?
-            WHERE id = ? AND invoice_id = ? AND company_id = ?
+            SET payment_date = %s, amount = %s, payment_method = %s, reference = %s, notes = %s
+            WHERE id = %s AND invoice_id = %s AND company_id = %s
             """,
             (payment_date, amount, payment_method, reference, notes, payment_id, invoice_id, cid),
         )
@@ -968,7 +983,7 @@ def delete_invoice_payment(invoice_id, payment_id):
         """
         SELECT *
         FROM invoice_payments
-        WHERE id = ? AND invoice_id = ? AND company_id = ?
+        WHERE id = %s AND invoice_id = %s AND company_id = %s
         """,
         (payment_id, invoice_id, cid),
     ).fetchone()
@@ -981,7 +996,7 @@ def delete_invoice_payment(invoice_id, payment_id):
     conn.execute(
         """
         DELETE FROM invoice_payments
-        WHERE id = ? AND invoice_id = ? AND company_id = ?
+        WHERE id = %s AND invoice_id = %s AND company_id = %s
         """,
         (payment_id, invoice_id, cid),
     )
@@ -1005,7 +1020,7 @@ def mark_invoice_paid(invoice_id):
         """
         SELECT *
         FROM invoices
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (invoice_id, cid),
     ).fetchone()
@@ -1026,7 +1041,7 @@ def mark_invoice_paid(invoice_id):
         """
         INSERT INTO invoice_payments
         (company_id, invoice_id, payment_date, amount, payment_method, reference, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         """,
         (
             cid,
@@ -1047,7 +1062,7 @@ def mark_invoice_paid(invoice_id):
         """
         SELECT *
         FROM invoices
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (invoice_id, cid),
     ).fetchone()
@@ -1057,7 +1072,7 @@ def mark_invoice_paid(invoice_id):
             """
             UPDATE jobs
             SET status = 'Finished'
-            WHERE id = ? AND company_id = ?
+            WHERE id = %s AND company_id = %s
             """,
             (invoice["job_id"], cid),
         )
@@ -1067,7 +1082,7 @@ def mark_invoice_paid(invoice_id):
             """
             UPDATE quotes
             SET status = 'Finished'
-            WHERE id = ? AND company_id = ?
+            WHERE id = %s AND company_id = %s
             """,
             (invoice["quote_id"], cid),
         )
@@ -1090,7 +1105,7 @@ def mark_invoice_unpaid(invoice_id):
         """
         SELECT *
         FROM invoices
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (invoice_id, cid),
     ).fetchone()
@@ -1103,7 +1118,7 @@ def mark_invoice_unpaid(invoice_id):
     conn.execute(
         """
         DELETE FROM invoice_payments
-        WHERE invoice_id = ? AND company_id = ?
+        WHERE invoice_id = %s AND company_id = %s
         """,
         (invoice_id, cid),
     )
@@ -1129,7 +1144,7 @@ def view_invoice(invoice_id):
         SELECT i.*, c.name AS customer_name, c.email AS customer_email
         FROM invoices i
         JOIN customers c ON i.customer_id = c.id
-        WHERE i.id = ? AND i.company_id = ?
+        WHERE i.id = %s AND i.company_id = %s
         """,
         (invoice_id, cid),
     ).fetchone()
@@ -1142,7 +1157,7 @@ def view_invoice(invoice_id):
         """
         SELECT *
         FROM invoice_items
-        WHERE invoice_id = ?
+        WHERE invoice_id = %s
         ORDER BY id
         """,
         (invoice_id,),
@@ -1152,8 +1167,11 @@ def view_invoice(invoice_id):
         """
         SELECT *
         FROM invoice_payments
-        WHERE invoice_id = ?
-        ORDER BY payment_date DESC, id DESC
+        WHERE invoice_id = %s
+        ORDER BY
+            CASE WHEN payment_date IS NULL THEN 1 ELSE 0 END,
+            payment_date DESC,
+            id DESC
         """,
         (invoice_id,),
     ).fetchall()
@@ -1162,7 +1180,7 @@ def view_invoice(invoice_id):
         """
         SELECT COALESCE(SUM(amount), 0) AS paid_total
         FROM invoice_payments
-        WHERE invoice_id = ?
+        WHERE invoice_id = %s
         """,
         (invoice_id,),
     ).fetchone()
@@ -1179,7 +1197,7 @@ def view_invoice(invoice_id):
     payment_rows = "".join(
         f"""
         <tr>
-            <td>{escape(p['payment_date'] or '-')}</td>
+            <td>{escape(str(p['payment_date'] or '-'))}</td>
             <td>${float(p['amount'] or 0):.2f}</td>
             <td>{escape(p['payment_method'] or '-')}</td>
             <td>{escape(p['reference'] or '-')}</td>
@@ -1275,25 +1293,28 @@ def view_invoice(invoice_id):
     <div class='card'>
         <h2>Payment History</h2>
         <div class='table-wrap'>
-        <table>
-            <tr>
-                <th>Date</th>
-                <th>Amount</th>
-                <th>Method</th>
-                <th>Reference</th>
-                <th>Notes</th>
-                <th>Actions</th>
-            </tr>
-            {payment_rows or '<tr><td colspan="6" class="muted">No payments recorded yet.</td></tr>'}
-        </table>
+            <table>
+                <tr>
+                    <th>Date</th>
+                    <th>Amount</th>
+                    <th>Method</th>
+                    <th>Reference</th>
+                    <th>Notes</th>
+                    <th>Actions</th>
+                </tr>
+                {payment_rows or '<tr><td colspan="6" class="muted">No payments recorded yet.</td></tr>'}
+            </table>
+        </div>
     </div>
 
     <div class='card'>
         <h2>Invoice Items</h2>
-        <table>
-            <tr><th>Description</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Line Total</th></tr>
-            {item_rows or '<tr><td colspan="5" class="muted">No invoice items.</td></tr>'}
-        </table>
+        <div class='table-wrap'>
+            <table>
+                <tr><th>Description</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Line Total</th></tr>
+                {item_rows or '<tr><td colspan="5" class="muted">No invoice items.</td></tr>'}
+            </table>
+        </div>
     </div>
     """
     return render_page(content, f"Invoice #{invoice_id}")
@@ -1311,7 +1332,7 @@ def email_invoice_preview(invoice_id):
         SELECT i.*, c.name AS customer_name, c.email AS customer_email
         FROM invoices i
         JOIN customers c ON i.customer_id = c.id
-        WHERE i.id = ? AND i.company_id = ?
+        WHERE i.id = %s AND i.company_id = %s
         """,
         (invoice_id, cid),
     ).fetchone()
@@ -1373,7 +1394,7 @@ def preview_invoice_pdf(invoice_id):
         SELECT i.*, c.name AS customer_name, c.email AS customer_email
         FROM invoices i
         JOIN customers c ON i.customer_id = c.id
-        WHERE i.id = ? AND i.company_id = ?
+        WHERE i.id = %s AND i.company_id = %s
         """,
         (invoice_id, cid),
     ).fetchone()
@@ -1383,7 +1404,7 @@ def preview_invoice_pdf(invoice_id):
         abort(404)
 
     items = conn.execute(
-        "SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id",
+        "SELECT * FROM invoice_items WHERE invoice_id = %s ORDER BY id",
         (invoice_id,),
     ).fetchall()
 
@@ -1391,7 +1412,7 @@ def preview_invoice_pdf(invoice_id):
         """
         SELECT name, email, phone, website, address_line_1, address_line_2, city, state, zip_code
         FROM companies
-        WHERE id = ?
+        WHERE id = %s
         """,
         (cid,),
     ).fetchone()
@@ -1400,7 +1421,7 @@ def preview_invoice_pdf(invoice_id):
         """
         SELECT display_name, legal_name, logo_url, invoice_header_name, invoice_footer_note, email
         FROM company_profile
-        WHERE company_id = ?
+        WHERE company_id = %s
         """,
         (cid,),
     ).fetchone()
@@ -1427,7 +1448,7 @@ def send_invoice_email(invoice_id):
         SELECT i.*, c.name AS customer_name, c.email AS customer_email
         FROM invoices i
         JOIN customers c ON i.customer_id = c.id
-        WHERE i.id = ? AND i.company_id = ?
+        WHERE i.id = %s AND i.company_id = %s
         """,
         (invoice_id, cid),
     ).fetchone()
@@ -1437,7 +1458,7 @@ def send_invoice_email(invoice_id):
         abort(404)
 
     items = conn.execute(
-        "SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id",
+        "SELECT * FROM invoice_items WHERE invoice_id = %s ORDER BY id",
         (invoice_id,),
     ).fetchall()
 
@@ -1445,7 +1466,7 @@ def send_invoice_email(invoice_id):
         """
         SELECT name, email, phone, website, address_line_1, address_line_2, city, state, zip_code
         FROM companies
-        WHERE id = ?
+        WHERE id = %s
         """,
         (cid,),
     ).fetchone()
@@ -1454,7 +1475,7 @@ def send_invoice_email(invoice_id):
         """
         SELECT display_name, legal_name, logo_url, invoice_header_name, invoice_footer_note, email
         FROM company_profile
-        WHERE company_id = ?
+        WHERE company_id = %s
         """,
         (cid,),
     ).fetchone()
@@ -1500,7 +1521,7 @@ def send_invoice_email(invoice_id):
 def delete_invoice(invoice_id):
     conn = get_db_connection()
     invoice = conn.execute(
-        "SELECT id FROM invoices WHERE id=? AND company_id=?",
+        "SELECT id FROM invoices WHERE id=%s AND company_id=%s",
         (invoice_id, session["company_id"]),
     ).fetchone()
 
@@ -1509,19 +1530,19 @@ def delete_invoice(invoice_id):
         abort(404)
 
     conn.execute(
-        "DELETE FROM ledger_entries WHERE invoice_id=? AND company_id=?",
+        "DELETE FROM ledger_entries WHERE invoice_id=%s AND company_id=%s",
         (invoice_id, session["company_id"]),
     )
     conn.execute(
-        "DELETE FROM invoice_payments WHERE invoice_id=? AND company_id=?",
+        "DELETE FROM invoice_payments WHERE invoice_id=%s AND company_id=%s",
         (invoice_id, session["company_id"]),
     )
     conn.execute(
-        "DELETE FROM invoice_items WHERE invoice_id=?",
+        "DELETE FROM invoice_items WHERE invoice_id=%s",
         (invoice_id,),
     )
     conn.execute(
-        "DELETE FROM invoices WHERE id=? AND company_id=?",
+        "DELETE FROM invoices WHERE id=%s AND company_id=%s",
         (invoice_id, session["company_id"]),
     )
     conn.commit()

@@ -1,4 +1,4 @@
-from flask import Blueprint, request, redirect, url_for, session, flash, render_template, make_response, abort
+from flask import Blueprint, request, redirect, url_for, session, flash, make_response, abort
 from datetime import date, datetime
 from html import escape
 import json
@@ -49,7 +49,7 @@ def jobs():
         """
         SELECT id, name, company, email
         FROM customers
-        WHERE company_id = ?
+        WHERE company_id = %s
         ORDER BY name
         """,
         (cid,),
@@ -88,11 +88,12 @@ def jobs():
         cur.execute(
             """
             INSERT INTO jobs (company_id, customer_id, title, scheduled_date, status, address, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
             """,
-            (cid, customer_id, title, scheduled_date, status, address, notes),
+            (cid, customer_id, title, scheduled_date or None, status, address, notes),
         )
-        job_id = cur.lastrowid
+        job_id = cur.fetchone()[0]
         conn.commit()
         conn.close()
 
@@ -104,12 +105,14 @@ def jobs():
         SELECT j.*, c.name AS customer_name
         FROM jobs j
         JOIN customers c ON j.customer_id = c.id
-        WHERE j.company_id = ?
-            AND COALESCE(j.status, '') != 'Finished'
+        WHERE j.company_id = %s
+          AND COALESCE(j.status, '') != 'Finished'
         ORDER BY j.id DESC
         """,
         (cid,),
     ).fetchall()
+
+    conn.close()
 
     job_rows = "".join(
         f"""
@@ -232,19 +235,21 @@ def jobs():
 
     <div class='card'>
         <h2>Job List</h2>
-        <table>
-            <tr>
-                <th>ID</th>
-                <th>Title</th>
-                <th>Customer</th>
-                <th>Status</th>
-                <th>Revenue</th>
-                <th>Costs</th>
-                <th>Profit/Loss</th>
-                <th>Actions</th>
-            </tr>
-            {job_rows or '<tr><td colspan="8" class="muted">No jobs yet.</td></tr>'}
-        </table>
+        <div class='table-wrap'>
+            <table>
+                <tr>
+                    <th>ID</th>
+                    <th>Title</th>
+                    <th>Customer</th>
+                    <th>Status</th>
+                    <th>Revenue</th>
+                    <th>Costs</th>
+                    <th>Profit/Loss</th>
+                    <th>Actions</th>
+                </tr>
+                {job_rows or '<tr><td colspan="8" class="muted">No jobs yet.</td></tr>'}
+            </table>
+        </div>
     </div>
 
     <script>
@@ -344,7 +349,7 @@ def export_jobs():
             c.email AS customer_email
         FROM jobs j
         JOIN customers c ON j.customer_id = c.id
-        WHERE j.company_id = ?
+        WHERE j.company_id = %s
         ORDER BY j.id DESC
         """,
         (cid,),
@@ -407,14 +412,14 @@ def view_job(job_id):
         SELECT j.*, c.name AS customer_name
         FROM jobs j
         JOIN customers c ON j.customer_id = c.id
-        WHERE j.id = ? AND j.company_id = ?
+        WHERE j.id = %s AND j.company_id = %s
         """,
         (job_id, cid),
     ).fetchone()
 
     if not job:
         conn.close()
-        abort(404)  # type: ignore
+        abort(404)
 
     if request.method == "POST":
         item_type = clean_text_input(request.form.get("item_type", "")).lower()
@@ -430,13 +435,15 @@ def view_job(job_id):
             flash("Description is required.")
             return redirect(url_for("jobs.view_job", job_id=job_id))
 
-        cost_amount = qty * unit_cost
-
         if item_type == "labor":
+            if not unit:
+                unit = "hrs"
             sale_price = unit_cost
             line_total = qty * unit_cost
         else:
             line_total = qty * sale_price
+
+        cost_amount = qty * unit_cost
 
         cur = conn.cursor()
         cur.execute(
@@ -445,7 +452,8 @@ def view_job(job_id):
                 job_id, item_type, description, quantity, unit,
                 unit_price, sale_price, cost_amount, line_total, billable
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
             """,
             (
                 job_id,
@@ -460,7 +468,7 @@ def view_job(job_id):
                 billable,
             ),
         )
-        job_item_id = cur.lastrowid
+        job_item_id = cur.fetchone()[0]
 
         ensure_job_cost_ledger(conn, job_item_id)
         recalc_job(conn, job_id)
@@ -471,7 +479,7 @@ def view_job(job_id):
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     items = conn.execute(
-        "SELECT * FROM job_items WHERE job_id = ? ORDER BY id",
+        "SELECT * FROM job_items WHERE job_id = %s ORDER BY id",
         (job_id,),
     ).fetchall()
 
@@ -484,7 +492,7 @@ def view_job(job_id):
             <td>{escape(clean_text_display(i['description']))}</td>
             <td>{safe_float(i['quantity']):g}</td>
             <td>{escape(clean_text_display(i['unit']))}</td>
-            <td>${safe_float(i['sale_price']):.2f}</td>
+            <td>{'-' if clean_text_input(i['item_type']).lower() == 'labor' else f"${safe_float(i['sale_price']):.2f}"}</td>
             <td>${((safe_float(i['cost_amount']) / safe_float(i['quantity'])) if safe_float(i['quantity']) else 0):.2f}</td>
             <td>${safe_float(i['cost_amount']):.2f}</td>
             <td>{'Yes' if i['billable'] else 'No'}</td>
@@ -618,21 +626,22 @@ def view_job(job_id):
         <div class='card'>
             <h2>Job Items</h2>
             <div class='table-wrap'>
-            <table>
-                <tr>
-                    <th>Type</th>
-                    <th>Description</th>
-                    <th>Qty</th>
-                    <th>Unit</th>
-                    <th>Sale Price</th>
-                    <th>Unit Cost</th>
-                    <th>Total Cost</th>
-                    <th>Billable</th>
-                    <th>Revenue</th>
-                    <th>Actions</th>
-                </tr>
-                {item_rows or '<tr><td colspan="10" class="muted">No job items yet.</td></tr>'}
-            </table>
+                <table>
+                    <tr>
+                        <th>Type</th>
+                        <th>Description</th>
+                        <th>Qty</th>
+                        <th>Unit</th>
+                        <th>Sale Price</th>
+                        <th>Unit Cost</th>
+                        <th>Total Cost</th>
+                        <th>Billable</th>
+                        <th>Revenue</th>
+                        <th>Actions</th>
+                    </tr>
+                    {item_rows or '<tr><td colspan="10" class="muted">No job items yet.</td></tr>'}
+                </table>
+            </div>
         </div>
         """
     return render_page(content, f"Job #{job_id}")
@@ -649,7 +658,7 @@ def edit_job(job_id):
         """
         SELECT *
         FROM jobs
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (job_id, cid),
     ).fetchone()
@@ -660,7 +669,7 @@ def edit_job(job_id):
         return redirect(url_for("jobs.jobs"))
 
     customers = conn.execute(
-        "SELECT id, name FROM customers WHERE company_id = ? ORDER BY name",
+        "SELECT id, name FROM customers WHERE company_id = %s ORDER BY name",
         (cid,),
     ).fetchall()
 
@@ -680,10 +689,10 @@ def edit_job(job_id):
         conn.execute(
             """
             UPDATE jobs
-            SET customer_id = ?, title = ?, scheduled_date = ?, status = ?, address = ?, notes = ?
-            WHERE id = ? AND company_id = ?
+            SET customer_id = %s, title = %s, scheduled_date = %s, status = %s, address = %s, notes = %s
+            WHERE id = %s AND company_id = %s
             """,
-            (customer_id, title, scheduled_date, status, address, notes, job_id, cid),
+            (customer_id, title, scheduled_date or None, status, address, notes, job_id, cid),
         )
         conn.commit()
         conn.close()
@@ -754,21 +763,21 @@ def edit_job_item(job_id, item_id):
         SELECT j.*, c.name AS customer_name
         FROM jobs j
         JOIN customers c ON j.customer_id = c.id
-        WHERE j.id = ? AND j.company_id = ?
+        WHERE j.id = %s AND j.company_id = %s
         """,
         (job_id, cid),
     ).fetchone()
 
     if not job:
         conn.close()
-        abort(404)  # type: ignore
+        abort(404)
 
     item = conn.execute(
         """
         SELECT ji.*
         FROM job_items ji
         JOIN jobs j ON ji.job_id = j.id
-        WHERE ji.id = ? AND ji.job_id = ? AND j.company_id = ?
+        WHERE ji.id = %s AND ji.job_id = %s AND j.company_id = %s
         """,
         (item_id, job_id, cid),
     ).fetchone()
@@ -792,27 +801,29 @@ def edit_job_item(job_id, item_id):
             flash("Description is required.")
             return redirect(url_for("jobs.edit_job_item", job_id=job_id, item_id=item_id))
 
-        cost_amount = qty * unit_cost
-
         if item_type == "labor":
+            if not unit:
+                unit = "hrs"
             sale_price = unit_cost
             line_total = qty * unit_cost
         else:
             line_total = qty * sale_price
 
+        cost_amount = qty * unit_cost
+
         conn.execute(
             """
             UPDATE job_items
-            SET item_type = ?,
-                description = ?,
-                quantity = ?,
-                unit = ?,
-                unit_price = ?,
-                sale_price = ?,
-                cost_amount = ?,
-                line_total = ?,
-                billable = ?
-            WHERE id = ? AND job_id = ?
+            SET item_type = %s,
+                description = %s,
+                quantity = %s,
+                unit = %s,
+                unit_price = %s,
+                sale_price = %s,
+                cost_amount = %s,
+                line_total = %s,
+                billable = %s
+            WHERE id = %s AND job_id = %s
             """,
             (
                 item_type,
@@ -837,6 +848,12 @@ def edit_job_item(job_id, item_id):
         flash("Job item updated.")
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
+    item_type_val = clean_text_input(item["item_type"]).lower()
+    qty_val = safe_float(item["quantity"])
+    sale_price_val = safe_float(item["sale_price"])
+    unit_cost_val = (safe_float(item["cost_amount"]) / safe_float(item["quantity"])) if safe_float(item["quantity"]) else 0
+    is_labor = item_type_val == "labor"
+
     content = f"""
     <div class='card'>
         <h1>Edit Job Item</h1>
@@ -849,13 +866,13 @@ def edit_job_item(job_id, item_id):
             <div class='grid'>
                 <div>
                     <label>Type</label>
-                    <select name='item_type'>
-                        <option {'selected' if item['item_type'] == 'material' else ''}>material</option>
-                        <option {'selected' if item['item_type'] == 'labor' else ''}>labor</option>
-                        <option {'selected' if item['item_type'] == 'fuel' else ''}>fuel</option>
-                        <option {'selected' if item['item_type'] == 'equipment' else ''}>equipment</option>
-                        <option {'selected' if item['item_type'] == 'delivery' else ''}>delivery</option>
-                        <option {'selected' if item['item_type'] == 'misc' else ''}>misc</option>
+                    <select name='item_type' id='edit_item_type' onchange='toggleEditLaborMode()'>
+                        <option value='material' {'selected' if item_type_val == 'material' else ''}>material</option>
+                        <option value='labor' {'selected' if item_type_val == 'labor' else ''}>labor</option>
+                        <option value='fuel' {'selected' if item_type_val == 'fuel' else ''}>fuel</option>
+                        <option value='equipment' {'selected' if item_type_val == 'equipment' else ''}>equipment</option>
+                        <option value='delivery' {'selected' if item_type_val == 'delivery' else ''}>delivery</option>
+                        <option value='misc' {'selected' if item_type_val == 'misc' else ''}>misc</option>
                     </select>
                 </div>
 
@@ -865,23 +882,23 @@ def edit_job_item(job_id, item_id):
                 </div>
 
                 <div>
-                    <label>Quantity</label>
-                    <input type='number' step='0.01' name='quantity' value="{safe_float(item['quantity']):.2f}" required>
+                    <label id='edit_quantity_label'>{'Billable Hours' if is_labor else 'Quantity'}</label>
+                    <input type='number' step='0.01' name='quantity' value="{qty_val:.2f}" required>
                 </div>
 
                 <div>
                     <label>Unit</label>
-                    <input name='unit' value="{escape(clean_text_input(item['unit']))}">
+                    <input name='unit' id='edit_unit' value="{escape(clean_text_input(item['unit']))}">
                 </div>
 
-                <div>
+                <div id='edit_sale_price_wrap' style="display:{'none' if is_labor else 'block'};">
                     <label>Sale Price</label>
-                    <input type='number' step='0.01' name='sale_price' value="{safe_float(item['sale_price']):.2f}">
+                    <input type='number' step='0.01' name='sale_price' id='edit_sale_price' value="{sale_price_val:.2f}">
                 </div>
 
                 <div>
-                    <label>Unit Cost</label>
-                    <input type='number' step='0.01' name='cost_amount' value="{((safe_float(item['cost_amount']) / safe_float(item['quantity'])) if safe_float(item['quantity']) else 0):.2f}">
+                    <label id='edit_cost_label'>{'Hourly Rate' if is_labor else 'Unit Cost'}</label>
+                    <input type='number' step='0.01' name='cost_amount' id='edit_cost_amount' value="{unit_cost_val:.2f}">
                 </div>
 
                 <div>
@@ -898,6 +915,36 @@ def edit_job_item(job_id, item_id):
             <a class='btn secondary' href='{url_for("jobs.view_job", job_id=job_id)}'>Cancel</a>
         </form>
     </div>
+
+    <script>
+    function toggleEditLaborMode() {{
+        const type = document.getElementById('edit_item_type').value;
+        const quantityLabel = document.getElementById('edit_quantity_label');
+        const costLabel = document.getElementById('edit_cost_label');
+        const salePriceWrap = document.getElementById('edit_sale_price_wrap');
+        const unitInput = document.getElementById('edit_unit');
+
+        if (type === 'labor') {{
+            quantityLabel.innerText = 'Billable Hours';
+            costLabel.innerText = 'Hourly Rate';
+            salePriceWrap.style.display = 'none';
+            if (unitInput && !unitInput.value) {{
+                unitInput.value = 'hrs';
+            }}
+        }} else {{
+            quantityLabel.innerText = 'Quantity';
+            costLabel.innerText = 'Unit Cost';
+            salePriceWrap.style.display = 'block';
+            if (unitInput && unitInput.value === 'hrs') {{
+                unitInput.value = '';
+            }}
+        }}
+    }}
+
+    document.addEventListener('DOMContentLoaded', function() {{
+        toggleEditLaborMode();
+    }});
+    </script>
     """
 
     conn.close()
@@ -915,19 +962,19 @@ def delete_job_item(job_id, item_id):
         SELECT ji.*, j.company_id
         FROM job_items ji
         JOIN jobs j ON ji.job_id = j.id
-        WHERE ji.id=? AND ji.job_id=? AND j.company_id=?
+        WHERE ji.id = %s AND ji.job_id = %s AND j.company_id = %s
         """,
         (item_id, job_id, session["company_id"]),
     ).fetchone()
 
     if not item:
         conn.close()
-        abort(404)  # type: ignore
+        abort(404)
 
     if item["ledger_entry_id"]:
-        conn.execute("DELETE FROM ledger_entries WHERE id=?", (item["ledger_entry_id"],))
+        conn.execute("DELETE FROM ledger_entries WHERE id = %s", (item["ledger_entry_id"],))
 
-    conn.execute("DELETE FROM job_items WHERE id=?", (item_id,))
+    conn.execute("DELETE FROM job_items WHERE id = %s", (item_id,))
     recalc_job(conn, job_id)
     conn.commit()
     conn.close()
@@ -946,20 +993,20 @@ def convert_job_to_invoice(job_id):
         """
         SELECT *
         FROM jobs
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (job_id, cid),
     ).fetchone()
 
     if not job:
         conn.close()
-        abort(404)  # type: ignore
+        abort(404)
 
     existing_invoice = conn.execute(
         """
         SELECT id
         FROM invoices
-        WHERE job_id = ? AND company_id = ?
+        WHERE job_id = %s AND company_id = %s
         ORDER BY id DESC
         LIMIT 1
         """,
@@ -975,7 +1022,7 @@ def convert_job_to_invoice(job_id):
         """
         SELECT *
         FROM job_items
-        WHERE job_id = ? AND billable = 1
+        WHERE job_id = %s AND billable = 1
         ORDER BY id
         """,
         (job_id,),
@@ -1004,7 +1051,8 @@ def convert_job_to_invoice(job_id):
                 amount_paid,
                 balance_due
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'Unpaid', ?, 0, 0)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'Unpaid', %s, 0, 0)
+            RETURNING id
             """,
             (
                 job["company_id"],
@@ -1017,7 +1065,7 @@ def convert_job_to_invoice(job_id):
                 clean_text_input(job["notes"]),
             ),
         )
-        invoice_id = cur.lastrowid
+        invoice_id = cur.fetchone()[0]
 
         for i in items:
             cur.execute(
@@ -1030,7 +1078,7 @@ def convert_job_to_invoice(job_id):
                     unit_price,
                     line_total
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """,
                 (
                     invoice_id,
@@ -1048,7 +1096,7 @@ def convert_job_to_invoice(job_id):
             """
             UPDATE jobs
             SET status = 'Invoiced'
-            WHERE id = ? AND company_id = ?
+            WHERE id = %s AND company_id = %s
             """,
             (job_id, cid),
         )
@@ -1071,24 +1119,24 @@ def convert_job_to_invoice(job_id):
 def delete_job(job_id):
     conn = get_db_connection()
     job = conn.execute(
-        "SELECT id FROM jobs WHERE id=? AND company_id=?",
+        "SELECT id FROM jobs WHERE id = %s AND company_id = %s",
         (job_id, session["company_id"]),
     ).fetchone()
 
     if not job:
         conn.close()
-        abort(404)  # type: ignore
+        abort(404)
 
     ledger_ids = conn.execute(
-        "SELECT ledger_entry_id FROM job_items WHERE job_id=? AND ledger_entry_id IS NOT NULL",
+        "SELECT ledger_entry_id FROM job_items WHERE job_id = %s AND ledger_entry_id IS NOT NULL",
         (job_id,),
     ).fetchall()
 
     for row in ledger_ids:
-        conn.execute("DELETE FROM ledger_entries WHERE id=?", (row["ledger_entry_id"],))
+        conn.execute("DELETE FROM ledger_entries WHERE id = %s", (row["ledger_entry_id"],))
 
-    conn.execute("DELETE FROM job_items WHERE job_id=?", (job_id,))
-    conn.execute("DELETE FROM jobs WHERE id=? AND company_id=?", (job_id, session["company_id"]))
+    conn.execute("DELETE FROM job_items WHERE job_id = %s", (job_id,))
+    conn.execute("DELETE FROM jobs WHERE id = %s AND company_id = %s", (job_id, session["company_id"]))
     conn.commit()
     conn.close()
     flash("Job deleted.")
@@ -1107,7 +1155,7 @@ def finished_jobs():
         SELECT j.*, c.name AS customer_name
         FROM jobs j
         JOIN customers c ON j.customer_id = c.id
-        WHERE j.company_id = ?
+        WHERE j.company_id = %s
           AND j.status = 'Finished'
         ORDER BY j.id DESC
         """,
@@ -1151,19 +1199,21 @@ def finished_jobs():
     </div>
 
     <div class='card'>
-        <table>
-            <tr>
-                <th>ID</th>
-                <th>Title</th>
-                <th>Customer</th>
-                <th>Status</th>
-                <th>Revenue</th>
-                <th>Costs</th>
-                <th>Profit/Loss</th>
-                <th>Actions</th>
-            </tr>
-            {job_rows or '<tr><td colspan="8" class="muted">No finished jobs yet.</td></tr>'}
-        </table>
+        <div class='table-wrap'>
+            <table>
+                <tr>
+                    <th>ID</th>
+                    <th>Title</th>
+                    <th>Customer</th>
+                    <th>Status</th>
+                    <th>Revenue</th>
+                    <th>Costs</th>
+                    <th>Profit/Loss</th>
+                    <th>Actions</th>
+                </tr>
+                {job_rows or '<tr><td colspan="8" class="muted">No finished jobs yet.</td></tr>'}
+            </table>
+        </div>
     </div>
     """
     return render_page(content, "Finished Jobs")
@@ -1180,7 +1230,7 @@ def reopen_job(job_id):
         """
         SELECT id
         FROM jobs
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (job_id, cid),
     ).fetchone()
@@ -1194,7 +1244,7 @@ def reopen_job(job_id):
         """
         UPDATE jobs
         SET status = 'Invoiced'
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (job_id, cid),
     )

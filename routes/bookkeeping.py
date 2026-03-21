@@ -15,6 +15,14 @@ def _safe_float(value):
         return 0.0
 
 
+def _fmt_money(value, show_plus=False):
+    amount = _safe_float(value)
+    prefix = "+"
+    if not show_plus or amount <= 0:
+        prefix = ""
+    return f"{prefix}${amount:,.2f}"
+
+
 @bookkeeping_bp.route("/bookkeeping")
 @login_required
 @require_permission("can_view_bookkeeping")
@@ -42,11 +50,7 @@ def bookkeeping():
     if "reference_type" in ledger_cols:
         description_expr.append("reference_type")
 
-    if description_expr:
-        desc_sql = "COALESCE(" + ", ".join(description_expr) + ", '')"
-    else:
-        desc_sql = "''"
-
+    desc_sql = "COALESCE(" + ", ".join(description_expr) + ", '')" if description_expr else "''"
     entry_type_expr = "entry_type" if "entry_type" in ledger_cols else "'Entry'"
     amount_expr = "amount" if "amount" in ledger_cols else "0"
 
@@ -60,9 +64,9 @@ def bookkeeping():
                 {desc_sql} AS description,
                 {date_col} AS entry_date
             FROM ledger_entries
-            WHERE company_id = ?
+            WHERE company_id = %s
             ORDER BY
-                CASE WHEN {date_col} IS NULL OR {date_col} = '' THEN 1 ELSE 0 END,
+                CASE WHEN {date_col} IS NULL THEN 1 ELSE 0 END,
                 {date_col} DESC,
                 id DESC
             """,
@@ -76,13 +80,36 @@ def bookkeeping():
                 {entry_type_expr} AS entry_type,
                 {amount_expr} AS amount,
                 {desc_sql} AS description,
-                '' AS entry_date
+                NULL AS entry_date
             FROM ledger_entries
-            WHERE company_id = ?
+            WHERE company_id = %s
             ORDER BY id DESC
             """,
             (cid,),
         ).fetchall()
+
+    ensure_bookkeeping_history_table()
+
+    history_rows = conn.execute(
+        """
+        SELECT
+            id,
+            entry_date,
+            category,
+            entry_type,
+            description,
+            money_in,
+            money_out,
+            notes
+        FROM bookkeeping_history
+        WHERE company_id = %s
+        ORDER BY
+            CASE WHEN entry_date IS NULL THEN 1 ELSE 0 END,
+            entry_date DESC,
+            id DESC
+        """,
+        (cid,),
+    ).fetchall()
 
     conn.close()
 
@@ -91,33 +118,59 @@ def bookkeeping():
     net_profit = total_income - total_expenses
 
     running_balance = 0.0
-    reversed_rows = list(rows)[::-1]
     balances = {}
-
-    for r in reversed_rows:
+    for r in list(rows)[::-1]:
         amt = _safe_float(r["amount"])
         running_balance += amt
         balances[r["id"]] = running_balance
 
-    ledger_rows = "".join(
-        f"""
-        <tr>
-            <td>#{r['id']}</td>
-            <td>{escape(str((r['entry_date'] if 'entry_date' in r.keys() else '-') or '-'))}</td>
-            <td>{escape(str(r['entry_type'] or '-'))}</td>
-            <td>{escape(str(r['description'] or '-'))}</td>
-            <td class="amount-cell" style="color:{'#16a34a' if _safe_float(r['amount']) >= 0 else '#dc2626'};">
-                {'+' if _safe_float(r['amount']) > 0 else ''}${_safe_float(r['amount']):,.2f}
-            </td>
-            <td class="balance-cell" style="color:{'#16a34a' if balances.get(r['id'], 0) >= 0 else '#dc2626'};">
-                ${balances.get(r['id'], 0):,.2f}
-            </td>
-        </tr>
-        """
-        for r in rows
-    )
+    ledger_row_html = []
+    for r in rows:
+        amount = _safe_float(r["amount"])
+        balance = balances.get(r["id"], 0.0)
+        amount_color = "#16a34a" if amount >= 0 else "#dc2626"
+        balance_color = "#16a34a" if balance >= 0 else "#dc2626"
+
+        ledger_row_html.append(
+            f"""
+            <tr>
+                <td>#{r['id']}</td>
+                <td>{escape(str(r['entry_date'] or '-'))}</td>
+                <td>{escape(str(r['entry_type'] or '-'))}</td>
+                <td>{escape(str(r['description'] or '-'))}</td>
+                <td class="amount-cell" style="color:{amount_color};">{_fmt_money(amount, show_plus=True)}</td>
+                <td class="balance-cell" style="color:{balance_color};">{_fmt_money(balance)}</td>
+            </tr>
+            """
+        )
+    ledger_rows = "".join(ledger_row_html)
+
+    history_total_in = sum(_safe_float(r["money_in"]) for r in history_rows)
+    history_total_out = sum(_safe_float(r["money_out"]) for r in history_rows)
+    history_net = history_total_in - history_total_out
+
+    history_row_html = []
+    for r in history_rows:
+        history_row_html.append(
+            f"""
+            <tr>
+                <td>#{r['id']}</td>
+                <td>{escape(str(r['entry_date'] or '-'))}</td>
+                <td>{escape(str(r['category'] or '-'))}</td>
+                <td>{escape(str(r['entry_type'] or '-'))}</td>
+                <td>{escape(str(r['description'] or '-'))}</td>
+                <td style="color:#16a34a;">{_fmt_money(r['money_in'])}</td>
+                <td style="color:#dc2626;">{_fmt_money(r['money_out'])}</td>
+                <td>{escape(str(r['notes'] or ''))}</td>
+            </tr>
+            """
+        )
+    history_table_rows = "".join(history_row_html)
 
     net_color = "#16a34a" if net_profit >= 0 else "#dc2626"
+    history_net_color = "#16a34a" if history_net >= 0 else "#dc2626"
+    net_profit_text = _fmt_money(net_profit, show_plus=True)
+    history_net_text = _fmt_money(history_net, show_plus=True)
 
     content = f"""
     <div class="card">
@@ -129,19 +182,17 @@ def bookkeeping():
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:18px;">
             <div class="card stat-card" style="flex:1;min-width:220px;">
                 <div class="stat-label">Income</div>
-                <div class="stat-value" style="color:#16a34a;">${total_income:,.2f}</div>
+                <div class="stat-value" style="color:#16a34a;">{_fmt_money(total_income)}</div>
             </div>
 
             <div class="card stat-card" style="flex:1;min-width:220px;">
                 <div class="stat-label">Expenses</div>
-                <div class="stat-value" style="color:#dc2626;">-${total_expenses:,.2f}</div>
+                <div class="stat-value" style="color:#dc2626;">-${abs(total_expenses):,.2f}</div>
             </div>
 
             <div class="card stat-card" style="flex:1;min-width:220px;">
                 <div class="stat-label">Profit / Loss</div>
-                <div class="stat-value" style="color:{net_color};">
-                    {'+' if net_profit > 0 else ''}${net_profit:,.2f}
-                </div>
+                <div class="stat-value" style="color:{net_color};">{net_profit_text}</div>
             </div>
         </div>
 
@@ -190,23 +241,69 @@ def bookkeeping():
         </div>
     </div>
 
+    <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+            <h2 style="margin:0;">Bookkeeping History Summary</h2>
+            <a href="{url_for('bookkeeping.bookkeeping_history')}" class="btn secondary">Open Full History</a>
+        </div>
+
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:18px;margin-bottom:18px;">
+            <div class="card stat-card" style="flex:1;min-width:220px;">
+                <div class="stat-label">Total Money In</div>
+                <div class="stat-value" style="color:#16a34a;">{_fmt_money(history_total_in)}</div>
+            </div>
+
+            <div class="card stat-card" style="flex:1;min-width:220px;">
+                <div class="stat-label">Total Money Out</div>
+                <div class="stat-value" style="color:#dc2626;">-${abs(history_total_out):,.2f}</div>
+            </div>
+
+            <div class="card stat-card" style="flex:1;min-width:220px;">
+                <div class="stat-label">Net</div>
+                <div class="stat-value" style="color:{history_net_color};">{history_net_text}</div>
+            </div>
+        </div>
+
+        <div class="table-wrap">
+            <table style="width:100%;border-collapse:collapse;">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Date</th>
+                        <th>Category</th>
+                        <th>Type</th>
+                        <th>Description</th>
+                        <th>Money In</th>
+                        <th>Money Out</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {history_table_rows or '<tr><td colspan="8" class="muted">No bookkeeping history yet.</td></tr>'}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
     <script>
     function populateLedgerTypes() {{
-        const rows = document.querySelectorAll("#ledgerTable tbody tr");
-        const typeSelect = document.getElementById("ledgerTypeFilter");
-        const found = new Set();
+        var rows = document.querySelectorAll("#ledgerTable tbody tr");
+        var typeSelect = document.getElementById("ledgerTypeFilter");
+        var found = new Set();
 
-        rows.forEach(row => {{
-            const cells = row.querySelectorAll("td");
+        rows.forEach(function(row) {{
+            var cells = row.querySelectorAll("td");
             if (cells.length < 6) return;
-            const typeText = cells[2].innerText.trim();
-            if (typeText) found.add(typeText);
+            var typeText = cells[2].innerText.trim();
+            if (typeText && typeText !== "-") {{
+                found.add(typeText);
+            }}
         }});
 
-        const sorted = Array.from(found).sort((a, b) => a.localeCompare(b));
-
-        sorted.forEach(type => {{
-            const opt = document.createElement("option");
+        Array.from(found).sort(function(a, b) {{
+            return a.localeCompare(b);
+        }}).forEach(function(type) {{
+            var opt = document.createElement("option");
             opt.value = type.toLowerCase();
             opt.textContent = type;
             typeSelect.appendChild(opt);
@@ -215,8 +312,7 @@ def bookkeeping():
 
     function normalizeDate(dateText) {{
         if (!dateText || dateText === "-") return "";
-
-        const trimmed = dateText.trim();
+        var trimmed = dateText.trim();
 
         if (/^\\d{{4}}-\\d{{2}}-\\d{{2}}/.test(trimmed)) {{
             return trimmed.slice(0, 10);
@@ -226,31 +322,31 @@ def bookkeeping():
     }}
 
     function filterLedgerRows() {{
-        const search = document.getElementById("ledgerSearch").value.toLowerCase().trim();
-        const typeFilter = document.getElementById("ledgerTypeFilter").value.toLowerCase().trim();
-        const fromDate = document.getElementById("ledgerDateFrom").value;
-        const toDate = document.getElementById("ledgerDateTo").value;
+        var search = document.getElementById("ledgerSearch").value.toLowerCase().trim();
+        var typeFilter = document.getElementById("ledgerTypeFilter").value.toLowerCase().trim();
+        var fromDate = document.getElementById("ledgerDateFrom").value;
+        var toDate = document.getElementById("ledgerDateTo").value;
 
-        const rows = document.querySelectorAll("#ledgerTable tbody tr");
-        let visibleCount = 0;
+        var rows = document.querySelectorAll("#ledgerTable tbody tr");
+        var visibleCount = 0;
 
-        rows.forEach(row => {{
-            const cells = row.querySelectorAll("td");
+        rows.forEach(function(row) {{
+            var cells = row.querySelectorAll("td");
             if (cells.length < 6) return;
 
-            const idText = cells[0].innerText.toLowerCase();
-            const rawDateText = cells[1].innerText.trim();
-            const dateText = normalizeDate(rawDateText);
-            const typeText = cells[2].innerText.toLowerCase().trim();
-            const descText = cells[3].innerText.toLowerCase();
-            const amountText = cells[4].innerText.toLowerCase();
-            const balanceText = cells[5].innerText.toLowerCase();
+            var idText = cells[0].innerText.toLowerCase();
+            var rawDateText = cells[1].innerText.trim();
+            var dateText = normalizeDate(rawDateText);
+            var typeText = cells[2].innerText.toLowerCase().trim();
+            var descText = cells[3].innerText.toLowerCase();
+            var amountText = cells[4].innerText.toLowerCase();
+            var balanceText = cells[5].innerText.toLowerCase();
 
-            const rowText = `${{idText}} ${{rawDateText.toLowerCase()}} ${{typeText}} ${{descText}} ${{amountText}} ${{balanceText}}`;
+            var rowText = idText + " " + rawDateText.toLowerCase() + " " + typeText + " " + descText + " " + amountText + " " + balanceText;
 
-            let show = true;
+            var show = true;
 
-            if (search && !rowText.includes(search)) {{
+            if (search && rowText.indexOf(search) === -1) {{
                 show = false;
             }}
 
@@ -268,11 +364,13 @@ def bookkeeping():
 
             row.style.display = show ? "" : "none";
 
-            if (show) visibleCount++;
+            if (show) {{
+                visibleCount += 1;
+            }}
         }});
 
         document.getElementById("ledgerCount").innerText =
-            `${{visibleCount}} entr${{visibleCount === 1 ? "y" : "ies"}} shown`;
+            visibleCount + " entr" + (visibleCount === 1 ? "y" : "ies") + " shown";
     }}
 
     function resetLedgerFilters() {{
@@ -319,9 +417,9 @@ def bookkeeping_history():
             money_out,
             notes
         FROM bookkeeping_history
-        WHERE company_id = ?
+        WHERE company_id = %s
         ORDER BY
-            CASE WHEN entry_date IS NULL OR entry_date = '' THEN 1 ELSE 0 END,
+            CASE WHEN entry_date IS NULL THEN 1 ELSE 0 END,
             entry_date DESC,
             id DESC
         """,
@@ -334,23 +432,26 @@ def bookkeeping_history():
     total_out = sum(_safe_float(r["money_out"]) for r in rows)
     net = total_in - total_out
 
-    table_rows = "".join(
-        f"""
-        <tr>
-            <td>#{r['id']}</td>
-            <td>{escape(str(r['entry_date'] or '-'))}</td>
-            <td>{escape(str(r['category'] or '-'))}</td>
-            <td>{escape(str(r['entry_type'] or '-'))}</td>
-            <td>{escape(str(r['description'] or '-'))}</td>
-            <td style="color:#16a34a;">${_safe_float(r['money_in']):,.2f}</td>
-            <td style="color:#dc2626;">${_safe_float(r['money_out']):,.2f}</td>
-            <td>{escape(str(r['notes'] or ''))}</td>
-        </tr>
-        """
-        for r in rows
-    )
+    table_row_html = []
+    for r in rows:
+        table_row_html.append(
+            f"""
+            <tr>
+                <td>#{r['id']}</td>
+                <td>{escape(str(r['entry_date'] or '-'))}</td>
+                <td>{escape(str(r['category'] or '-'))}</td>
+                <td>{escape(str(r['entry_type'] or '-'))}</td>
+                <td>{escape(str(r['description'] or '-'))}</td>
+                <td style="color:#16a34a;">{_fmt_money(r['money_in'])}</td>
+                <td style="color:#dc2626;">{_fmt_money(r['money_out'])}</td>
+                <td>{escape(str(r['notes'] or ''))}</td>
+            </tr>
+            """
+        )
+    table_rows = "".join(table_row_html)
 
     net_color = "#16a34a" if net >= 0 else "#dc2626"
+    net_text = _fmt_money(net, show_plus=True)
 
     content = f"""
     <div class="card">
@@ -362,19 +463,17 @@ def bookkeeping_history():
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:18px;margin-bottom:18px;">
             <div class="card stat-card" style="flex:1;min-width:220px;">
                 <div class="stat-label">Total Money In</div>
-                <div class="stat-value" style="color:#16a34a;">${total_in:,.2f}</div>
+                <div class="stat-value" style="color:#16a34a;">{_fmt_money(total_in)}</div>
             </div>
 
             <div class="card stat-card" style="flex:1;min-width:220px;">
                 <div class="stat-label">Total Money Out</div>
-                <div class="stat-value" style="color:#dc2626;">-${total_out:,.2f}</div>
+                <div class="stat-value" style="color:#dc2626;">-${abs(total_out):,.2f}</div>
             </div>
 
             <div class="card stat-card" style="flex:1;min-width:220px;">
                 <div class="stat-label">Net</div>
-                <div class="stat-value" style="color:{net_color};">
-                    {'+' if net > 0 else ''}${net:,.2f}
-                </div>
+                <div class="stat-value" style="color:{net_color};">{net_text}</div>
             </div>
         </div>
 

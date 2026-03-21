@@ -306,7 +306,7 @@ def dashboard():
                 </tr>
             </table>
         </div>
-        <div class='table-wrap'>
+
         <table>
             <tr>
                 <th>Invoice</th>
@@ -328,7 +328,7 @@ def dashboard():
                 <h2>Upcoming Jobs</h2>
                 <a class='btn small' href='{url_for("jobs.jobs")}'>View All</a>
             </div>
-            <div class='table-wrap'>
+    
             <table>
                 <tr>
                     <th>ID</th>
@@ -346,7 +346,7 @@ def dashboard():
                 <h2>Unpaid Invoices</h2>
                 <a class='btn small' href='{url_for("invoices.invoices")}'>View All</a>
             </div>
-            <div class='table-wrap'>
+    
                 <table>
                     <tr>
                         <th>ID</th>

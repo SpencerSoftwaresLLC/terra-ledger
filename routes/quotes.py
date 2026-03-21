@@ -29,7 +29,14 @@ from utils.emailing import send_company_email
 quotes_bp = Blueprint("quotes", __name__)
 
 
-def ensure_quote_item_cost_columns():
+def _safe_float(value):
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def ensure_quote_item_columns():
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -37,6 +44,12 @@ def ensure_quote_item_cost_columns():
 
     if "unit_cost" not in cols:
         cur.execute("ALTER TABLE quote_items ADD COLUMN unit_cost DOUBLE PRECISION NOT NULL DEFAULT 0")
+
+    if "item_type" not in cols:
+        cur.execute("ALTER TABLE quote_items ADD COLUMN item_type TEXT NOT NULL DEFAULT 'material'")
+
+    if "unit" not in cols:
+        cur.execute("ALTER TABLE quote_items ADD COLUMN unit TEXT DEFAULT ''")
 
     conn.commit()
     conn.close()
@@ -164,7 +177,7 @@ def build_quote_pdf(quote, items, company, profile):
                         logo_y,
                         width=draw_width,
                         height=draw_height,
-                        mask='auto'
+                        mask="auto"
                     )
 
                     text_x = 250
@@ -283,7 +296,7 @@ def build_quote_pdf(quote, items, company, profile):
 @subscription_required
 @require_permission("can_manage_jobs")
 def quotes():
-    ensure_quote_item_cost_columns()
+    ensure_quote_item_columns()
     ensure_document_number_columns()
 
     conn = get_db_connection()
@@ -293,7 +306,7 @@ def quotes():
         """
         SELECT id, name, company, email
         FROM customers
-        WHERE company_id = ?
+        WHERE company_id = %s
         ORDER BY name
         """,
         (cid,),
@@ -303,7 +316,7 @@ def quotes():
         """
         SELECT default_quote_notes, next_quote_number
         FROM companies
-        WHERE id = ?
+        WHERE id = %s
         """,
         (cid,),
     ).fetchone()
@@ -341,32 +354,30 @@ def quotes():
         status = (request.form.get("status") or "Draft").strip()
         notes = (request.form.get("notes") or "").strip() or default_quote_notes
 
-        conn.close()
-
         if not quote_number:
             quote_number = get_next_quote_number(cid)
 
-        conn = get_db_connection()
         cur = conn.cursor()
         cur.execute(
             """
             INSERT INTO quotes (
                 company_id, customer_id, quote_number, quote_date, expiration_date, status, notes
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
             """,
             (
                 cid,
                 customer_id,
                 quote_number,
                 quote_date,
-                expiration_date,
+                expiration_date or None,
                 status,
                 notes,
             ),
         )
+        quote_id = cur.fetchone()[0]
         conn.commit()
-        quote_id = cur.lastrowid
         conn.close()
 
         flash(f"Quote #{quote_number} created. Add items next.")
@@ -377,8 +388,8 @@ def quotes():
         SELECT q.*, c.name AS customer_name
         FROM quotes q
         JOIN customers c ON q.customer_id = c.id
-        WHERE q.company_id = ?
-            AND COALESCE(q.status, '') != 'Finished'
+        WHERE q.company_id = %s
+          AND COALESCE(q.status, '') != 'Finished'
         ORDER BY q.id DESC
         """,
         (cid,),
@@ -449,11 +460,12 @@ def quotes():
 
     <div class='card'>
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
-        <h1 style='margin:0;'>Quotes</h1>
-        <div class='row-actions'>
-            <a class='btn warning' href='{url_for("quotes.finished_quotes")}'>Finished Quotes</a>
+            <h1 style='margin:0;'>Quotes</h1>
+            <div class='row-actions'>
+                <a class='btn warning' href='{url_for("quotes.finished_quotes")}'>Finished Quotes</a>
+            </div>
         </div>
-    </div>
+
         <form method='post'>
             <div class='grid'>
                 <div class='customer-search-wrap'>
@@ -481,10 +493,12 @@ def quotes():
 
     <div class='card'>
         <h2>Quote List</h2>
-        <table>
-            <tr><th>ID</th><th>Number</th><th>Customer</th><th>Total</th><th>Status</th><th>Actions</th></tr>
-            {quote_rows or '<tr><td colspan="6" class="muted">No quotes yet.</td></tr>'}
-        </table>
+        <div class='table-wrap'>
+            <table>
+                <tr><th>ID</th><th>Number</th><th>Customer</th><th>Total</th><th>Status</th><th>Actions</th></tr>
+                {quote_rows or '<tr><td colspan="6" class="muted">No quotes yet.</td></tr>'}
+            </table>
+        </div>
     </div>
 
     <script>
@@ -565,7 +579,7 @@ def quotes():
 @login_required
 @require_permission("can_manage_jobs")
 def view_quote(quote_id):
-    ensure_quote_item_cost_columns()
+    ensure_quote_item_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -575,7 +589,7 @@ def view_quote(quote_id):
         SELECT q.*, c.name AS customer_name, c.email AS customer_email
         FROM quotes q
         JOIN customers c ON q.customer_id = c.id
-        WHERE q.id = ? AND q.company_id = ?
+        WHERE q.id = %s AND q.company_id = %s
         """,
         (quote_id, cid),
     ).fetchone()
@@ -585,25 +599,31 @@ def view_quote(quote_id):
         abort(404)
 
     if request.method == "POST":
+        item_type = ((request.form.get("item_type") or "material").strip().lower() or "material")
         description = (request.form.get("description") or "").strip()
-        quantity = float(request.form.get("quantity") or 0)
+        quantity = _safe_float(request.form.get("quantity"))
         unit = (request.form.get("unit") or "").strip()
-        unit_price = float(request.form.get("unit_price") or 0)
-        unit_cost = float(request.form.get("unit_cost") or 0)
+        unit_price = _safe_float(request.form.get("unit_price"))
+        unit_cost = _safe_float(request.form.get("unit_cost"))
 
         if not description:
             conn.close()
             flash("Description is required.")
             return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
+        if item_type == "labor":
+            unit_cost = 0.0
+            if not unit:
+                unit = "hr"
+
         line_total = quantity * unit_price
 
         conn.execute(
             """
-            INSERT INTO quote_items (quote_id, description, quantity, unit, unit_price, unit_cost, line_total)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO quote_items (quote_id, item_type, description, quantity, unit, unit_price, unit_cost, line_total)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
-            (quote_id, description, quantity, unit, unit_price, unit_cost, line_total),
+            (quote_id, item_type, description, quantity, unit, unit_price, unit_cost, line_total),
         )
         recalc_quote(conn, quote_id)
         conn.commit()
@@ -613,7 +633,7 @@ def view_quote(quote_id):
         return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
     items = conn.execute(
-        "SELECT * FROM quote_items WHERE quote_id = ? ORDER BY id",
+        "SELECT * FROM quote_items WHERE quote_id = %s ORDER BY id",
         (quote_id,),
     ).fetchall()
     conn.close()
@@ -621,11 +641,12 @@ def view_quote(quote_id):
     item_rows = "".join(
         f"""
         <tr>
+            <td>{escape((i['item_type'] or 'material').title())}</td>
             <td>{escape(i['description'] or '')}</td>
             <td>{float(i['quantity'] or 0):g}</td>
             <td>{escape(i['unit'] or '-')}</td>
             <td>${float(i['unit_price'] or 0):.2f}</td>
-            <td>${float(i['unit_cost'] or 0):.2f}</td>
+            <td>{"-" if (i['item_type'] or '').lower() == 'labor' else f"${float(i['unit_cost'] or 0):.2f}"}</td>
             <td>${float(i['line_total'] or 0):.2f}</td>
             <td>
                 <form method="post"
@@ -659,11 +680,22 @@ def view_quote(quote_id):
             <h2>Add Quote Item</h2>
             <form method='post'>
                 <div class='grid'>
+                    <div>
+                        <label>Item Type</label>
+                        <select name='item_type' id='quote_item_type' onchange='toggleQuoteItemType()'>
+                            <option value='material'>Material</option>
+                            <option value='labor'>Labor</option>
+                            <option value='equipment'>Equipment</option>
+                            <option value='delivery'>Delivery</option>
+                            <option value='fuel'>Fuel</option>
+                            <option value='misc'>Misc</option>
+                        </select>
+                    </div>
                     <div><label>Description</label><input name='description' required></div>
-                    <div><label>Quantity</label><input name='quantity' type='number' step='0.01' min='0' required></div>
-                    <div><label>Unit</label><input name='unit' placeholder='yards, hrs, ea'></div>
-                    <div><label>Unit Price</label><input name='unit_price' type='number' step='0.01' min='0' required></div>
-                    <div><label>Unit Cost</label><input name='unit_cost' type='number' step='0.01' min='0' value='0.00' required></div>
+                    <div><label id='quantity_label'>Quantity</label><input name='quantity' type='number' step='0.01' min='0' required></div>
+                    <div><label>Unit</label><input name='unit' id='quote_unit' placeholder='yards, hrs, ea'></div>
+                    <div><label id='unit_price_label'>Unit Price</label><input name='unit_price' type='number' step='0.01' min='0' required></div>
+                    <div id='unit_cost_wrap'><label>Unit Cost</label><input name='unit_cost' type='number' step='0.01' min='0' value='0.00' required></div>
                 </div>
                 <br><button class='btn'>Add Item</button>
             </form>
@@ -672,19 +704,56 @@ def view_quote(quote_id):
         <div class='card'>
             <h2>Items</h2>
             <div class='table-wrap'>
-            <table>
-                <tr>
-                    <th>Description</th>
-                    <th>Qty</th>
-                    <th>Unit</th>
-                    <th>Unit Price</th>
-                    <th>Unit Cost</th>
-                    <th>Line Total</th>
-                    <th>Actions</th>
-                </tr>
-                {item_rows or '<tr><td colspan="7" class="muted">No items yet.</td></tr>'}
-            </table>
+                <table>
+                    <tr>
+                        <th>Type</th>
+                        <th>Description</th>
+                        <th>Qty</th>
+                        <th>Unit</th>
+                        <th>Unit Price / Hours</th>
+                        <th>Unit Cost</th>
+                        <th>Line Total</th>
+                        <th>Actions</th>
+                    </tr>
+                    {item_rows or '<tr><td colspan="8" class="muted">No items yet.</td></tr>'}
+                </table>
+            </div>
         </div>
+
+        <script>
+            function toggleQuoteItemType() {{
+                var typeEl = document.getElementById("quote_item_type");
+                var unitCostWrap = document.getElementById("unit_cost_wrap");
+                var unitPriceLabel = document.getElementById("unit_price_label");
+                var quantityLabel = document.getElementById("quantity_label");
+                var unitField = document.getElementById("quote_unit");
+
+                if (!typeEl) return;
+
+                if (typeEl.value === "labor") {{
+                    if (unitCostWrap) {{
+                        unitCostWrap.style.display = "none";
+                        var costInput = unitCostWrap.querySelector("input");
+                        if (costInput) costInput.value = "0.00";
+                    }}
+                    if (unitPriceLabel) unitPriceLabel.textContent = "Billable Hours";
+                    if (quantityLabel) quantityLabel.textContent = "Quantity";
+                    if (unitField && !unitField.value.trim()) {{
+                        unitField.value = "hr";
+                    }}
+                }} else {{
+                    if (unitCostWrap) {{
+                        unitCostWrap.style.display = "";
+                    }}
+                    if (unitPriceLabel) unitPriceLabel.textContent = "Unit Price";
+                    if (quantityLabel) quantityLabel.textContent = "Quantity";
+                }}
+            }}
+
+            document.addEventListener("DOMContentLoaded", function () {{
+                toggleQuoteItemType();
+            }});
+        </script>
         """
     return render_page(content, f"Quote #{quote_id}")
 
@@ -693,7 +762,7 @@ def view_quote(quote_id):
 @login_required
 @require_permission("can_manage_jobs")
 def email_quote_preview(quote_id):
-    ensure_quote_item_cost_columns()
+    ensure_quote_item_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -703,7 +772,7 @@ def email_quote_preview(quote_id):
         SELECT q.*, c.name AS customer_name, c.email AS customer_email
         FROM quotes q
         JOIN customers c ON q.customer_id = c.id
-        WHERE q.id = ? AND q.company_id = ?
+        WHERE q.id = %s AND q.company_id = %s
         """,
         (quote_id, cid),
     ).fetchone()
@@ -757,7 +826,7 @@ def email_quote_preview(quote_id):
 @login_required
 @require_permission("can_manage_jobs")
 def preview_quote_pdf(quote_id):
-    ensure_quote_item_cost_columns()
+    ensure_quote_item_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -767,7 +836,7 @@ def preview_quote_pdf(quote_id):
         SELECT q.*, c.name AS customer_name, c.email AS customer_email
         FROM quotes q
         JOIN customers c ON q.customer_id = c.id
-        WHERE q.id = ? AND q.company_id = ?
+        WHERE q.id = %s AND q.company_id = %s
         """,
         (quote_id, cid),
     ).fetchone()
@@ -777,7 +846,7 @@ def preview_quote_pdf(quote_id):
         abort(404)
 
     items = conn.execute(
-        "SELECT * FROM quote_items WHERE quote_id = ? ORDER BY id",
+        "SELECT * FROM quote_items WHERE quote_id = %s ORDER BY id",
         (quote_id,),
     ).fetchall()
 
@@ -785,7 +854,7 @@ def preview_quote_pdf(quote_id):
         """
         SELECT name, email, phone, website, address_line_1, address_line_2, city, state, zip_code
         FROM companies
-        WHERE id = ?
+        WHERE id = %s
         """,
         (cid,),
     ).fetchone()
@@ -794,7 +863,7 @@ def preview_quote_pdf(quote_id):
         """
         SELECT display_name, legal_name, logo_url, quote_header_name, quote_footer_note, email
         FROM company_profile
-        WHERE company_id = ?
+        WHERE company_id = %s
         """,
         (cid,),
     ).fetchone()
@@ -813,7 +882,7 @@ def preview_quote_pdf(quote_id):
 @login_required
 @require_permission("can_manage_jobs")
 def send_quote_email(quote_id):
-    ensure_quote_item_cost_columns()
+    ensure_quote_item_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -823,7 +892,7 @@ def send_quote_email(quote_id):
         SELECT q.*, c.name AS customer_name, c.email AS customer_email
         FROM quotes q
         JOIN customers c ON q.customer_id = c.id
-        WHERE q.id = ? AND q.company_id = ?
+        WHERE q.id = %s AND q.company_id = %s
         """,
         (quote_id, cid),
     ).fetchone()
@@ -833,7 +902,7 @@ def send_quote_email(quote_id):
         abort(404)
 
     items = conn.execute(
-        "SELECT * FROM quote_items WHERE quote_id = ? ORDER BY id",
+        "SELECT * FROM quote_items WHERE quote_id = %s ORDER BY id",
         (quote_id,),
     ).fetchall()
 
@@ -841,7 +910,7 @@ def send_quote_email(quote_id):
         """
         SELECT name, email, phone, website, address_line_1, address_line_2, city, state, zip_code
         FROM companies
-        WHERE id = ?
+        WHERE id = %s
         """,
         (cid,),
     ).fetchone()
@@ -850,7 +919,7 @@ def send_quote_email(quote_id):
         """
         SELECT display_name, legal_name, logo_url, quote_header_name, quote_footer_note, email
         FROM company_profile
-        WHERE company_id = ?
+        WHERE company_id = %s
         """,
         (cid,),
     ).fetchone()
@@ -894,7 +963,7 @@ def send_quote_email(quote_id):
 @login_required
 @require_permission("can_manage_jobs")
 def convert_quote_to_job(quote_id):
-    ensure_quote_item_cost_columns()
+    ensure_quote_item_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -903,7 +972,7 @@ def convert_quote_to_job(quote_id):
         """
         SELECT *
         FROM quotes
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (quote_id, cid),
     ).fetchone()
@@ -916,7 +985,7 @@ def convert_quote_to_job(quote_id):
         """
         SELECT id
         FROM jobs
-        WHERE quote_id = ? AND company_id = ?
+        WHERE quote_id = %s AND company_id = %s
         ORDER BY id DESC
         LIMIT 1
         """,
@@ -932,7 +1001,7 @@ def convert_quote_to_job(quote_id):
         """
         SELECT *
         FROM quote_items
-        WHERE quote_id = ?
+        WHERE quote_id = %s
         ORDER BY id
         """,
         (quote_id,),
@@ -944,7 +1013,7 @@ def convert_quote_to_job(quote_id):
         return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
     quote_number = quote["quote_number"] or quote_id
-    quote_title = (quote["title"] or "").strip() if "title" in quote.keys() else ""
+    quote_title = (quote["title"] or "").strip() if "title" in quote.keys() and quote["title"] else ""
     job_title = quote_title or f"Job from Quote {quote_number}"
 
     try:
@@ -955,7 +1024,8 @@ def convert_quote_to_job(quote_id):
             INSERT INTO jobs (
                 company_id, customer_id, quote_id, title, scheduled_date, status, notes
             )
-            VALUES (?, ?, ?, ?, ?, 'Scheduled', ?)
+            VALUES (%s, %s, %s, %s, %s, 'Scheduled', %s)
+            RETURNING id
             """,
             (
                 quote["company_id"],
@@ -966,12 +1036,12 @@ def convert_quote_to_job(quote_id):
                 quote["notes"],
             ),
         )
-        job_id = cur.lastrowid
+        job_id = cur.fetchone()[0]
 
         for i in items:
             qty = float(i["quantity"] or 0)
             sale_price = float(i["unit_price"] or 0)
-            unit_cost = float(i["unit_cost"] or 0)
+            unit_cost = 0.0 if (i["item_type"] or "").strip().lower() == "labor" else float(i["unit_cost"] or 0)
             line_total = qty * sale_price
             cost_amount = qty * unit_cost
 
@@ -1006,7 +1076,8 @@ def convert_quote_to_job(quote_id):
                     line_total,
                     billable
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+                RETURNING id
                 """,
                 (
                     job_id,
@@ -1021,7 +1092,7 @@ def convert_quote_to_job(quote_id):
                 ),
             )
 
-            job_item_id = cur.lastrowid
+            job_item_id = cur.fetchone()[0]
             ensure_job_cost_ledger(conn, job_item_id)
 
         recalc_job(conn, job_id)
@@ -1030,7 +1101,7 @@ def convert_quote_to_job(quote_id):
             """
             UPDATE quotes
             SET status = 'Converted'
-            WHERE id = ? AND company_id = ?
+            WHERE id = %s AND company_id = %s
             """,
             (quote_id, cid),
         )
@@ -1051,13 +1122,13 @@ def convert_quote_to_job(quote_id):
 @login_required
 @require_permission("can_manage_jobs")
 def delete_quote(quote_id):
-    ensure_quote_item_cost_columns()
+    ensure_quote_item_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
 
     quote = conn.execute(
-        "SELECT id FROM quotes WHERE id = ? AND company_id = ?",
+        "SELECT id FROM quotes WHERE id = %s AND company_id = %s",
         (quote_id, cid),
     ).fetchone()
 
@@ -1066,10 +1137,10 @@ def delete_quote(quote_id):
         flash("Quote not found.")
         return redirect(url_for("quotes.quotes"))
 
-    conn.execute("DELETE FROM quote_items WHERE quote_id = ?", (quote_id,))
+    conn.execute("DELETE FROM quote_items WHERE quote_id = %s", (quote_id,))
 
     conn.execute(
-        "DELETE FROM quotes WHERE id = ? AND company_id = ?",
+        "DELETE FROM quotes WHERE id = %s AND company_id = %s",
         (quote_id, cid),
     )
 
@@ -1084,13 +1155,13 @@ def delete_quote(quote_id):
 @login_required
 @require_permission("can_manage_jobs")
 def delete_quote_item(quote_id, item_id):
-    ensure_quote_item_cost_columns()
+    ensure_quote_item_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
 
     quote = conn.execute(
-        "SELECT id FROM quotes WHERE id = ? AND company_id = ?",
+        "SELECT id FROM quotes WHERE id = %s AND company_id = %s",
         (quote_id, cid),
     ).fetchone()
 
@@ -1104,7 +1175,7 @@ def delete_quote_item(quote_id, item_id):
         SELECT qi.id
         FROM quote_items qi
         JOIN quotes q ON qi.quote_id = q.id
-        WHERE qi.id = ? AND qi.quote_id = ? AND q.company_id = ?
+        WHERE qi.id = %s AND qi.quote_id = %s AND q.company_id = %s
         """,
         (item_id, quote_id, cid),
     ).fetchone()
@@ -1115,7 +1186,7 @@ def delete_quote_item(quote_id, item_id):
         return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
     conn.execute(
-        "DELETE FROM quote_items WHERE id = ? AND quote_id = ?",
+        "DELETE FROM quote_items WHERE id = %s AND quote_id = %s",
         (item_id, quote_id),
     )
 
@@ -1131,7 +1202,7 @@ def delete_quote_item(quote_id, item_id):
 @login_required
 @require_permission("can_manage_jobs")
 def finished_quotes():
-    ensure_quote_item_cost_columns()
+    ensure_quote_item_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -1141,7 +1212,7 @@ def finished_quotes():
         SELECT q.*, c.name AS customer_name
         FROM quotes q
         JOIN customers c ON q.customer_id = c.id
-        WHERE q.company_id = ?
+        WHERE q.company_id = %s
           AND q.status = 'Finished'
         ORDER BY q.id DESC
         """,
@@ -1183,10 +1254,12 @@ def finished_quotes():
     </div>
 
     <div class='card'>
-        <table>
-            <tr><th>ID</th><th>Number</th><th>Customer</th><th>Total</th><th>Status</th><th>Actions</th></tr>
-            {quote_rows or '<tr><td colspan="6" class="muted">No finished quotes yet.</td></tr>'}
-        </table>
+        <div class='table-wrap'>
+            <table>
+                <tr><th>ID</th><th>Number</th><th>Customer</th><th>Total</th><th>Status</th><th>Actions</th></tr>
+                {quote_rows or '<tr><td colspan="6" class="muted">No finished quotes yet.</td></tr>'}
+            </table>
+        </div>
     </div>
     """
     return render_page(content, "Finished Quotes")
@@ -1203,7 +1276,7 @@ def reopen_quote(quote_id):
         """
         SELECT id
         FROM quotes
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (quote_id, cid),
     ).fetchone()
@@ -1217,7 +1290,7 @@ def reopen_quote(quote_id):
         """
         UPDATE quotes
         SET status = 'Converted'
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (quote_id, cid),
     )
