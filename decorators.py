@@ -62,19 +62,37 @@ def subscription_required(view):
         if not company_id:
             return redirect(url_for("auth.login"))
 
-        user_email = (session.get("user_email") or "").strip().lower()
         owner_email = (os.environ.get("STRIPE_OWNER_EMAIL") or "").strip().lower()
 
-        # Owner bypass so you are never locked out of your own app
-        if owner_email and user_email == owner_email:
+        session_email = (session.get("user_email") or "").strip().lower()
+
+        db_email = ""
+        if not session_email:
+            user = get_current_user()
+            if user and user.get("email"):
+                db_email = (user.get("email") or "").strip().lower()
+
+        effective_email = session_email or db_email
+
+        print("SUBSCRIPTION CHECK company_id:", company_id)
+        print("SUBSCRIPTION CHECK session_email:", session_email)
+        print("SUBSCRIPTION CHECK db_email:", db_email)
+        print("SUBSCRIPTION CHECK owner_email:", owner_email)
+
+        # Owner bypass
+        if owner_email and effective_email == owner_email:
+            print("SUBSCRIPTION CHECK owner bypass granted")
             return view(*args, **kwargs)
 
         sub = get_company_subscription(company_id)
         status = (sub["status"] or "").strip().lower() if sub else ""
+
+        print("SUBSCRIPTION CHECK status:", status)
 
         if status not in ("active", "trialing", "trial"):
             flash("An active subscription is required to use TerraLedger.")
             return redirect(url_for("billing.subscription_required_page"))
 
         return view(*args, **kwargs)
+
     return wrapped

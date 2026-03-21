@@ -526,6 +526,13 @@ def create_checkout_session():
         elif cfg["owner_coupon_id"]:
             discounts.append({"coupon": cfg["owner_coupon_id"]})
 
+    metadata = {
+        "company_id": str(cid),
+        "company_name": company["name"] if company and "name" in company.keys() else "",
+        "user_email": user_email,
+        "selected_plan": plan,
+    }
+
     session_kwargs = {
         "mode": "subscription",
         "line_items": [
@@ -538,11 +545,9 @@ def create_checkout_session():
         "cancel_url": f"{cfg['app_base_url']}/settings/billing?checkout=cancelled",
         "allow_promotion_codes": True,
         "client_reference_id": str(cid),
-        "metadata": {
-            "company_id": str(cid),
-            "company_name": company["name"] if company and "name" in company.keys() else "",
-            "user_email": user_email,
-            "selected_plan": plan,
+        "metadata": metadata,
+        "subscription_data": {
+            "metadata": metadata
         },
     }
 
@@ -554,11 +559,20 @@ def create_checkout_session():
     if discounts:
         session_kwargs["discounts"] = discounts
 
+    print("CREATE CHECKOUT SESSION company_id:", cid)
+    print("CREATE CHECKOUT SESSION user_email:", user_email)
+    print("CREATE CHECKOUT SESSION metadata:", metadata)
+    print("CREATE CHECKOUT SESSION client_reference_id:", session_kwargs.get("client_reference_id"))
+
     try:
         checkout_session = stripe.checkout.Session.create(**session_kwargs)
+        print("CHECKOUT SESSION CREATED:", checkout_session.get("id"))
+        print("CHECKOUT SESSION RETURNED METADATA:", checkout_session.get("metadata"))
+        print("CHECKOUT SESSION RETURNED CLIENT_REFERENCE_ID:", checkout_session.get("client_reference_id"))
         return redirect(checkout_session.url)
     except Exception as e:
         flash(f"Could not start checkout: {e}")
+        print("CHECKOUT SESSION CREATE FAILED:", e)
         return redirect(url_for("billing.billing_page"))
 
 
