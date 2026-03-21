@@ -1,37 +1,153 @@
 import os
-import sqlite3
+import re
 from datetime import date, datetime
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+import psycopg2
+import psycopg2.extras
 
-DEFAULT_DB_NAME = "yardledger_rebuild.db"
-DEFAULT_DB_PATH = os.path.join(BASE_DIR, DEFAULT_DB_NAME)
 
-DB_NAME = os.environ.get("DATABASE_PATH", DEFAULT_DB_PATH)
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 
-print("USING DB:", DB_NAME)
+print("USING DATABASE_URL:", "set" if DATABASE_URL else "missing")
+
+
+def _convert_qmarks_to_percent_s(sql: str) -> str:
+    parts = sql.split("?")
+    if len(parts) <= 1:
+        return sql
+    return "%s".join(parts)
+
+
+class DBRow(dict):
+    def keys(self):
+        return super().keys()
+
+
+class DBCursor:
+    def __init__(self, conn_wrapper, cursor):
+        self._conn_wrapper = conn_wrapper
+        self._cursor = cursor
+        self.lastrowid = None
+        self._prefetched_rows = None
+
+    def execute(self, sql, params=None):
+        sql = _convert_qmarks_to_percent_s(sql)
+        params = params or ()
+
+        normalized = sql.strip().lower()
+        is_insert = normalized.startswith("insert into")
+        has_returning = " returning " in normalized
+
+        if is_insert and not has_returning:
+            sql = sql.rstrip().rstrip(";") + " RETURNING id"
+
+        self._cursor.execute(sql, params)
+
+        self.lastrowid = None
+        self._prefetched_rows = None
+
+        if is_insert:
+            try:
+                rows = self._cursor.fetchall()
+                self._prefetched_rows = rows
+                if rows and "id" in rows[0]:
+                    self.lastrowid = rows[0]["id"]
+            except Exception:
+                self._prefetched_rows = None
+
+        return self
+
+    def executescript(self, script):
+        statements = [s.strip() for s in script.split(";") if s.strip()]
+        for stmt in statements:
+            self._cursor.execute(stmt)
+        return self
+
+    def fetchone(self):
+        if self._prefetched_rows is not None:
+            if not self._prefetched_rows:
+                return None
+            row = self._prefetched_rows[0]
+            self._prefetched_rows = self._prefetched_rows[1:]
+            return DBRow(row)
+        row = self._cursor.fetchone()
+        return DBRow(row) if row else None
+
+    def fetchall(self):
+        if self._prefetched_rows is not None:
+            rows = [DBRow(r) for r in self._prefetched_rows]
+            self._prefetched_rows = []
+            return rows
+        rows = self._cursor.fetchall()
+        return [DBRow(r) for r in rows]
+
+    def __iter__(self):
+        return iter(self.fetchall())
+
+    def close(self):
+        self._cursor.close()
+
+
+class DBConnection:
+    def __init__(self, raw_conn):
+        self._raw_conn = raw_conn
+
+    def cursor(self):
+        return DBCursor(
+            self,
+            self._raw_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor),
+        )
+
+    def execute(self, sql, params=None):
+        cur = self.cursor()
+        return cur.execute(sql, params)
+
+    def commit(self):
+        self._raw_conn.commit()
+
+    def rollback(self):
+        self._raw_conn.rollback()
+
+    def close(self):
+        self._raw_conn.close()
 
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_NAME, detect_types=sqlite3.PARSE_DECLTYPES, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is not set.")
+
+    raw_conn = psycopg2.connect(DATABASE_URL)
+    raw_conn.autocommit = False
+    return DBConnection(raw_conn)
 
 
 def table_exists(conn, table_name):
     row = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = ?
+        ) AS exists
+        """,
         (table_name,),
     ).fetchone()
-    return row is not None
+    return bool(row["exists"]) if row else False
 
 
 def table_columns(conn, table_name):
     if not table_exists(conn, table_name):
         return []
-    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
-    return [r["name"] if "name" in r.keys() else r[1] for r in rows]
+    rows = conn.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = ?
+        ORDER BY ordinal_position
+        """,
+        (table_name,),
+    ).fetchall()
+    return [r["column_name"] for r in rows]
 
 
 def has_col(conn, table_name, col_name):
@@ -39,9 +155,19 @@ def has_col(conn, table_name, col_name):
 
 
 def safe_add_column(cur, table_name, col_name, col_def):
-    cols = [row[1] for row in cur.execute(f"PRAGMA table_info({table_name})").fetchall()]
-    if col_name not in cols:
-        cur.execute(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_def}")
+    cur.execute(
+        """
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = ?
+          AND column_name = ?
+        """,
+        (table_name, col_name),
+    )
+    exists = cur.fetchone()
+    if not exists:
+        cur.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{col_name}" {col_def}')
 
 
 def ensure_company_profile_table():
@@ -50,7 +176,7 @@ def ensure_company_profile_table():
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS company_profile (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             company_id INTEGER NOT NULL UNIQUE,
             display_name TEXT,
             legal_name TEXT,
@@ -72,7 +198,7 @@ def ensure_company_profile_table():
             reply_to_email TEXT,
             platform_sender_enabled INTEGER NOT NULL DEFAULT 1,
             reply_to_mode TEXT DEFAULT 'company',
-            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
@@ -84,287 +210,319 @@ def init_db():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.executescript("""
-    PRAGMA foreign_keys = ON;
-
-    CREATE TABLE IF NOT EXISTS companies (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        email TEXT,
-        phone TEXT,
-        address TEXT,
-        default_quote_notes TEXT,
-        default_invoice_notes TEXT,
-        payment_terms TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        company_id INTEGER NOT NULL,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL UNIQUE,
-        password_hash TEXT NOT NULL,
-        role TEXT DEFAULT 'owner',
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS customers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        company_id INTEGER NOT NULL,
-        name TEXT NOT NULL,
-        company TEXT,
-        email TEXT,
-        phone TEXT,
-        billing_address TEXT,
-        service_address TEXT,
-        notes TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS quotes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        company_id INTEGER NOT NULL,
-        customer_id INTEGER NOT NULL,
-        quote_number TEXT,
-        quote_date TEXT,
-        expiration_date TEXT,
-        status TEXT DEFAULT 'Draft',
-        notes TEXT,
-        subtotal REAL DEFAULT 0,
-        tax REAL DEFAULT 0,
-        total REAL DEFAULT 0,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
-        FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS quote_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        quote_id INTEGER NOT NULL,
-        description TEXT NOT NULL,
-        quantity REAL DEFAULT 0,
-        unit TEXT,
-        unit_price REAL DEFAULT 0,
-        line_total REAL DEFAULT 0,
-        FOREIGN KEY (quote_id) REFERENCES quotes(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS jobs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        company_id INTEGER NOT NULL,
-        customer_id INTEGER NOT NULL,
-        quote_id INTEGER,
-        title TEXT NOT NULL,
-        scheduled_date TEXT,
-        status TEXT DEFAULT 'Scheduled',
-        address TEXT,
-        notes TEXT,
-        revenue REAL DEFAULT 0,
-        cost_total REAL DEFAULT 0,
-        profit REAL DEFAULT 0,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
-        FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
-        FOREIGN KEY (quote_id) REFERENCES quotes(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS job_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        job_id INTEGER NOT NULL,
-        item_type TEXT DEFAULT 'material',
-        description TEXT NOT NULL,
-        quantity REAL DEFAULT 0,
-        unit TEXT,
-        unit_price REAL DEFAULT 0,
-        sale_price REAL DEFAULT 0,
-        cost_amount REAL DEFAULT 0,
-        line_total REAL DEFAULT 0,
-        billable INTEGER DEFAULT 1,
-        ledger_entry_id INTEGER,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS invoices (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        company_id INTEGER NOT NULL,
-        customer_id INTEGER NOT NULL,
-        job_id INTEGER,
-        quote_id INTEGER,
-        invoice_number TEXT,
-        invoice_date TEXT,
-        due_date TEXT,
-        status TEXT DEFAULT 'Unpaid',
-        notes TEXT,
-        subtotal REAL DEFAULT 0,
-        tax REAL DEFAULT 0,
-        total REAL DEFAULT 0,
-        amount_paid REAL DEFAULT 0,
-        balance_due REAL DEFAULT 0,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
-        FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
-        FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE SET NULL,
-        FOREIGN KEY (quote_id) REFERENCES quotes(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS invoice_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        invoice_id INTEGER NOT NULL,
-        description TEXT NOT NULL,
-        quantity REAL DEFAULT 0,
-        unit TEXT,
-        unit_price REAL DEFAULT 0,
-        line_total REAL DEFAULT 0,
-        FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS ledger_entries (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        company_id INTEGER NOT NULL,
-        entry_date TEXT NOT NULL,
-        entry_type TEXT NOT NULL,
-        category TEXT NOT NULL,
-        description TEXT NOT NULL,
-        amount REAL NOT NULL,
-        source_type TEXT,
-        source_id INTEGER,
-        customer_id INTEGER,
-        invoice_id INTEGER,
-        job_id INTEGER,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS employees (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        company_id INTEGER NOT NULL,
-        employee_number TEXT,
-        first_name TEXT NOT NULL,
-        last_name TEXT NOT NULL,
-        phone TEXT,
-        email TEXT,
-        address TEXT,
-        city TEXT,
-        state TEXT,
-        zip_code TEXT,
-        hire_date TEXT,
-        job_title TEXT,
-        pay_type TEXT DEFAULT 'Hourly',
-        pay_rate REAL DEFAULT 0,
-        overtime_rate REAL DEFAULT 0,
-        federal_tax_rate REAL DEFAULT 0,
-        state_tax_rate REAL DEFAULT 3.15,
-        filing_status TEXT DEFAULT 'single',
-        pay_schedule TEXT DEFAULT 'weekly',
-        status TEXT DEFAULT 'Active',
-        emergency_contact_name TEXT,
-        emergency_contact_phone TEXT,
-        notes TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS company_tax_settings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        company_id INTEGER NOT NULL UNIQUE,
-        federal_withholding_rate REAL NOT NULL DEFAULT 0,
-        state_withholding_rate REAL NOT NULL DEFAULT 0,
-        social_security_rate REAL NOT NULL DEFAULT 6.2,
-        medicare_rate REAL NOT NULL DEFAULT 1.45,
-        local_tax_rate REAL NOT NULL DEFAULT 0,
-        unemployment_rate REAL NOT NULL DEFAULT 0,
-        workers_comp_rate REAL NOT NULL DEFAULT 0,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS payroll_entries (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        company_id INTEGER NOT NULL,
-        employee_id INTEGER NOT NULL,
-        pay_date TEXT,
-        pay_period_start TEXT,
-        pay_period_end TEXT,
-        pay_type TEXT,
-        hours_regular REAL NOT NULL DEFAULT 0,
-        hours_overtime REAL NOT NULL DEFAULT 0,
-        rate_regular REAL NOT NULL DEFAULT 0,
-        rate_overtime REAL NOT NULL DEFAULT 0,
-        gross_pay REAL NOT NULL DEFAULT 0,
-        federal_withholding REAL NOT NULL DEFAULT 0,
-        state_withholding REAL NOT NULL DEFAULT 0,
-        social_security REAL NOT NULL DEFAULT 0,
-        medicare REAL NOT NULL DEFAULT 0,
-        local_tax REAL NOT NULL DEFAULT 0,
-        other_deductions REAL NOT NULL DEFAULT 0,
-        net_pay REAL NOT NULL DEFAULT 0,
-        notes TEXT,
-        ledger_entry_id INTEGER,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS company_profile (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        company_id INTEGER NOT NULL UNIQUE,
-        display_name TEXT,
-        legal_name TEXT,
-        logo_url TEXT,
-        phone TEXT,
-        email TEXT,
-        website TEXT,
-        address_line_1 TEXT,
-        address_line_2 TEXT,
-        city TEXT,
-        state TEXT,
-        county TEXT,
-        zip_code TEXT,
-        invoice_header_name TEXT,
-        quote_header_name TEXT,
-        invoice_footer_note TEXT,
-        quote_footer_note TEXT,
-        email_from_name TEXT,
-        reply_to_email TEXT,
-        platform_sender_enabled INTEGER NOT NULL DEFAULT 1,
-        reply_to_mode TEXT DEFAULT 'company',
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS companies (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT,
+            phone TEXT,
+            address TEXT,
+            default_quote_notes TEXT,
+            default_invoice_notes TEXT,
+            payment_terms TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
     """)
 
-    migrations = [
-        "ALTER TABLE employees ADD COLUMN federal_tax_rate REAL DEFAULT 0",
-        "ALTER TABLE employees ADD COLUMN state_tax_rate REAL DEFAULT 3.15",
-        "ALTER TABLE employees ADD COLUMN employee_number TEXT",
-        "ALTER TABLE employees ADD COLUMN filing_status TEXT DEFAULT 'single'",
-        "ALTER TABLE employees ADD COLUMN pay_schedule TEXT DEFAULT 'weekly'",
-        "ALTER TABLE employees ADD COLUMN city TEXT",
-        "ALTER TABLE employees ADD COLUMN state TEXT",
-        "ALTER TABLE employees ADD COLUMN zip_code TEXT",
-        "ALTER TABLE employees ADD COLUMN hire_date TEXT",
-        "ALTER TABLE employees ADD COLUMN job_title TEXT",
-        "ALTER TABLE employees ADD COLUMN pay_type TEXT DEFAULT 'Hourly'",
-        "ALTER TABLE employees ADD COLUMN pay_rate REAL DEFAULT 0",
-        "ALTER TABLE employees ADD COLUMN overtime_rate REAL DEFAULT 0",
-        "ALTER TABLE employees ADD COLUMN status TEXT DEFAULT 'Active'",
-        "ALTER TABLE employees ADD COLUMN emergency_contact_name TEXT",
-        "ALTER TABLE employees ADD COLUMN emergency_contact_phone TEXT",
-        "ALTER TABLE payroll_entries ADD COLUMN ledger_entry_id INTEGER",
-        "ALTER TABLE payroll_entries ADD COLUMN social_security REAL DEFAULT 0",
-        "ALTER TABLE payroll_entries ADD COLUMN medicare REAL DEFAULT 0",
-        "ALTER TABLE payroll_entries ADD COLUMN local_tax REAL NOT NULL DEFAULT 0",
-        "ALTER TABLE companies ADD COLUMN default_quote_notes TEXT",
-        "ALTER TABLE companies ADD COLUMN default_invoice_notes TEXT",
-        "ALTER TABLE companies ADD COLUMN payment_terms TEXT",
-    ]
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT DEFAULT 'owner',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
-    for sql in migrations:
-        try:
-            cur.execute(sql)
-        except sqlite3.OperationalError:
-            pass
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS customers (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            company TEXT,
+            email TEXT,
+            phone TEXT,
+            billing_address TEXT,
+            service_address TEXT,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS quotes (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            customer_id INTEGER NOT NULL,
+            quote_number TEXT,
+            quote_date TEXT,
+            expiration_date TEXT,
+            status TEXT DEFAULT 'Draft',
+            notes TEXT,
+            subtotal DOUBLE PRECISION DEFAULT 0,
+            tax DOUBLE PRECISION DEFAULT 0,
+            total DOUBLE PRECISION DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS quote_items (
+            id SERIAL PRIMARY KEY,
+            quote_id INTEGER NOT NULL,
+            description TEXT NOT NULL,
+            quantity DOUBLE PRECISION DEFAULT 0,
+            unit TEXT,
+            unit_price DOUBLE PRECISION DEFAULT 0,
+            line_total DOUBLE PRECISION DEFAULT 0
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS jobs (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            customer_id INTEGER NOT NULL,
+            quote_id INTEGER,
+            title TEXT NOT NULL,
+            scheduled_date TEXT,
+            status TEXT DEFAULT 'Scheduled',
+            address TEXT,
+            notes TEXT,
+            revenue DOUBLE PRECISION DEFAULT 0,
+            cost_total DOUBLE PRECISION DEFAULT 0,
+            profit DOUBLE PRECISION DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS job_items (
+            id SERIAL PRIMARY KEY,
+            job_id INTEGER NOT NULL,
+            item_type TEXT DEFAULT 'material',
+            description TEXT NOT NULL,
+            quantity DOUBLE PRECISION DEFAULT 0,
+            unit TEXT,
+            unit_price DOUBLE PRECISION DEFAULT 0,
+            sale_price DOUBLE PRECISION DEFAULT 0,
+            cost_amount DOUBLE PRECISION DEFAULT 0,
+            line_total DOUBLE PRECISION DEFAULT 0,
+            billable INTEGER DEFAULT 1,
+            ledger_entry_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS invoices (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            customer_id INTEGER NOT NULL,
+            job_id INTEGER,
+            quote_id INTEGER,
+            invoice_number TEXT,
+            invoice_date TEXT,
+            due_date TEXT,
+            status TEXT DEFAULT 'Unpaid',
+            notes TEXT,
+            subtotal DOUBLE PRECISION DEFAULT 0,
+            tax DOUBLE PRECISION DEFAULT 0,
+            total DOUBLE PRECISION DEFAULT 0,
+            amount_paid DOUBLE PRECISION DEFAULT 0,
+            balance_due DOUBLE PRECISION DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS invoice_items (
+            id SERIAL PRIMARY KEY,
+            invoice_id INTEGER NOT NULL,
+            description TEXT NOT NULL,
+            quantity DOUBLE PRECISION DEFAULT 0,
+            unit TEXT,
+            unit_price DOUBLE PRECISION DEFAULT 0,
+            line_total DOUBLE PRECISION DEFAULT 0
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ledger_entries (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            entry_date TEXT NOT NULL,
+            entry_type TEXT NOT NULL,
+            category TEXT NOT NULL,
+            description TEXT NOT NULL,
+            amount DOUBLE PRECISION NOT NULL,
+            source_type TEXT,
+            source_id INTEGER,
+            customer_id INTEGER,
+            invoice_id INTEGER,
+            job_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS employees (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            employee_number TEXT,
+            first_name TEXT,
+            last_name TEXT,
+            full_name TEXT,
+            phone TEXT,
+            email TEXT,
+            address TEXT,
+            city TEXT,
+            state TEXT,
+            zip_code TEXT,
+            hire_date TEXT,
+            job_title TEXT,
+            pay_type TEXT DEFAULT 'Hourly',
+            pay_rate DOUBLE PRECISION DEFAULT 0,
+            hourly_rate DOUBLE PRECISION DEFAULT 0,
+            overtime_rate DOUBLE PRECISION DEFAULT 0,
+            salary_amount DOUBLE PRECISION DEFAULT 0,
+            federal_tax_rate DOUBLE PRECISION DEFAULT 0,
+            state_tax_rate DOUBLE PRECISION DEFAULT 3.15,
+            filing_status TEXT DEFAULT 'single',
+            federal_filing_status TEXT DEFAULT 'Single',
+            w4_filing_status TEXT DEFAULT 'Single',
+            w4_step2_checked INTEGER NOT NULL DEFAULT 0,
+            w4_step3_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+            w4_step4a_other_income DOUBLE PRECISION NOT NULL DEFAULT 0,
+            w4_step4b_deductions DOUBLE PRECISION NOT NULL DEFAULT 0,
+            w4_step4c_extra_withholding DOUBLE PRECISION NOT NULL DEFAULT 0,
+            pay_schedule TEXT DEFAULT 'weekly',
+            pay_frequency TEXT DEFAULT 'Biweekly',
+            status TEXT DEFAULT 'Active',
+            is_active INTEGER NOT NULL DEFAULT 1,
+            emergency_contact_name TEXT,
+            emergency_contact_phone TEXT,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS company_tax_settings (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL UNIQUE,
+            federal_withholding_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+            state_withholding_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+            social_security_rate DOUBLE PRECISION NOT NULL DEFAULT 6.2,
+            medicare_rate DOUBLE PRECISION NOT NULL DEFAULT 1.45,
+            local_tax_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+            unemployment_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+            workers_comp_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS payroll_entries (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            employee_id INTEGER NOT NULL,
+            pay_date TEXT,
+            pay_period_start TEXT,
+            pay_period_end TEXT,
+            pay_type TEXT,
+            hours_regular DOUBLE PRECISION NOT NULL DEFAULT 0,
+            hours_overtime DOUBLE PRECISION NOT NULL DEFAULT 0,
+            rate_regular DOUBLE PRECISION NOT NULL DEFAULT 0,
+            rate_overtime DOUBLE PRECISION NOT NULL DEFAULT 0,
+            gross_pay DOUBLE PRECISION NOT NULL DEFAULT 0,
+            federal_withholding DOUBLE PRECISION NOT NULL DEFAULT 0,
+            state_withholding DOUBLE PRECISION NOT NULL DEFAULT 0,
+            social_security DOUBLE PRECISION NOT NULL DEFAULT 0,
+            medicare DOUBLE PRECISION NOT NULL DEFAULT 0,
+            local_tax DOUBLE PRECISION NOT NULL DEFAULT 0,
+            other_deductions DOUBLE PRECISION NOT NULL DEFAULT 0,
+            net_pay DOUBLE PRECISION NOT NULL DEFAULT 0,
+            notes TEXT,
+            ledger_entry_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL UNIQUE,
+            stripe_customer_id TEXT,
+            stripe_subscription_id TEXT,
+            stripe_price_id TEXT,
+            plan_name TEXT,
+            billing_interval TEXT,
+            amount_cents INTEGER,
+            status TEXT,
+            auto_renew INTEGER NOT NULL DEFAULT 1,
+            cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
+            current_period_start TEXT,
+            current_period_end TEXT,
+            payment_method_type TEXT,
+            payment_method_last4 TEXT,
+            payment_method_label TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS billing_events (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            stripe_invoice_id TEXT,
+            stripe_event_id TEXT,
+            event_type TEXT,
+            amount_cents INTEGER,
+            currency TEXT,
+            status TEXT,
+            hosted_invoice_url TEXT,
+            invoice_pdf TEXT,
+            event_date TEXT,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS invoice_payments (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            invoice_id INTEGER NOT NULL,
+            payment_date TEXT,
+            amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+            payment_method TEXT,
+            reference TEXT,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS bookkeeping_history (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            entry_date TEXT NOT NULL,
+            category TEXT NOT NULL,
+            entry_type TEXT NOT NULL,
+            description TEXT NOT NULL,
+            amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+            money_in DOUBLE PRECISION NOT NULL DEFAULT 0,
+            money_out DOUBLE PRECISION NOT NULL DEFAULT 0,
+            reference_type TEXT,
+            reference_id INTEGER,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
     conn.commit()
     conn.close()
@@ -392,9 +550,6 @@ def ensure_company_profile_columns():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute("PRAGMA table_info(companies)")
-    columns = [row[1] for row in cur.fetchall()]
-
     needed_columns = {
         "phone": "TEXT",
         "email": "TEXT",
@@ -408,8 +563,7 @@ def ensure_company_profile_columns():
     }
 
     for col, col_type in needed_columns.items():
-        if col not in columns:
-            cur.execute(f"ALTER TABLE companies ADD COLUMN {col} {col_type}")
+        safe_add_column(cur, "companies", col, col_type)
 
     conn.commit()
     conn.close()
@@ -420,9 +574,6 @@ def ensure_company_profile_email_columns():
 
     conn = get_db_connection()
     cur = conn.cursor()
-
-    cur.execute("PRAGMA table_info(company_profile)")
-    cols = [row[1] for row in cur.fetchall()]
 
     needed = {
         "phone": "TEXT",
@@ -441,12 +592,11 @@ def ensure_company_profile_email_columns():
         "reply_to_email": "TEXT",
         "platform_sender_enabled": "INTEGER NOT NULL DEFAULT 1",
         "reply_to_mode": "TEXT DEFAULT 'company'",
-        "updated_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
+        "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
     }
 
     for col, col_type in needed.items():
-        if col not in cols:
-            cur.execute(f"ALTER TABLE company_profile ADD COLUMN {col} {col_type}")
+        safe_add_column(cur, "company_profile", col, col_type)
 
     conn.commit()
     conn.close()
@@ -455,13 +605,7 @@ def ensure_company_profile_email_columns():
 def ensure_employee_status_column():
     conn = get_db_connection()
     cur = conn.cursor()
-
-    cur.execute("PRAGMA table_info(employees)")
-    columns = [row[1] for row in cur.fetchall()]
-
-    if "is_active" not in columns:
-        cur.execute("ALTER TABLE employees ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
-
+    safe_add_column(cur, "employees", "is_active", "INTEGER NOT NULL DEFAULT 1")
     conn.commit()
     conn.close()
 
@@ -470,15 +614,9 @@ def ensure_employee_name_columns():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute("PRAGMA table_info(employees)")
-    cols = [row[1] for row in cur.fetchall()]
-
-    if "first_name" not in cols:
-        cur.execute("ALTER TABLE employees ADD COLUMN first_name TEXT")
-    if "last_name" not in cols:
-        cur.execute("ALTER TABLE employees ADD COLUMN last_name TEXT")
-    if "full_name" not in cols:
-        cur.execute("ALTER TABLE employees ADD COLUMN full_name TEXT")
+    safe_add_column(cur, "employees", "first_name", "TEXT")
+    safe_add_column(cur, "employees", "last_name", "TEXT")
+    safe_add_column(cur, "employees", "full_name", "TEXT")
 
     conn.commit()
     conn.close()
@@ -488,28 +626,24 @@ def ensure_employee_payroll_columns():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute("PRAGMA table_info(employees)")
-    cols = [row[1] for row in cur.fetchall()]
-
     needed_columns = {
         "pay_type": "TEXT DEFAULT 'Hourly'",
         "pay_frequency": "TEXT DEFAULT 'Biweekly'",
-        "hourly_rate": "REAL NOT NULL DEFAULT 0",
-        "overtime_rate": "REAL NOT NULL DEFAULT 0",
-        "salary_amount": "REAL NOT NULL DEFAULT 0",
+        "hourly_rate": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "overtime_rate": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "salary_amount": "DOUBLE PRECISION NOT NULL DEFAULT 0",
         "federal_filing_status": "TEXT DEFAULT 'Single'",
         "w4_filing_status": "TEXT DEFAULT 'Single'",
         "w4_step2_checked": "INTEGER NOT NULL DEFAULT 0",
-        "w4_step3_amount": "REAL NOT NULL DEFAULT 0",
-        "w4_step4a_other_income": "REAL NOT NULL DEFAULT 0",
-        "w4_step4b_deductions": "REAL NOT NULL DEFAULT 0",
-        "w4_step4c_extra_withholding": "REAL NOT NULL DEFAULT 0",
+        "w4_step3_amount": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "w4_step4a_other_income": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "w4_step4b_deductions": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "w4_step4c_extra_withholding": "DOUBLE PRECISION NOT NULL DEFAULT 0",
         "is_active": "INTEGER NOT NULL DEFAULT 1",
     }
 
     for col_name, col_def in needed_columns.items():
-        if col_name not in cols:
-            cur.execute(f"ALTER TABLE employees ADD COLUMN {col_name} {col_def}")
+        safe_add_column(cur, "employees", col_name, col_def)
 
     conn.commit()
     conn.close()
@@ -521,17 +655,9 @@ def ensure_company_profile_location_columns():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute("PRAGMA table_info(company_profile)")
-    cols = [row[1] for row in cur.fetchall()]
-
-    if "city" not in cols:
-        cur.execute("ALTER TABLE company_profile ADD COLUMN city TEXT")
-
-    if "state" not in cols:
-        cur.execute("ALTER TABLE company_profile ADD COLUMN state TEXT")
-
-    if "county" not in cols:
-        cur.execute("ALTER TABLE company_profile ADD COLUMN county TEXT")
+    safe_add_column(cur, "company_profile", "city", "TEXT")
+    safe_add_column(cur, "company_profile", "state", "TEXT")
+    safe_add_column(cur, "company_profile", "county", "TEXT")
 
     conn.commit()
     conn.close()
@@ -541,22 +667,18 @@ def ensure_employee_tax_columns():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute("PRAGMA table_info(employees)")
-    cols = [row[1] for row in cur.fetchall()]
-
     needed_columns = {
         "federal_filing_status": "TEXT DEFAULT 'Single'",
         "pay_frequency": "TEXT DEFAULT 'Biweekly'",
         "w4_step2_checked": "INTEGER NOT NULL DEFAULT 0",
-        "w4_step3_amount": "REAL NOT NULL DEFAULT 0",
-        "w4_step4a_other_income": "REAL NOT NULL DEFAULT 0",
-        "w4_step4b_deductions": "REAL NOT NULL DEFAULT 0",
-        "w4_step4c_extra_withholding": "REAL NOT NULL DEFAULT 0",
+        "w4_step3_amount": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "w4_step4a_other_income": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "w4_step4b_deductions": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "w4_step4c_extra_withholding": "DOUBLE PRECISION NOT NULL DEFAULT 0",
     }
 
     for col, col_type in needed_columns.items():
-        if col not in cols:
-            cur.execute(f"ALTER TABLE employees ADD COLUMN {col} {col_type}")
+        safe_add_column(cur, "employees", col, col_type)
 
     conn.commit()
     conn.close()
@@ -565,13 +687,7 @@ def ensure_employee_tax_columns():
 def ensure_payroll_columns():
     conn = get_db_connection()
     cur = conn.cursor()
-
-    cur.execute("PRAGMA table_info(payroll_entries)")
-    cols = [row[1] for row in cur.fetchall()]
-
-    if "pay_type" not in cols:
-        cur.execute("ALTER TABLE payroll_entries ADD COLUMN pay_type TEXT")
-
+    safe_add_column(cur, "payroll_entries", "pay_type", "TEXT")
     conn.commit()
     conn.close()
 
@@ -580,9 +696,6 @@ def ensure_payroll_table_structure():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute("PRAGMA table_info(payroll_entries)")
-    cols = [row[1] for row in cur.fetchall()]
-
     needed_columns = {
         "company_id": "INTEGER NOT NULL DEFAULT 0",
         "employee_id": "INTEGER NOT NULL DEFAULT 0",
@@ -590,26 +703,25 @@ def ensure_payroll_table_structure():
         "pay_period_start": "TEXT",
         "pay_period_end": "TEXT",
         "pay_type": "TEXT",
-        "hours_regular": "REAL NOT NULL DEFAULT 0",
-        "hours_overtime": "REAL NOT NULL DEFAULT 0",
-        "rate_regular": "REAL NOT NULL DEFAULT 0",
-        "rate_overtime": "REAL NOT NULL DEFAULT 0",
-        "gross_pay": "REAL NOT NULL DEFAULT 0",
-        "federal_withholding": "REAL NOT NULL DEFAULT 0",
-        "state_withholding": "REAL NOT NULL DEFAULT 0",
-        "social_security": "REAL NOT NULL DEFAULT 0",
-        "medicare": "REAL NOT NULL DEFAULT 0",
-        "local_tax": "REAL NOT NULL DEFAULT 0",
-        "other_deductions": "REAL NOT NULL DEFAULT 0",
-        "net_pay": "REAL NOT NULL DEFAULT 0",
+        "hours_regular": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "hours_overtime": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "rate_regular": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "rate_overtime": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "gross_pay": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "federal_withholding": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "state_withholding": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "social_security": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "medicare": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "local_tax": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "other_deductions": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "net_pay": "DOUBLE PRECISION NOT NULL DEFAULT 0",
         "notes": "TEXT",
         "ledger_entry_id": "INTEGER",
-        "created_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
+        "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
     }
 
     for col, col_type in needed_columns.items():
-        if col not in cols:
-            cur.execute(f"ALTER TABLE payroll_entries ADD COLUMN {col} {col_type}")
+        safe_add_column(cur, "payroll_entries", col, col_type)
 
     conn.commit()
     conn.close()
@@ -621,7 +733,7 @@ def ensure_billing_tables():
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS subscriptions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             company_id INTEGER NOT NULL UNIQUE,
             stripe_customer_id TEXT,
             stripe_subscription_id TEXT,
@@ -637,14 +749,14 @@ def ensure_billing_tables():
             payment_method_type TEXT,
             payment_method_last4 TEXT,
             payment_method_label TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS billing_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             company_id INTEGER NOT NULL,
             stripe_invoice_id TEXT,
             stripe_event_id TEXT,
@@ -656,7 +768,7 @@ def ensure_billing_tables():
             invoice_pdf TEXT,
             event_date TEXT,
             notes TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
@@ -820,18 +932,13 @@ def insert_billing_event(
     conn.commit()
     conn.close()
 
+
 def ensure_document_number_columns():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute("PRAGMA table_info(companies)")
-    cols = [row[1] for row in cur.fetchall()]
-
-    if "next_quote_number" not in cols:
-        cur.execute("ALTER TABLE companies ADD COLUMN next_quote_number INTEGER NOT NULL DEFAULT 1001")
-
-    if "next_invoice_number" not in cols:
-        cur.execute("ALTER TABLE companies ADD COLUMN next_invoice_number INTEGER NOT NULL DEFAULT 1001")
+    safe_add_column(cur, "companies", "next_quote_number", "INTEGER NOT NULL DEFAULT 1001")
+    safe_add_column(cur, "companies", "next_invoice_number", "INTEGER NOT NULL DEFAULT 1001")
 
     conn.commit()
     conn.close()
@@ -893,17 +1000,9 @@ def ensure_company_profile_tax_location_columns():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute("PRAGMA table_info(company_profile)")
-    cols = [row[1] for row in cur.fetchall()]
-
-    if "city" not in cols:
-        cur.execute("ALTER TABLE company_profile ADD COLUMN city TEXT")
-
-    if "state" not in cols:
-        cur.execute("ALTER TABLE company_profile ADD COLUMN state TEXT")
-
-    if "county" not in cols:
-        cur.execute("ALTER TABLE company_profile ADD COLUMN county TEXT")
+    safe_add_column(cur, "company_profile", "city", "TEXT")
+    safe_add_column(cur, "company_profile", "state", "TEXT")
+    safe_add_column(cur, "company_profile", "county", "TEXT")
 
     conn.commit()
     conn.close()
@@ -915,7 +1014,7 @@ def get_billing_history(company_id, limit=20):
         SELECT *
         FROM billing_events
         WHERE company_id = ?
-        ORDER BY COALESCE(event_date, created_at) DESC, id DESC
+        ORDER BY COALESCE(event_date, created_at::text) DESC, id DESC
         LIMIT ?
     """, (company_id, limit)).fetchall()
     conn.close()
@@ -928,16 +1027,16 @@ def ensure_company_tax_settings_table():
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS company_tax_settings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             company_id INTEGER NOT NULL UNIQUE,
-            federal_withholding_rate REAL NOT NULL DEFAULT 0,
-            state_withholding_rate REAL NOT NULL DEFAULT 0,
-            social_security_rate REAL NOT NULL DEFAULT 6.2,
-            medicare_rate REAL NOT NULL DEFAULT 1.45,
-            local_tax_rate REAL NOT NULL DEFAULT 0,
-            unemployment_rate REAL NOT NULL DEFAULT 0,
-            workers_comp_rate REAL NOT NULL DEFAULT 0,
-            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            federal_withholding_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+            state_withholding_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+            social_security_rate DOUBLE PRECISION NOT NULL DEFAULT 6.2,
+            medicare_rate DOUBLE PRECISION NOT NULL DEFAULT 1.45,
+            local_tax_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+            unemployment_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+            workers_comp_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
@@ -949,36 +1048,25 @@ def ensure_user_permission_columns():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cols = [r["name"] for r in cur.execute("PRAGMA table_info(users)").fetchall()]
+    needed = {
+        "role": "TEXT DEFAULT 'Employee'",
+        "is_active": "INTEGER DEFAULT 1",
+        "can_manage_users": "INTEGER DEFAULT 0",
+        "can_view_payroll": "INTEGER DEFAULT 0",
+        "can_manage_payroll": "INTEGER DEFAULT 0",
+        "can_view_bookkeeping": "INTEGER DEFAULT 0",
+        "can_manage_bookkeeping": "INTEGER DEFAULT 0",
+        "can_manage_jobs": "INTEGER DEFAULT 0",
+        "can_manage_customers": "INTEGER DEFAULT 0",
+        "can_manage_invoices": "INTEGER DEFAULT 0",
+        "can_manage_settings": "INTEGER DEFAULT 0",
+        "can_manage_employees": "INTEGER DEFAULT 0",
+        "can_view_employees": "INTEGER DEFAULT 0",
+        "can_manage_quotes": "INTEGER DEFAULT 0",
+    }
 
-    if "role" not in cols:
-        cur.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'Employee'")
-    if "is_active" not in cols:
-        cur.execute("ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1")
-    if "can_manage_users" not in cols:
-        cur.execute("ALTER TABLE users ADD COLUMN can_manage_users INTEGER DEFAULT 0")
-    if "can_view_payroll" not in cols:
-        cur.execute("ALTER TABLE users ADD COLUMN can_view_payroll INTEGER DEFAULT 0")
-    if "can_manage_payroll" not in cols:
-        cur.execute("ALTER TABLE users ADD COLUMN can_manage_payroll INTEGER DEFAULT 0")
-    if "can_view_bookkeeping" not in cols:
-        cur.execute("ALTER TABLE users ADD COLUMN can_view_bookkeeping INTEGER DEFAULT 0")
-    if "can_manage_bookkeeping" not in cols:
-        cur.execute("ALTER TABLE users ADD COLUMN can_manage_bookkeeping INTEGER DEFAULT 0")
-    if "can_manage_jobs" not in cols:
-        cur.execute("ALTER TABLE users ADD COLUMN can_manage_jobs INTEGER DEFAULT 0")
-    if "can_manage_customers" not in cols:
-        cur.execute("ALTER TABLE users ADD COLUMN can_manage_customers INTEGER DEFAULT 0")
-    if "can_manage_invoices" not in cols:
-        cur.execute("ALTER TABLE users ADD COLUMN can_manage_invoices INTEGER DEFAULT 0")
-    if "can_manage_settings" not in cols:
-        cur.execute("ALTER TABLE users ADD COLUMN can_manage_settings INTEGER DEFAULT 0")
-    if "can_manage_employees" not in cols:
-        cur.execute("ALTER TABLE users ADD COLUMN can_manage_employees INTEGER DEFAULT 0")
-    if "can_view_employees" not in cols:
-        cur.execute("ALTER TABLE users ADD COLUMN can_view_employees INTEGER DEFAULT 0")
-    if "can_manage_quotes" not in cols:
-        cur.execute("ALTER TABLE users ADD COLUMN can_manage_quotes INTEGER DEFAULT 0")
+    for col, col_type in needed.items():
+        safe_add_column(cur, "users", col, col_type)
 
     conn.commit()
     conn.close()
@@ -1044,9 +1132,7 @@ def create_owner_user(company_id, name, email, password_hash):
 
 def get_employee_columns():
     conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("PRAGMA table_info(employees)")
-    cols = [row[1] for row in cur.fetchall()]
+    cols = table_columns(conn, "employees")
     conn.close()
     return cols
 
@@ -1055,15 +1141,15 @@ def ensure_invoice_payments_table():
     conn = get_db_connection()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS invoice_payments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             company_id INTEGER NOT NULL,
             invoice_id INTEGER NOT NULL,
             payment_date TEXT,
-            amount REAL NOT NULL DEFAULT 0,
+            amount DOUBLE PRECISION NOT NULL DEFAULT 0,
             payment_method TEXT,
             reference TEXT,
             notes TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
     conn.commit()
@@ -1076,50 +1162,39 @@ def ensure_bookkeeping_history_table():
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS bookkeeping_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             company_id INTEGER NOT NULL,
             entry_date TEXT NOT NULL,
             category TEXT NOT NULL,
             entry_type TEXT NOT NULL,
             description TEXT NOT NULL,
-            amount REAL NOT NULL DEFAULT 0,
-            money_in REAL NOT NULL DEFAULT 0,
-            money_out REAL NOT NULL DEFAULT 0,
+            amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+            money_in DOUBLE PRECISION NOT NULL DEFAULT 0,
+            money_out DOUBLE PRECISION NOT NULL DEFAULT 0,
             reference_type TEXT,
             reference_id INTEGER,
             notes TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
-    existing_cols = {
-        row["name"] for row in cur.execute("PRAGMA table_info(bookkeeping_history)").fetchall()
+    needed = {
+        "company_id": "INTEGER NOT NULL DEFAULT 0",
+        "entry_date": "TEXT",
+        "category": "TEXT",
+        "entry_type": "TEXT",
+        "description": "TEXT",
+        "amount": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "money_in": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "money_out": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "reference_type": "TEXT",
+        "reference_id": "INTEGER",
+        "notes": "TEXT",
+        "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
     }
 
-    if "company_id" not in existing_cols:
-        cur.execute("ALTER TABLE bookkeeping_history ADD COLUMN company_id INTEGER NOT NULL DEFAULT 0")
-    if "entry_date" not in existing_cols:
-        cur.execute("ALTER TABLE bookkeeping_history ADD COLUMN entry_date TEXT")
-    if "category" not in existing_cols:
-        cur.execute("ALTER TABLE bookkeeping_history ADD COLUMN category TEXT")
-    if "entry_type" not in existing_cols:
-        cur.execute("ALTER TABLE bookkeeping_history ADD COLUMN entry_type TEXT")
-    if "description" not in existing_cols:
-        cur.execute("ALTER TABLE bookkeeping_history ADD COLUMN description TEXT")
-    if "amount" not in existing_cols:
-        cur.execute("ALTER TABLE bookkeeping_history ADD COLUMN amount REAL NOT NULL DEFAULT 0")
-    if "money_in" not in existing_cols:
-        cur.execute("ALTER TABLE bookkeeping_history ADD COLUMN money_in REAL NOT NULL DEFAULT 0")
-    if "money_out" not in existing_cols:
-        cur.execute("ALTER TABLE bookkeeping_history ADD COLUMN money_out REAL NOT NULL DEFAULT 0")
-    if "reference_type" not in existing_cols:
-        cur.execute("ALTER TABLE bookkeeping_history ADD COLUMN reference_type TEXT")
-    if "reference_id" not in existing_cols:
-        cur.execute("ALTER TABLE bookkeeping_history ADD COLUMN reference_id INTEGER")
-    if "notes" not in existing_cols:
-        cur.execute("ALTER TABLE bookkeeping_history ADD COLUMN notes TEXT")
-    if "created_at" not in existing_cols:
-        cur.execute("ALTER TABLE bookkeeping_history ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP")
+    for col, col_type in needed.items():
+        safe_add_column(cur, "bookkeeping_history", col, col_type)
 
     conn.commit()
     conn.close()
@@ -1294,127 +1369,46 @@ def ensure_payroll_ledger_entry(conn, payroll_id):
     if pay_date:
         description += f" - {pay_date}"
 
-    ledger_cols = conn.execute("PRAGMA table_info(ledger_entries)").fetchall()
-    ledger_col_names = [r["name"] if "name" in r.keys() else r[1] for r in ledger_cols]
-
-    has_source_type = "source_type" in ledger_col_names
-    has_source_id = "source_id" in ledger_col_names
-    has_reference_type = "reference_type" in ledger_col_names
-    has_reference_id = "reference_id" in ledger_col_names
-    has_entry_date = "entry_date" in ledger_col_names
-    has_date = "date" in ledger_col_names
-    has_created_at = "created_at" in ledger_col_names
-    has_description = "description" in ledger_col_names
-    has_memo = "memo" in ledger_col_names
-    has_notes = "notes" in ledger_col_names
-    has_category = "category" in ledger_col_names
-
-    existing = None
-
-    if has_source_type and has_source_id:
-        existing = conn.execute("""
-            SELECT id
-            FROM ledger_entries
-            WHERE source_type = 'payroll' AND source_id = ?
-        """, (payroll_id,)).fetchone()
-    elif has_reference_type and has_reference_id:
-        existing = conn.execute("""
-            SELECT id
-            FROM ledger_entries
-            WHERE reference_type = 'payroll' AND reference_id = ?
-        """, (payroll_id,)).fetchone()
-
-    set_parts = ["company_id = ?", "entry_type = ?", "amount = ?"]
-    values = [payroll["company_id"], "Expense", gross_pay]
-
-    if has_category:
-        set_parts.append("category = ?")
-        values.append("Payroll")
-
-    if has_description:
-        set_parts.append("description = ?")
-        values.append(description)
-    elif has_memo:
-        set_parts.append("memo = ?")
-        values.append(description)
-    elif has_notes:
-        set_parts.append("notes = ?")
-        values.append(description)
-
-    if has_entry_date:
-        set_parts.append("entry_date = ?")
-        values.append(pay_date)
-    elif has_date:
-        set_parts.append("date = ?")
-        values.append(pay_date)
-    elif has_created_at:
-        set_parts.append("created_at = ?")
-        values.append(pay_date)
-
-    if has_source_type:
-        set_parts.append("source_type = ?")
-        values.append("payroll")
-    if has_source_id:
-        set_parts.append("source_id = ?")
-        values.append(payroll_id)
-    if has_reference_type:
-        set_parts.append("reference_type = ?")
-        values.append("payroll")
-    if has_reference_id:
-        set_parts.append("reference_id = ?")
-        values.append(payroll_id)
+    existing = conn.execute("""
+        SELECT id
+        FROM ledger_entries
+        WHERE source_type = 'payroll' AND source_id = ?
+    """, (payroll_id,)).fetchone()
 
     if existing:
-        values.append(existing["id"])
-        conn.execute(f"""
+        conn.execute("""
             UPDATE ledger_entries
-            SET {", ".join(set_parts)}
+            SET company_id = ?,
+                entry_date = ?,
+                entry_type = 'Expense',
+                category = 'Payroll',
+                description = ?,
+                amount = ?,
+                source_type = 'payroll',
+                source_id = ?
             WHERE id = ?
-        """, values)
+        """, (
+            payroll["company_id"],
+            pay_date,
+            description,
+            gross_pay,
+            payroll_id,
+            existing["id"],
+        ))
     else:
-        insert_cols = []
-        insert_vals = []
-        placeholders = []
-
-        def add_col(col, val):
-            insert_cols.append(col)
-            insert_vals.append(val)
-            placeholders.append("?")
-
-        add_col("company_id", payroll["company_id"])
-        add_col("entry_type", "Expense")
-        add_col("amount", gross_pay)
-
-        if has_category:
-            add_col("category", "Payroll")
-
-        if has_description:
-            add_col("description", description)
-        elif has_memo:
-            add_col("memo", description)
-        elif has_notes:
-            add_col("notes", description)
-
-        if has_entry_date:
-            add_col("entry_date", pay_date)
-        elif has_date:
-            add_col("date", pay_date)
-        elif has_created_at:
-            add_col("created_at", pay_date)
-
-        if has_source_type:
-            add_col("source_type", "payroll")
-        if has_source_id:
-            add_col("source_id", payroll_id)
-        if has_reference_type:
-            add_col("reference_type", "payroll")
-        if has_reference_id:
-            add_col("reference_id", payroll_id)
-
-        conn.execute(f"""
-            INSERT INTO ledger_entries ({", ".join(insert_cols)})
-            VALUES ({", ".join(placeholders)})
-        """, insert_vals)
+        conn.execute("""
+            INSERT INTO ledger_entries (
+                company_id, entry_date, entry_type, category, description, amount,
+                source_type, source_id
+            )
+            VALUES (?, ?, 'Expense', 'Payroll', ?, ?, 'payroll', ?)
+        """, (
+            payroll["company_id"],
+            pay_date,
+            description,
+            gross_pay,
+            payroll_id,
+        ))
 
 
 def ensure_job_cost_ledger(conn, job_item_id):
@@ -1741,13 +1735,8 @@ def ensure_customer_name_columns():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cols = [r["name"] for r in cur.execute("PRAGMA table_info(customers)").fetchall()]
-
-    if "first_name" not in cols:
-        cur.execute("ALTER TABLE customers ADD COLUMN first_name TEXT")
-
-    if "last_name" not in cols:
-        cur.execute("ALTER TABLE customers ADD COLUMN last_name TEXT")
+    safe_add_column(cur, "customers", "first_name", "TEXT")
+    safe_add_column(cur, "customers", "last_name", "TEXT")
 
     conn.commit()
 
