@@ -56,6 +56,7 @@ a {
     color: inherit;
 }
 
+/* APP SHELL */
 .app-shell {
     display: flex;
     min-height: 100vh;
@@ -65,7 +66,7 @@ a {
 .sidebar {
     width: 250px;
     min-width: 250px;
-    background: linear-gradient(180deg, var(--green-dark), var(--green));
+    background: linear-gradient(180deg, var(--green-dark), var(--green), var(--green-light));
     color: #fff;
     padding: 18px 16px;
     display: flex;
@@ -136,27 +137,40 @@ a {
     transform: translateX(1px);
 }
 
-.sidebar-bottom {
-    margin-top: auto;
+/* MAIN */
+.main-content {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 10px;
 }
 
-.sidebar-bottom .btn {
-    width: 100%;
+.topbar {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 20px 0 20px;
+    flex-wrap: wrap;
+}
+
+.topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
 }
 
 .company-menu-wrap {
     position: relative;
 }
 
-#companyMenu {
+#companyMenuTop {
     display: none;
     position: absolute;
-    left: 0;
     right: 0;
-    bottom: calc(100% + 8px);
+    top: calc(100% + 8px);
+    min-width: 220px;
     background: #fff;
     color: var(--text);
     border-radius: 12px;
@@ -166,7 +180,7 @@ a {
     border: 1px solid var(--border);
 }
 
-#companyMenu .menu-header {
+#companyMenuTop .menu-header {
     padding: 12px 14px;
     border-bottom: 1px solid #e4eadf;
     background: #f8fbf5;
@@ -186,18 +200,6 @@ a {
 
 .company-menu-link:hover {
     background: var(--bg-soft);
-}
-
-/* MAIN */
-.main-content {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-}
-
-.top-mobile-bar {
-    display: none;
 }
 
 .container {
@@ -516,6 +518,98 @@ label {
     font-size: 0.75rem;
 }
 
+/* LOGGED OUT / LOGIN SCREEN */
+.auth-shell {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background:
+        radial-gradient(circle at top left, rgba(127, 191, 63, 0.18), transparent 35%),
+        radial-gradient(circle at bottom right, rgba(240, 140, 74, 0.18), transparent 32%),
+        linear-gradient(135deg, #eef3ea 0%, #f7f7f5 45%, #f3ece4 100%);
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 560px;
+    background: rgba(255,255,255,0.96);
+    border: 1px solid #d8e2d0;
+    border-radius: 18px;
+    box-shadow: 0 16px 42px rgba(47, 79, 31, 0.12);
+    padding: 28px;
+    position: relative;
+    overflow: hidden;
+}
+
+.auth-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 6px;
+    background: linear-gradient(90deg, var(--green-dark), var(--green), var(--orange));
+}
+
+.auth-brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 18px;
+}
+
+.auth-logo {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, var(--orange), var(--orange-soft));
+    color: #1f2933;
+    font-weight: 900;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 6px 18px rgba(240, 140, 74, 0.22);
+    flex: 0 0 auto;
+}
+
+.auth-brand-text h1,
+.auth-brand-text h2,
+.auth-brand-text h3 {
+    margin: 0;
+    color: var(--green-dark);
+}
+
+.auth-brand-text .muted {
+    margin-top: 4px;
+}
+
+.auth-content .card,
+.auth-content .settings-card {
+    box-shadow: none;
+    border: none;
+    background: transparent;
+    padding: 0;
+    margin-bottom: 0;
+}
+
+.auth-content h1:first-child,
+.auth-content h2:first-child,
+.auth-content h3:first-child {
+    margin-top: 0;
+}
+
+.auth-content .btn,
+.auth-content button.btn,
+.auth-content a.btn {
+    width: 100%;
+}
+
+.auth-content .row-actions .btn,
+.auth-content .row-actions a,
+.auth-content .row-actions button {
+    width: 100%;
+}
+
 /* RESPONSIVE */
 @media (max-width: 1100px) {
     .stats-grid,
@@ -565,15 +659,9 @@ label {
         background: rgba(255,255,255,0.08);
     }
 
-    .sidebar-bottom {
-        margin-top: 0;
-        flex-direction: row;
-        flex-wrap: wrap;
-    }
-
-    .sidebar-bottom .btn {
-        width: auto;
-        flex: 1 1 180px;
+    .topbar {
+        justify-content: space-between;
+        padding: 12px 12px 0 12px;
     }
 
     .grid,
@@ -671,6 +759,19 @@ label {
     .brand-text strong {
         white-space: normal;
     }
+
+    .auth-shell {
+        padding: 14px;
+    }
+
+    .auth-card {
+        padding: 20px;
+        border-radius: 16px;
+    }
+
+    .auth-brand {
+        align-items: flex-start;
+    }
 }
 </style>
 </head>
@@ -698,29 +799,32 @@ label {
             <a href="{{ url_for('invoices.invoices') }}">Invoices</a>
             <a href="{{ url_for('bookkeeping.bookkeeping') }}">Bookkeeping</a>
         </nav>
-
-        <div class="sidebar-bottom">
-            <button type="button" class="btn secondary" onclick="openHelpAssistant()">Help</button>
-
-            <div class="company-menu-wrap">
-                <button id="companyMenuButton" class="btn secondary" type="button">
-                    {{ session.get('company_name') }} ▼
-                </button>
-
-                <div id="companyMenu">
-                    <div class="menu-header">
-                        <div style="font-weight:700;">{{ session.get('company_name') }}</div>
-                        <div style="font-size:.9rem; color:var(--text-soft);">{{ session.get('user_name') }}</div>
-                    </div>
-
-                    <a class="company-menu-link" href="{{ url_for('settings.settings') }}">Settings</a>
-                    <a class="company-menu-link danger" href="{{ url_for('auth.logout') }}">Logout</a>
-                </div>
-            </div>
-        </div>
     </aside>
 
     <main class="main-content">
+
+        <div class="topbar">
+            <div class="topbar-actions">
+                <button type="button" class="btn secondary" onclick="openHelpAssistant()">Help</button>
+
+                <div class="company-menu-wrap">
+                    <button id="companyMenuButtonTop" class="btn secondary" type="button">
+                        {{ session.get('company_name') }} ▼
+                    </button>
+
+                    <div id="companyMenuTop">
+                        <div class="menu-header">
+                            <div style="font-weight:700;">{{ session.get('company_name') }}</div>
+                            <div style="font-size:.9rem; color:var(--text-soft);">{{ session.get('user_name') }}</div>
+                        </div>
+
+                        <a class="company-menu-link" href="{{ url_for('settings.settings') }}">Settings</a>
+                        <a class="company-menu-link danger" href="{{ url_for('auth.logout') }}">Logout</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="container">
 
             {% with messages = get_flashed_messages() %}
@@ -742,19 +846,33 @@ label {
 
 </div>
 {% else %}
-<div class="container">
-    {% with messages = get_flashed_messages() %}
-    {% if messages %}
-    {% for message in messages %}
-    <div class="flash">{{ message }}</div>
-    {% endfor %}
-    {% endif %}
-    {% endwith %}
+<div class="auth-shell">
+    <div class="auth-card">
 
-    <div class="page-content-wrap">
-        <div class="page-content-inner">
-            {{ content|safe }}
+        <div class="auth-brand">
+            <div class="auth-logo">TL</div>
+            <div class="auth-brand-text">
+                <h2>TerraLedger</h2>
+                <div class="muted">Landscaper-focused business software</div>
+            </div>
         </div>
+
+        {% with messages = get_flashed_messages() %}
+        {% if messages %}
+        {% for message in messages %}
+        <div class="flash">{{ message }}</div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <div class="auth-content">
+            <div class="page-content-wrap">
+                <div class="page-content-inner">
+                    {{ content|safe }}
+                </div>
+            </div>
+        </div>
+
     </div>
 </div>
 {% endif %}
@@ -801,21 +919,21 @@ label {
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-    const button = document.getElementById("companyMenuButton");
-    const menu = document.getElementById("companyMenu");
+    const topButton = document.getElementById("companyMenuButtonTop");
+    const topMenu = document.getElementById("companyMenuTop");
 
-    if (button && menu) {
-        button.addEventListener("click", function (e) {
+    if (topButton && topMenu) {
+        topButton.addEventListener("click", function (e) {
             e.stopPropagation();
-            menu.style.display = menu.style.display === "block" ? "none" : "block";
+            topMenu.style.display = topMenu.style.display === "block" ? "none" : "block";
         });
 
-        menu.addEventListener("click", function (e) {
+        topMenu.addEventListener("click", function (e) {
             e.stopPropagation();
         });
 
         document.addEventListener("click", function () {
-            menu.style.display = "none";
+            topMenu.style.display = "none";
         });
     }
 
