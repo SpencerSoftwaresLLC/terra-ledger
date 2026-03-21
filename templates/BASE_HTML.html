@@ -451,6 +451,25 @@ form.inline-form {
     margin-bottom: 18px;
 }
 
+.dashboard-lower-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    align-items: start;
+    margin-top: 18px;
+}
+
+.dashboard-lower-grid .card {
+    min-width: 0;
+    width: 100%;
+    overflow: hidden;
+}
+
+.dashboard-lower-grid .table-wrap {
+    width: 100%;
+    overflow-x: auto;
+}
+
 .stat-label {
     font-size: 0.9rem;
     color: var(--text-soft);
@@ -683,6 +702,12 @@ label {
     .row-actions a,
     .row-actions button {
         flex: 1 1 180px;
+    }
+}
+
+@media (max-width: 900px) {
+    .dashboard-lower-grid {
+        grid-template-columns: 1fr;
     }
 }
 

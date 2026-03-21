@@ -8,6 +8,23 @@ from page_helpers import render_page
 bookkeeping_bp = Blueprint("bookkeeping", __name__)
 
 
+EXPENSE_TYPES = {
+    "expense",
+    "expenses",
+    "cost",
+    "job cost",
+    "material",
+    "materials",
+    "labor",
+    "labour",
+    "fuel",
+    "equipment",
+    "delivery",
+    "misc",
+    "payroll",
+}
+
+
 def _safe_float(value):
     try:
         return float(value or 0)
@@ -17,10 +34,30 @@ def _safe_float(value):
 
 def _fmt_money(value, show_plus=False):
     amount = _safe_float(value)
-    prefix = "+"
-    if not show_plus or amount <= 0:
-        prefix = ""
-    return f"{prefix}${amount:,.2f}"
+    if amount < 0:
+        return f"-${abs(amount):,.2f}"
+    if show_plus and amount > 0:
+        return f"+${amount:,.2f}"
+    return f"${amount:,.2f}"
+
+
+def _is_expense_entry(entry_type, description=""):
+    et = str(entry_type or "").strip().lower()
+    desc = str(description or "").strip().lower()
+
+    if et in EXPENSE_TYPES:
+        return True
+
+    for keyword in EXPENSE_TYPES:
+        if keyword and keyword in et:
+            return True
+
+    desc_keywords = {"labor", "labour", "mulch", "stone", "fuel", "equipment", "delivery", "payroll"}
+    for keyword in desc_keywords:
+        if keyword in desc:
+            return True
+
+    return False
 
 
 @bookkeeping_bp.route("/bookkeeping")
@@ -113,22 +150,47 @@ def bookkeeping():
 
     conn.close()
 
-    total_income = sum(_safe_float(r["amount"]) for r in rows if _safe_float(r["amount"]) > 0)
-    total_expenses = sum(abs(_safe_float(r["amount"])) for r in rows if _safe_float(r["amount"]) < 0)
+    normalized_rows = []
+    total_income = 0.0
+    total_expenses = 0.0
+
+    for r in rows:
+        raw_amount = abs(_safe_float(r["amount"]))
+        entry_type = str(r["entry_type"] or "")
+        description = str(r["description"] or "")
+
+        is_expense = _is_expense_entry(entry_type, description)
+        signed_amount = -raw_amount if is_expense else raw_amount
+
+        if is_expense:
+            total_expenses += raw_amount
+        else:
+            total_income += raw_amount
+
+        normalized_rows.append(
+            {
+                "id": r["id"],
+                "entry_date": r["entry_date"],
+                "entry_type": entry_type,
+                "description": description,
+                "raw_amount": raw_amount,
+                "signed_amount": signed_amount,
+            }
+        )
+
     net_profit = total_income - total_expenses
 
     running_balance = 0.0
     balances = {}
-    for r in list(rows)[::-1]:
-        amt = _safe_float(r["amount"])
-        running_balance += amt
+    for r in list(normalized_rows)[::-1]:
+        running_balance += r["signed_amount"]
         balances[r["id"]] = running_balance
 
     ledger_row_html = []
-    for r in rows:
-        amount = _safe_float(r["amount"])
+    for r in normalized_rows:
+        signed_amount = r["signed_amount"]
         balance = balances.get(r["id"], 0.0)
-        amount_color = "#16a34a" if amount >= 0 else "#dc2626"
+        amount_color = "#16a34a" if signed_amount >= 0 else "#dc2626"
         balance_color = "#16a34a" if balance >= 0 else "#dc2626"
 
         ledger_row_html.append(
@@ -138,7 +200,7 @@ def bookkeeping():
                 <td>{escape(str(r['entry_date'] or '-'))}</td>
                 <td>{escape(str(r['entry_type'] or '-'))}</td>
                 <td>{escape(str(r['description'] or '-'))}</td>
-                <td class="amount-cell" style="color:{amount_color};">{_fmt_money(amount, show_plus=True)}</td>
+                <td class="amount-cell" style="color:{amount_color};">{_fmt_money(signed_amount, show_plus=True)}</td>
                 <td class="balance-cell" style="color:{balance_color};">{_fmt_money(balance)}</td>
             </tr>
             """
@@ -160,7 +222,7 @@ def bookkeeping():
                 <td>{escape(str(r['entry_type'] or '-'))}</td>
                 <td>{escape(str(r['description'] or '-'))}</td>
                 <td style="color:#16a34a;">{_fmt_money(r['money_in'])}</td>
-                <td style="color:#dc2626;">{_fmt_money(r['money_out'])}</td>
+                <td style="color:#dc2626;">-{abs(_safe_float(r['money_out'])):,.2f}</td>
                 <td>{escape(str(r['notes'] or ''))}</td>
             </tr>
             """
@@ -187,7 +249,7 @@ def bookkeeping():
 
             <div class="card stat-card" style="flex:1;min-width:220px;">
                 <div class="stat-label">Expenses</div>
-                <div class="stat-value" style="color:#dc2626;">-${abs(total_expenses):,.2f}</div>
+                <div class="stat-value" style="color:#dc2626;">-{abs(total_expenses):,.2f}</div>
             </div>
 
             <div class="card stat-card" style="flex:1;min-width:220px;">
@@ -255,7 +317,7 @@ def bookkeeping():
 
             <div class="card stat-card" style="flex:1;min-width:220px;">
                 <div class="stat-label">Total Money Out</div>
-                <div class="stat-value" style="color:#dc2626;">-${abs(history_total_out):,.2f}</div>
+                <div class="stat-value" style="color:#dc2626;">-{abs(history_total_out):,.2f}</div>
             </div>
 
             <div class="card stat-card" style="flex:1;min-width:220px;">
@@ -443,7 +505,7 @@ def bookkeeping_history():
                 <td>{escape(str(r['entry_type'] or '-'))}</td>
                 <td>{escape(str(r['description'] or '-'))}</td>
                 <td style="color:#16a34a;">{_fmt_money(r['money_in'])}</td>
-                <td style="color:#dc2626;">{_fmt_money(r['money_out'])}</td>
+                <td style="color:#dc2626;">-{abs(_safe_float(r['money_out'])):,.2f}</td>
                 <td>{escape(str(r['notes'] or ''))}</td>
             </tr>
             """
@@ -468,7 +530,7 @@ def bookkeeping_history():
 
             <div class="card stat-card" style="flex:1;min-width:220px;">
                 <div class="stat-label">Total Money Out</div>
-                <div class="stat-value" style="color:#dc2626;">-${abs(total_out):,.2f}</div>
+                <div class="stat-value" style="color:#dc2626;">-{abs(total_out):,.2f}</div>
             </div>
 
             <div class="card stat-card" style="flex:1;min-width:220px;">
