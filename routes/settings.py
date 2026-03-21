@@ -7,6 +7,7 @@ from werkzeug.utils import secure_filename
 
 from db import (
     get_db_connection,
+    ensure_company_profile_table,
     ensure_company_profile_columns,
     ensure_company_tax_settings_table,
     ensure_company_profile_location_columns,
@@ -28,71 +29,6 @@ def ensure_logo_upload_folder():
     upload_folder = os.path.join(base_dir, "static", "uploads", "company_logos")
     os.makedirs(upload_folder, exist_ok=True)
     return upload_folder
-
-
-def ensure_company_profile_table():
-    conn = get_db_connection()
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS company_profile (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            company_id INTEGER NOT NULL UNIQUE,
-            display_name TEXT,
-            legal_name TEXT,
-            logo_url TEXT,
-            phone TEXT,
-            email TEXT,
-            website TEXT,
-            address_line_1 TEXT,
-            address_line_2 TEXT,
-            city TEXT,
-            state TEXT,
-            county TEXT,
-            zip_code TEXT,
-            invoice_header_name TEXT,
-            quote_header_name TEXT,
-            invoice_footer_note TEXT,
-            quote_footer_note TEXT,
-            email_from_name TEXT,
-            reply_to_email TEXT,
-            platform_sender_enabled INTEGER NOT NULL DEFAULT 1,
-            reply_to_mode TEXT DEFAULT 'company',
-            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
-
-    cur = conn.cursor()
-    cur.execute("PRAGMA table_info(company_profile)")
-    cols = [row[1] for row in cur.fetchall()]
-
-    needed_columns = {
-        "phone": "TEXT",
-        "email": "TEXT",
-        "website": "TEXT",
-        "address_line_1": "TEXT",
-        "address_line_2": "TEXT",
-        "city": "TEXT",
-        "state": "TEXT",
-        "county": "TEXT",
-        "zip_code": "TEXT",
-        "invoice_header_name": "TEXT",
-        "quote_header_name": "TEXT",
-        "invoice_footer_note": "TEXT",
-        "quote_footer_note": "TEXT",
-        "email_from_name": "TEXT",
-        "reply_to_email": "TEXT",
-        "platform_sender_enabled": "INTEGER NOT NULL DEFAULT 1",
-        "reply_to_mode": "TEXT DEFAULT 'company'",
-        "updated_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
-    }
-
-    for col, col_type in needed_columns.items():
-        if col not in cols:
-            cur.execute(f"ALTER TABLE company_profile ADD COLUMN {col} {col_type}")
-
-    conn.commit()
-    conn.close()
 
 
 def get_company_profile(cid):

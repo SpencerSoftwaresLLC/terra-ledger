@@ -1,3 +1,4 @@
+import os
 from functools import wraps
 from flask import session, redirect, url_for, flash
 from db import get_db_connection, ensure_user_permission_columns, get_company_subscription
@@ -60,6 +61,13 @@ def subscription_required(view):
         company_id = session.get("company_id")
         if not company_id:
             return redirect(url_for("auth.login"))
+
+        user_email = (session.get("user_email") or "").strip().lower()
+        owner_email = (os.environ.get("STRIPE_OWNER_EMAIL") or "").strip().lower()
+
+        # Owner bypass so you are never locked out of your own app
+        if owner_email and user_email == owner_email:
+            return view(*args, **kwargs)
 
         sub = get_company_subscription(company_id)
         status = (sub["status"] or "").strip().lower() if sub else ""
