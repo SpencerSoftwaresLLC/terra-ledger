@@ -590,6 +590,7 @@ def stripe_webhook():
     print("WEBHOOK CUSTOMER:", obj.get("customer"))
     print("WEBHOOK SUBSCRIPTION:", obj.get("subscription"))
     print("WEBHOOK METADATA:", obj.get("metadata"))
+    print("WEBHOOK CLIENT_REFERENCE_ID:", obj.get("client_reference_id"))
 
     def company_id_from_customer(customer_id):
         conn = get_db_connection()
@@ -612,6 +613,15 @@ def stripe_webhook():
                 company_id = int(metadata.get("company_id"))
             except Exception:
                 company_id = None
+
+        # Fallback to client_reference_id if metadata is empty
+        if not company_id and obj.get("client_reference_id"):
+            try:
+                company_id = int(obj.get("client_reference_id"))
+            except Exception:
+                company_id = None
+
+        print("checkout.session.completed resolved company_id:", company_id)
 
         if company_id:
             try:
@@ -639,6 +649,8 @@ def stripe_webhook():
                     print("checkout.session.completed linked customer only:", company_id, customer_id)
             except Exception as e:
                 print("checkout.session.completed sync failed:", e)
+        else:
+            print("checkout.session.completed could not resolve company_id")
 
     elif event_type in (
         "customer.subscription.created",
