@@ -206,6 +206,431 @@ def ensure_company_profile_table():
     conn.close()
 
 
+def ensure_document_number_columns():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    safe_add_column(cur, "companies", "next_quote_number", "INTEGER NOT NULL DEFAULT 1001")
+    safe_add_column(cur, "companies", "next_invoice_number", "INTEGER NOT NULL DEFAULT 1001")
+
+    conn.commit()
+    conn.close()
+
+
+def ensure_company_profile_columns():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    needed_columns = {
+        "phone": "TEXT",
+        "email": "TEXT",
+        "website": "TEXT",
+        "address_line_1": "TEXT",
+        "address_line_2": "TEXT",
+        "city": "TEXT",
+        "state": "TEXT",
+        "zip_code": "TEXT",
+        "tax_id": "TEXT",
+    }
+
+    for col, col_type in needed_columns.items():
+        safe_add_column(cur, "companies", col, col_type)
+
+    conn.commit()
+    conn.close()
+
+
+def ensure_company_profile_email_columns():
+    ensure_company_profile_table()
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    needed = {
+        "phone": "TEXT",
+        "email": "TEXT",
+        "website": "TEXT",
+        "address_line_1": "TEXT",
+        "address_line_2": "TEXT",
+        "city": "TEXT",
+        "state": "TEXT",
+        "zip_code": "TEXT",
+        "invoice_header_name": "TEXT",
+        "quote_header_name": "TEXT",
+        "invoice_footer_note": "TEXT",
+        "quote_footer_note": "TEXT",
+        "email_from_name": "TEXT",
+        "reply_to_email": "TEXT",
+        "platform_sender_enabled": "INTEGER NOT NULL DEFAULT 1",
+        "reply_to_mode": "TEXT DEFAULT 'company'",
+        "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+    }
+
+    for col, col_type in needed.items():
+        safe_add_column(cur, "company_profile", col, col_type)
+
+    conn.commit()
+    conn.close()
+
+
+def ensure_company_profile_location_columns():
+    ensure_company_profile_table()
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    safe_add_column(cur, "company_profile", "city", "TEXT")
+    safe_add_column(cur, "company_profile", "state", "TEXT")
+    safe_add_column(cur, "company_profile", "county", "TEXT")
+
+    conn.commit()
+    conn.close()
+
+
+def ensure_company_profile_tax_location_columns():
+    ensure_company_profile_table()
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    safe_add_column(cur, "company_profile", "city", "TEXT")
+    safe_add_column(cur, "company_profile", "state", "TEXT")
+    safe_add_column(cur, "company_profile", "county", "TEXT")
+
+    conn.commit()
+    conn.close()
+
+
+def ensure_employee_status_column():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    safe_add_column(cur, "employees", "is_active", "INTEGER NOT NULL DEFAULT 1")
+    conn.commit()
+    conn.close()
+
+
+def ensure_employee_name_columns():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    safe_add_column(cur, "employees", "first_name", "TEXT")
+    safe_add_column(cur, "employees", "last_name", "TEXT")
+    safe_add_column(cur, "employees", "full_name", "TEXT")
+
+    conn.commit()
+    conn.close()
+
+
+def ensure_employee_payroll_columns():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    needed_columns = {
+        "pay_type": "TEXT DEFAULT 'Hourly'",
+        "pay_frequency": "TEXT DEFAULT 'Biweekly'",
+        "hourly_rate": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "overtime_rate": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "salary_amount": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "federal_filing_status": "TEXT DEFAULT 'Single'",
+        "w4_filing_status": "TEXT DEFAULT 'Single'",
+        "w4_step2_checked": "INTEGER NOT NULL DEFAULT 0",
+        "w4_step3_amount": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "w4_step4a_other_income": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "w4_step4b_deductions": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "w4_step4c_extra_withholding": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "is_active": "INTEGER NOT NULL DEFAULT 1",
+    }
+
+    for col_name, col_def in needed_columns.items():
+        safe_add_column(cur, "employees", col_name, col_def)
+
+    conn.commit()
+    conn.close()
+
+
+def ensure_employee_tax_columns():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    needed_columns = {
+        "federal_filing_status": "TEXT DEFAULT 'Single'",
+        "pay_frequency": "TEXT DEFAULT 'Biweekly'",
+        "w4_step2_checked": "INTEGER NOT NULL DEFAULT 0",
+        "w4_step3_amount": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "w4_step4a_other_income": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "w4_step4b_deductions": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "w4_step4c_extra_withholding": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+    }
+
+    for col, col_type in needed_columns.items():
+        safe_add_column(cur, "employees", col, col_type)
+
+    conn.commit()
+    conn.close()
+
+
+def ensure_payroll_columns():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    safe_add_column(cur, "payroll_entries", "pay_type", "TEXT")
+    conn.commit()
+    conn.close()
+
+
+def ensure_payroll_table_structure():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    needed_columns = {
+        "company_id": "INTEGER NOT NULL DEFAULT 0",
+        "employee_id": "INTEGER NOT NULL DEFAULT 0",
+        "pay_date": "TEXT",
+        "pay_period_start": "TEXT",
+        "pay_period_end": "TEXT",
+        "pay_type": "TEXT",
+        "hours_regular": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "hours_overtime": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "rate_regular": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "rate_overtime": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "gross_pay": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "federal_withholding": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "state_withholding": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "social_security": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "medicare": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "local_tax": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "other_deductions": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "net_pay": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "notes": "TEXT",
+        "ledger_entry_id": "INTEGER",
+        "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+    }
+
+    for col, col_type in needed_columns.items():
+        safe_add_column(cur, "payroll_entries", col, col_type)
+
+    conn.commit()
+    conn.close()
+
+
+def ensure_company_tax_settings_table():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS company_tax_settings (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL UNIQUE,
+            federal_withholding_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+            state_withholding_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+            social_security_rate DOUBLE PRECISION NOT NULL DEFAULT 6.2,
+            medicare_rate DOUBLE PRECISION NOT NULL DEFAULT 1.45,
+            local_tax_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+            unemployment_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+            workers_comp_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def ensure_user_permission_columns():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    needed = {
+        "role": "TEXT DEFAULT 'Employee'",
+        "is_active": "INTEGER DEFAULT 1",
+        "can_manage_users": "INTEGER DEFAULT 0",
+        "can_view_payroll": "INTEGER DEFAULT 0",
+        "can_manage_payroll": "INTEGER DEFAULT 0",
+        "can_view_bookkeeping": "INTEGER DEFAULT 0",
+        "can_manage_bookkeeping": "INTEGER DEFAULT 0",
+        "can_manage_jobs": "INTEGER DEFAULT 0",
+        "can_manage_customers": "INTEGER DEFAULT 0",
+        "can_manage_invoices": "INTEGER DEFAULT 0",
+        "can_manage_settings": "INTEGER DEFAULT 0",
+        "can_manage_employees": "INTEGER DEFAULT 0",
+        "can_view_employees": "INTEGER DEFAULT 0",
+        "can_manage_quotes": "INTEGER DEFAULT 0",
+    }
+
+    for col, col_type in needed.items():
+        safe_add_column(cur, "users", col, col_type)
+
+    conn.commit()
+    conn.close()
+
+
+def ensure_customer_name_columns():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    safe_add_column(cur, "customers", "first_name", "TEXT")
+    safe_add_column(cur, "customers", "last_name", "TEXT")
+
+    conn.commit()
+
+    rows = cur.execute("SELECT id, name FROM customers").fetchall()
+
+    for r in rows:
+        name = (r["name"] or "").strip()
+        if not name:
+            continue
+
+        parts = name.split(" ")
+        first = parts[0]
+        last = parts[-1] if len(parts) > 1 else ""
+
+        cur.execute("""
+            UPDATE customers
+            SET first_name = ?, last_name = ?
+            WHERE id = ?
+        """, (first, last, r["id"]))
+
+    conn.commit()
+    conn.close()
+
+
+def ensure_invoice_payments_table():
+    conn = get_db_connection()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS invoice_payments (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            invoice_id INTEGER NOT NULL,
+            payment_date TEXT,
+            amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+            payment_method TEXT,
+            reference TEXT,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def ensure_bookkeeping_history_table():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS bookkeeping_history (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            entry_date TEXT NOT NULL,
+            category TEXT NOT NULL,
+            entry_type TEXT NOT NULL,
+            description TEXT NOT NULL,
+            amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+            money_in DOUBLE PRECISION NOT NULL DEFAULT 0,
+            money_out DOUBLE PRECISION NOT NULL DEFAULT 0,
+            reference_type TEXT,
+            reference_id INTEGER,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    needed = {
+        "company_id": "INTEGER NOT NULL DEFAULT 0",
+        "entry_date": "TEXT",
+        "category": "TEXT",
+        "entry_type": "TEXT",
+        "description": "TEXT",
+        "amount": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "money_in": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "money_out": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "reference_type": "TEXT",
+        "reference_id": "INTEGER",
+        "notes": "TEXT",
+        "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+    }
+
+    for col, col_type in needed.items():
+        safe_add_column(cur, "bookkeeping_history", col, col_type)
+
+    conn.commit()
+    conn.close()
+
+
+def ensure_billing_tables():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL UNIQUE,
+            stripe_customer_id TEXT,
+            stripe_subscription_id TEXT,
+            stripe_price_id TEXT,
+            plan_name TEXT,
+            billing_interval TEXT,
+            amount_cents INTEGER,
+            status TEXT,
+            auto_renew INTEGER NOT NULL DEFAULT 1,
+            cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
+            current_period_start TEXT,
+            current_period_end TEXT,
+            payment_method_type TEXT,
+            payment_method_last4 TEXT,
+            payment_method_label TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS billing_events (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            stripe_invoice_id TEXT,
+            stripe_event_id TEXT,
+            event_type TEXT,
+            amount_cents INTEGER,
+            currency TEXT,
+            status TEXT,
+            hosted_invoice_url TEXT,
+            invoice_pdf TEXT,
+            event_date TEXT,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def ensure_job_item_columns():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    needed = {
+        "item_type": "TEXT DEFAULT 'material'",
+        "description": "TEXT",
+        "quantity": "DOUBLE PRECISION DEFAULT 0",
+        "unit": "TEXT",
+        "unit_cost": "DOUBLE PRECISION DEFAULT 0",
+        "unit_price": "DOUBLE PRECISION DEFAULT 0",
+        "sale_price": "DOUBLE PRECISION DEFAULT 0",
+        "cost_amount": "DOUBLE PRECISION DEFAULT 0",
+        "line_total": "DOUBLE PRECISION DEFAULT 0",
+        "billable": "INTEGER DEFAULT 1",
+        "ledger_entry_id": "INTEGER",
+        "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+    }
+
+    for col, col_type in needed.items():
+        safe_add_column(cur, "job_items", col, col_type)
+
+    conn.commit()
+    conn.close()
+
+
 def init_db():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -306,6 +731,7 @@ def init_db():
             description TEXT NOT NULL,
             quantity DOUBLE PRECISION DEFAULT 0,
             unit TEXT,
+            unit_cost DOUBLE PRECISION DEFAULT 0,
             unit_price DOUBLE PRECISION DEFAULT 0,
             sale_price DOUBLE PRECISION DEFAULT 0,
             cost_amount DOUBLE PRECISION DEFAULT 0,
@@ -529,251 +955,22 @@ def init_db():
 
     ensure_company_profile_table()
     ensure_company_profile_columns()
+    ensure_company_profile_email_columns()
+    ensure_company_profile_location_columns()
     ensure_employee_status_column()
     ensure_employee_name_columns()
     ensure_employee_payroll_columns()
+    ensure_employee_tax_columns()
     ensure_payroll_columns()
     ensure_payroll_table_structure()
     ensure_company_tax_settings_table()
-    ensure_employee_tax_columns()
     ensure_bookkeeping_history_table()
     ensure_invoice_payments_table()
     ensure_user_permission_columns()
     ensure_customer_name_columns()
     ensure_billing_tables()
-    ensure_company_profile_location_columns()
-    ensure_company_profile_email_columns()
     ensure_document_number_columns()
-
-
-def ensure_company_profile_columns():
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    needed_columns = {
-        "phone": "TEXT",
-        "email": "TEXT",
-        "website": "TEXT",
-        "address_line_1": "TEXT",
-        "address_line_2": "TEXT",
-        "city": "TEXT",
-        "state": "TEXT",
-        "zip_code": "TEXT",
-        "tax_id": "TEXT",
-    }
-
-    for col, col_type in needed_columns.items():
-        safe_add_column(cur, "companies", col, col_type)
-
-    conn.commit()
-    conn.close()
-
-
-def ensure_company_profile_email_columns():
-    ensure_company_profile_table()
-
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    needed = {
-        "phone": "TEXT",
-        "email": "TEXT",
-        "website": "TEXT",
-        "address_line_1": "TEXT",
-        "address_line_2": "TEXT",
-        "city": "TEXT",
-        "state": "TEXT",
-        "zip_code": "TEXT",
-        "invoice_header_name": "TEXT",
-        "quote_header_name": "TEXT",
-        "invoice_footer_note": "TEXT",
-        "quote_footer_note": "TEXT",
-        "email_from_name": "TEXT",
-        "reply_to_email": "TEXT",
-        "platform_sender_enabled": "INTEGER NOT NULL DEFAULT 1",
-        "reply_to_mode": "TEXT DEFAULT 'company'",
-        "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-    }
-
-    for col, col_type in needed.items():
-        safe_add_column(cur, "company_profile", col, col_type)
-
-    conn.commit()
-    conn.close()
-
-
-def ensure_employee_status_column():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    safe_add_column(cur, "employees", "is_active", "INTEGER NOT NULL DEFAULT 1")
-    conn.commit()
-    conn.close()
-
-
-def ensure_employee_name_columns():
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    safe_add_column(cur, "employees", "first_name", "TEXT")
-    safe_add_column(cur, "employees", "last_name", "TEXT")
-    safe_add_column(cur, "employees", "full_name", "TEXT")
-
-    conn.commit()
-    conn.close()
-
-
-def ensure_employee_payroll_columns():
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    needed_columns = {
-        "pay_type": "TEXT DEFAULT 'Hourly'",
-        "pay_frequency": "TEXT DEFAULT 'Biweekly'",
-        "hourly_rate": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "overtime_rate": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "salary_amount": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "federal_filing_status": "TEXT DEFAULT 'Single'",
-        "w4_filing_status": "TEXT DEFAULT 'Single'",
-        "w4_step2_checked": "INTEGER NOT NULL DEFAULT 0",
-        "w4_step3_amount": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "w4_step4a_other_income": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "w4_step4b_deductions": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "w4_step4c_extra_withholding": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "is_active": "INTEGER NOT NULL DEFAULT 1",
-    }
-
-    for col_name, col_def in needed_columns.items():
-        safe_add_column(cur, "employees", col_name, col_def)
-
-    conn.commit()
-    conn.close()
-
-
-def ensure_company_profile_location_columns():
-    ensure_company_profile_table()
-
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    safe_add_column(cur, "company_profile", "city", "TEXT")
-    safe_add_column(cur, "company_profile", "state", "TEXT")
-    safe_add_column(cur, "company_profile", "county", "TEXT")
-
-    conn.commit()
-    conn.close()
-
-
-def ensure_employee_tax_columns():
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    needed_columns = {
-        "federal_filing_status": "TEXT DEFAULT 'Single'",
-        "pay_frequency": "TEXT DEFAULT 'Biweekly'",
-        "w4_step2_checked": "INTEGER NOT NULL DEFAULT 0",
-        "w4_step3_amount": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "w4_step4a_other_income": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "w4_step4b_deductions": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "w4_step4c_extra_withholding": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-    }
-
-    for col, col_type in needed_columns.items():
-        safe_add_column(cur, "employees", col, col_type)
-
-    conn.commit()
-    conn.close()
-
-
-def ensure_payroll_columns():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    safe_add_column(cur, "payroll_entries", "pay_type", "TEXT")
-    conn.commit()
-    conn.close()
-
-
-def ensure_payroll_table_structure():
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    needed_columns = {
-        "company_id": "INTEGER NOT NULL DEFAULT 0",
-        "employee_id": "INTEGER NOT NULL DEFAULT 0",
-        "pay_date": "TEXT",
-        "pay_period_start": "TEXT",
-        "pay_period_end": "TEXT",
-        "pay_type": "TEXT",
-        "hours_regular": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "hours_overtime": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "rate_regular": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "rate_overtime": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "gross_pay": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "federal_withholding": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "state_withholding": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "social_security": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "medicare": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "local_tax": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "other_deductions": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "net_pay": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "notes": "TEXT",
-        "ledger_entry_id": "INTEGER",
-        "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-    }
-
-    for col, col_type in needed_columns.items():
-        safe_add_column(cur, "payroll_entries", col, col_type)
-
-    conn.commit()
-    conn.close()
-
-
-def ensure_billing_tables():
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS subscriptions (
-            id SERIAL PRIMARY KEY,
-            company_id INTEGER NOT NULL UNIQUE,
-            stripe_customer_id TEXT,
-            stripe_subscription_id TEXT,
-            stripe_price_id TEXT,
-            plan_name TEXT,
-            billing_interval TEXT,
-            amount_cents INTEGER,
-            status TEXT,
-            auto_renew INTEGER NOT NULL DEFAULT 1,
-            cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
-            current_period_start TEXT,
-            current_period_end TEXT,
-            payment_method_type TEXT,
-            payment_method_last4 TEXT,
-            payment_method_label TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS billing_events (
-            id SERIAL PRIMARY KEY,
-            company_id INTEGER NOT NULL,
-            stripe_invoice_id TEXT,
-            stripe_event_id TEXT,
-            event_type TEXT,
-            amount_cents INTEGER,
-            currency TEXT,
-            status TEXT,
-            hosted_invoice_url TEXT,
-            invoice_pdf TEXT,
-            event_date TEXT,
-            notes TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    conn.commit()
-    conn.close()
+    ensure_job_item_columns()
 
 
 def get_company_subscription(company_id):
@@ -933,15 +1130,16 @@ def insert_billing_event(
     conn.close()
 
 
-def ensure_document_number_columns():
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    safe_add_column(cur, "companies", "next_quote_number", "INTEGER NOT NULL DEFAULT 1001")
-    safe_add_column(cur, "companies", "next_invoice_number", "INTEGER NOT NULL DEFAULT 1001")
-
-    conn.commit()
-    conn.close()
+def _extract_numeric_suffix(value, fallback=1000):
+    if value is None:
+        return fallback
+    match = re.search(r"(\d+)$", str(value).strip())
+    if not match:
+        return fallback
+    try:
+        return int(match.group(1))
+    except Exception:
+        return fallback
 
 
 def get_next_invoice_number(company_id):
@@ -958,6 +1156,19 @@ def get_next_invoice_number(company_id):
     next_number = 1001
     if row and row["next_invoice_number"] is not None:
         next_number = int(row["next_invoice_number"])
+    else:
+        latest = conn.execute(
+            """
+            SELECT invoice_number
+            FROM invoices
+            WHERE company_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (company_id,),
+        ).fetchone()
+        if latest and latest["invoice_number"]:
+            next_number = _extract_numeric_suffix(latest["invoice_number"], 1000) + 1
 
     cur.execute(
         "UPDATE companies SET next_invoice_number = ? WHERE id = ?",
@@ -983,6 +1194,19 @@ def get_next_quote_number(company_id):
     next_number = 1001
     if row and row["next_quote_number"] is not None:
         next_number = int(row["next_quote_number"])
+    else:
+        latest = conn.execute(
+            """
+            SELECT quote_number
+            FROM quotes
+            WHERE company_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (company_id,),
+        ).fetchone()
+        if latest and latest["quote_number"]:
+            next_number = _extract_numeric_suffix(latest["quote_number"], 1000) + 1
 
     cur.execute(
         "UPDATE companies SET next_quote_number = ? WHERE id = ?",
@@ -992,21 +1216,6 @@ def get_next_quote_number(company_id):
     conn.commit()
     conn.close()
     return str(next_number)
-
-
-def ensure_company_profile_tax_location_columns():
-    ensure_company_profile_table()
-
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    safe_add_column(cur, "company_profile", "city", "TEXT")
-    safe_add_column(cur, "company_profile", "state", "TEXT")
-    safe_add_column(cur, "company_profile", "county", "TEXT")
-
-    conn.commit()
-    conn.close()
-
 
 def get_billing_history(company_id, limit=20):
     conn = get_db_connection()
@@ -1019,58 +1228,6 @@ def get_billing_history(company_id, limit=20):
     """, (company_id, limit)).fetchall()
     conn.close()
     return rows
-
-
-def ensure_company_tax_settings_table():
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS company_tax_settings (
-            id SERIAL PRIMARY KEY,
-            company_id INTEGER NOT NULL UNIQUE,
-            federal_withholding_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
-            state_withholding_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
-            social_security_rate DOUBLE PRECISION NOT NULL DEFAULT 6.2,
-            medicare_rate DOUBLE PRECISION NOT NULL DEFAULT 1.45,
-            local_tax_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
-            unemployment_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
-            workers_comp_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    conn.commit()
-    conn.close()
-
-
-def ensure_user_permission_columns():
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    needed = {
-        "role": "TEXT DEFAULT 'Employee'",
-        "is_active": "INTEGER DEFAULT 1",
-        "can_manage_users": "INTEGER DEFAULT 0",
-        "can_view_payroll": "INTEGER DEFAULT 0",
-        "can_manage_payroll": "INTEGER DEFAULT 0",
-        "can_view_bookkeeping": "INTEGER DEFAULT 0",
-        "can_manage_bookkeeping": "INTEGER DEFAULT 0",
-        "can_manage_jobs": "INTEGER DEFAULT 0",
-        "can_manage_customers": "INTEGER DEFAULT 0",
-        "can_manage_invoices": "INTEGER DEFAULT 0",
-        "can_manage_settings": "INTEGER DEFAULT 0",
-        "can_manage_employees": "INTEGER DEFAULT 0",
-        "can_view_employees": "INTEGER DEFAULT 0",
-        "can_manage_quotes": "INTEGER DEFAULT 0",
-    }
-
-    for col, col_type in needed.items():
-        safe_add_column(cur, "users", col, col_type)
-
-    conn.commit()
-    conn.close()
-
 
 def create_owner_user(company_id, name, email, password_hash):
     ensure_user_permission_columns()
@@ -1135,70 +1292,6 @@ def get_employee_columns():
     cols = table_columns(conn, "employees")
     conn.close()
     return cols
-
-
-def ensure_invoice_payments_table():
-    conn = get_db_connection()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS invoice_payments (
-            id SERIAL PRIMARY KEY,
-            company_id INTEGER NOT NULL,
-            invoice_id INTEGER NOT NULL,
-            payment_date TEXT,
-            amount DOUBLE PRECISION NOT NULL DEFAULT 0,
-            payment_method TEXT,
-            reference TEXT,
-            notes TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-
-def ensure_bookkeeping_history_table():
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS bookkeeping_history (
-            id SERIAL PRIMARY KEY,
-            company_id INTEGER NOT NULL,
-            entry_date TEXT NOT NULL,
-            category TEXT NOT NULL,
-            entry_type TEXT NOT NULL,
-            description TEXT NOT NULL,
-            amount DOUBLE PRECISION NOT NULL DEFAULT 0,
-            money_in DOUBLE PRECISION NOT NULL DEFAULT 0,
-            money_out DOUBLE PRECISION NOT NULL DEFAULT 0,
-            reference_type TEXT,
-            reference_id INTEGER,
-            notes TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    needed = {
-        "company_id": "INTEGER NOT NULL DEFAULT 0",
-        "entry_date": "TEXT",
-        "category": "TEXT",
-        "entry_type": "TEXT",
-        "description": "TEXT",
-        "amount": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "money_in": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "money_out": "DOUBLE PRECISION NOT NULL DEFAULT 0",
-        "reference_type": "TEXT",
-        "reference_id": "INTEGER",
-        "notes": "TEXT",
-        "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-    }
-
-    for col, col_type in needed.items():
-        safe_add_column(cur, "bookkeeping_history", col, col_type)
-
-    conn.commit()
-    conn.close()
-
 
 def add_bookkeeping_history_entry(
     company_id,
@@ -1463,12 +1556,16 @@ def ensure_job_cost_ledger(conn, job_item_id):
     description = (item["description"] or f"Job {category} item").strip()
 
     quantity = float(item["quantity"] or 0)
+    unit_cost = float(item["unit_cost"] or 0) if "unit_cost" in item.keys() else 0
     cost_amount = float(item["cost_amount"] or 0)
     line_total = float(item["line_total"] or 0)
     unit_price = float(item["unit_price"] or 0)
     sale_price = float(item["sale_price"] or 0)
 
     amount = abs(cost_amount)
+
+    if amount <= 0 and quantity > 0 and unit_cost > 0:
+        amount = abs(quantity * unit_cost)
 
     if amount <= 0 and item_type == "labor":
         if line_total > 0:
@@ -1623,7 +1720,7 @@ def repair_all_job_item_ledgers(conn, company_id):
 
 
 def create_income_ledger_for_payment(conn, invoice_id, payment_amount):
-    inv = conn.execute("SELECT * FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+    inv = conn.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
     if not inv or payment_amount <= 0:
         return
 
@@ -1652,41 +1749,44 @@ def create_income_ledger_for_payment(conn, invoice_id, payment_amount):
 def update_invoice_balance(invoice_id):
     conn = get_db_connection()
 
-    invoice = conn.execute(
-        "SELECT id, total FROM invoices WHERE id = ?",
-        (invoice_id,),
-    ).fetchone()
+    try:
+        invoice = conn.execute(
+            "SELECT id, total FROM invoices WHERE id = ?",
+            (invoice_id,),
+        ).fetchone()
 
-    if not invoice:
+        if not invoice:
+            return
+
+        paid_row = conn.execute(
+            "SELECT COALESCE(SUM(amount), 0) AS paid_total FROM invoice_payments WHERE invoice_id = ?",
+            (invoice_id,),
+        ).fetchone()
+
+        paid_total = float(paid_row["paid_total"] or 0)
+        total = float(invoice["total"] or 0)
+        balance_due = max(total - paid_total, 0)
+
+        if total <= 0:
+            status = "Draft"
+        elif paid_total <= 0:
+            status = "Unpaid"
+        elif balance_due > 0:
+            status = "Partial"
+        else:
+            status = "Paid"
+
+        conn.execute(
+            """
+            UPDATE invoices
+            SET amount_paid = ?, balance_due = ?, status = ?
+            WHERE id = ?
+            """,
+            (paid_total, balance_due, status, invoice_id),
+        )
+        conn.commit()
+    finally:
         conn.close()
-        return
-
-    paid_row = conn.execute(
-        "SELECT COALESCE(SUM(amount), 0) AS paid_total FROM invoice_payments WHERE invoice_id = ?",
-        (invoice_id,),
-    ).fetchone()
-
-    paid_total = float(paid_row["paid_total"] or 0)
-    total = float(invoice["total"] or 0)
-    balance_due = max(total - paid_total, 0)
-
-    if paid_total <= 0:
-        status = "Unpaid"
-    elif balance_due > 0:
-        status = "Partial"
-    else:
-        status = "Paid"
-
-    conn.execute(
-        """
-        UPDATE invoices
-        SET balance_due = ?, status = ?
-        WHERE id = ?
-        """,
-        (balance_due, status, invoice_id),
-    )
-    conn.commit()
-    conn.close()
 
 
 def create_payroll_ledger_entry(conn, payroll_entry_id):
@@ -1703,7 +1803,7 @@ def create_payroll_ledger_entry(conn, payroll_entry_id):
     if not row:
         return
 
-    employee_name = f"{row['first_name']} {row['last_name']}"
+    employee_name = f"{row['first_name']} {row['last_name']}".strip()
     description = f"Payroll for {employee_name}"
 
     cur = conn.cursor()
@@ -1729,33 +1829,3 @@ def create_payroll_ledger_entry(conn, payroll_entry_id):
         "UPDATE payroll_entries SET ledger_entry_id=? WHERE id=?",
         (ledger_id, payroll_entry_id),
     )
-
-
-def ensure_customer_name_columns():
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    safe_add_column(cur, "customers", "first_name", "TEXT")
-    safe_add_column(cur, "customers", "last_name", "TEXT")
-
-    conn.commit()
-
-    rows = cur.execute("SELECT id, name FROM customers").fetchall()
-
-    for r in rows:
-        name = (r["name"] or "").strip()
-        if not name:
-            continue
-
-        parts = name.split(" ")
-        first = parts[0]
-        last = parts[-1] if len(parts) > 1 else ""
-
-        cur.execute("""
-            UPDATE customers
-            SET first_name = ?, last_name = ?
-            WHERE id = ?
-        """, (first, last, r["id"]))
-
-    conn.commit()
-    conn.close()

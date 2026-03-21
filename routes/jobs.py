@@ -989,52 +989,57 @@ def convert_job_to_invoice(job_id):
     conn = get_db_connection()
     cid = session["company_id"]
 
-    job = conn.execute(
-        """
-        SELECT *
-        FROM jobs
-        WHERE id = %s AND company_id = %s
-        """,
-        (job_id, cid),
-    ).fetchone()
-
-    if not job:
-        conn.close()
-        abort(404)
-
-    existing_invoice = conn.execute(
-        """
-        SELECT id
-        FROM invoices
-        WHERE job_id = %s AND company_id = %s
-        ORDER BY id DESC
-        LIMIT 1
-        """,
-        (job_id, cid),
-    ).fetchone()
-
-    if existing_invoice:
-        conn.close()
-        flash("This job has already been converted to an invoice.")
-        return redirect(url_for("invoices.view_invoice", invoice_id=existing_invoice["id"]))
-
-    items = conn.execute(
-        """
-        SELECT *
-        FROM job_items
-        WHERE job_id = %s AND billable = 1
-        ORDER BY id
-        """,
-        (job_id,),
-    ).fetchall()
-
-    if not items:
-        conn.close()
-        flash("This job has no billable items to invoice.")
-        return redirect(url_for("jobs.view_job", job_id=job_id))
-
     try:
+        job = conn.execute(
+            """
+            SELECT *
+            FROM jobs
+            WHERE id = %s AND company_id = %s
+            """,
+            (job_id, cid),
+        ).fetchone()
+
+        if not job:
+            abort(404)
+
+        existing_invoice = conn.execute(
+            """
+            SELECT id
+            FROM invoices
+            WHERE job_id = %s AND company_id = %s
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (job_id, cid),
+        ).fetchone()
+
+        if existing_invoice:
+            flash("This job has already been converted to an invoice.")
+            return redirect(url_for("invoices.view_invoice", invoice_id=existing_invoice["id"]))
+
+        items = conn.execute(
+            """
+            SELECT *
+            FROM job_items
+            WHERE job_id = %s AND billable = 1
+            ORDER BY id
+            """,
+            (job_id,),
+        ).fetchall()
+
+        if not items:
+            flash("This job has no billable items to invoice.")
+            return redirect(url_for("jobs.view_job", job_id=job_id))
+
         cur = conn.cursor()
+
+        invoice_date = date.today()
+        due_date = invoice_date
+        notes = clean_text_input(job["notes"]) if "notes" in job.keys() and job["notes"] else ""
+
+        # Keep your current invoice number format for now, unless you already
+        # have an auto-number helper elsewhere in the app.
+        invoice_number = f"INV-{int(datetime.now().timestamp())}"
 
         cur.execute(
             """
@@ -1051,7 +1056,7 @@ def convert_job_to_invoice(job_id):
                 amount_paid,
                 balance_due
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, 'Unpaid', %s, 0, 0)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -1059,15 +1064,29 @@ def convert_job_to_invoice(job_id):
                 job["customer_id"],
                 job_id,
                 job["quote_id"],
-                f"INV-{int(datetime.now().timestamp())}",
-                date.today().isoformat(),
-                date.today().isoformat(),
-                clean_text_input(job["notes"]),
+                invoice_number,
+                invoice_date,
+                due_date,
+                "Unpaid",
+                notes,
+                0,
+                0,
             ),
         )
-        invoice_id = cur.fetchone()[0]
+
+        row = cur.fetchone()
+        if not row:
+            raise Exception("Failed to create invoice record.")
+
+        invoice_id = row[0]
 
         for i in items:
+            description = clean_text_input(i["description"]) if i["description"] else ""
+            quantity = safe_float(i["quantity"])
+            unit = clean_text_input(i["unit"]) if i["unit"] else ""
+            unit_price = safe_float(i["sale_price"])
+            line_total = safe_float(i["line_total"])
+
             cur.execute(
                 """
                 INSERT INTO invoice_items (
@@ -1082,35 +1101,36 @@ def convert_job_to_invoice(job_id):
                 """,
                 (
                     invoice_id,
-                    clean_text_input(i["description"]),
-                    safe_float(i["quantity"]),
-                    clean_text_input(i["unit"]),
-                    safe_float(i["sale_price"]),
-                    safe_float(i["line_total"]),
+                    description,
+                    quantity,
+                    unit,
+                    unit_price,
+                    line_total,
                 ),
             )
 
         recalc_invoice(conn, invoice_id)
 
-        conn.execute(
+        cur.execute(
             """
             UPDATE jobs
-            SET status = 'Invoiced'
+            SET status = %s
             WHERE id = %s AND company_id = %s
             """,
-            (job_id, cid),
+            ("Invoiced", job_id, cid),
         )
 
         conn.commit()
-        conn.close()
-
         flash("Job converted to invoice.")
         return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
-    except Exception:
+    except Exception as e:
         conn.rollback()
+        flash(f"Could not convert job to invoice: {e}")
+        return redirect(url_for("jobs.view_job", job_id=job_id))
+
+    finally:
         conn.close()
-        raise
 
 
 @jobs_bp.route("/jobs/<int:job_id>/delete", methods=["POST"])

@@ -968,63 +968,67 @@ def convert_quote_to_job(quote_id):
     conn = get_db_connection()
     cid = session["company_id"]
 
-    quote = conn.execute(
-        """
-        SELECT *
-        FROM quotes
-        WHERE id = %s AND company_id = %s
-        """,
-        (quote_id, cid),
-    ).fetchone()
-
-    if not quote:
-        conn.close()
-        abort(404)
-
-    existing_job = conn.execute(
-        """
-        SELECT id
-        FROM jobs
-        WHERE quote_id = %s AND company_id = %s
-        ORDER BY id DESC
-        LIMIT 1
-        """,
-        (quote_id, cid),
-    ).fetchone()
-
-    if existing_job:
-        conn.close()
-        flash("This quote has already been converted to a job.")
-        return redirect(url_for("jobs.view_job", job_id=existing_job["id"]))
-
-    items = conn.execute(
-        """
-        SELECT *
-        FROM quote_items
-        WHERE quote_id = %s
-        ORDER BY id
-        """,
-        (quote_id,),
-    ).fetchall()
-
-    if not items:
-        conn.close()
-        flash("This quote has no items to convert.")
-        return redirect(url_for("quotes.view_quote", quote_id=quote_id))
-
-    quote_number = quote["quote_number"] or quote_id
-    quote_title = (quote["title"] or "").strip() if "title" in quote.keys() and quote["title"] else ""
-    job_title = quote_title or f"Job from Quote {quote_number}"
-
     try:
+        quote = conn.execute(
+            """
+            SELECT *
+            FROM quotes
+            WHERE id = %s AND company_id = %s
+            """,
+            (quote_id, cid),
+        ).fetchone()
+
+        if not quote:
+            abort(404)
+
+        existing_job = conn.execute(
+            """
+            SELECT id
+            FROM jobs
+            WHERE quote_id = %s AND company_id = %s
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (quote_id, cid),
+        ).fetchone()
+
+        if existing_job:
+            flash("This quote has already been converted to a job.")
+            return redirect(url_for("jobs.view_job", job_id=existing_job["id"]))
+
+        items = conn.execute(
+            """
+            SELECT *
+            FROM quote_items
+            WHERE quote_id = %s
+            ORDER BY id
+            """,
+            (quote_id,),
+        ).fetchall()
+
+        if not items:
+            flash("This quote has no items to convert.")
+            return redirect(url_for("quotes.view_quote", quote_id=quote_id))
+
+        quote_number = quote["quote_number"] or quote_id
+        quote_title = (quote["title"] or "").strip() if "title" in quote.keys() and quote["title"] else ""
+        quote_notes = (quote["notes"] or "").strip() if "notes" in quote.keys() and quote["notes"] else ""
+        job_title = quote_title or f"Job from Quote {quote_number}"
+
         cur = conn.cursor()
 
         cur.execute(
             """
             INSERT INTO jobs (
-                company_id, customer_id, quote_id, title, scheduled_date, status, notes
+                company_id,
+                customer_id,
+                quote_id,
+                title,
+                scheduled_date,
+                status,
+                notes
             )
-            VALUES (%s, %s, %s, %s, %s, 'Scheduled', %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -1032,35 +1036,43 @@ def convert_quote_to_job(quote_id):
                 quote["customer_id"],
                 quote_id,
                 job_title,
-                date.today().isoformat(),
-                quote["notes"],
+                date.today(),
+                "Scheduled",
+                quote_notes,
             ),
         )
-        job_id = cur.fetchone()[0]
+        row = cur.fetchone()
+        if not row:
+            raise Exception("Failed to create job record.")
+
+        job_id = row[0]
 
         for i in items:
             qty = float(i["quantity"] or 0)
             sale_price = float(i["unit_price"] or 0)
-            unit_cost = 0.0 if (i["item_type"] or "").strip().lower() == "labor" else float(i["unit_cost"] or 0)
+            raw_item_type = ((i["item_type"] or "").strip().lower() if "item_type" in i.keys() and i["item_type"] else "")
+            desc = (i["description"] or "").strip()
+
+            if raw_item_type:
+                item_type = raw_item_type
+            else:
+                desc_lower = desc.lower()
+                if any(word in desc_lower for word in ["labor", "labour", "hour", "hours", "hr", "hrs"]):
+                    item_type = "labor"
+                elif "fuel" in desc_lower:
+                    item_type = "fuel"
+                elif "equipment" in desc_lower:
+                    item_type = "equipment"
+                elif "delivery" in desc_lower:
+                    item_type = "delivery"
+                elif "misc" in desc_lower:
+                    item_type = "misc"
+                else:
+                    item_type = "material"
+
+            unit_cost = 0.0 if item_type == "labor" else float(i["unit_cost"] or 0)
             line_total = qty * sale_price
             cost_amount = qty * unit_cost
-
-            item_type = "material"
-
-            if "item_type" in i.keys() and i["item_type"]:
-                item_type = (i["item_type"] or "material").strip().lower()
-            else:
-                desc = (i["description"] or "").strip().lower()
-                if "labor" in desc or "labour" in desc or "hour" in desc or "hours" in desc or "hr" in desc or "hrs" in desc:
-                    item_type = "labor"
-                elif "fuel" in desc:
-                    item_type = "fuel"
-                elif "equipment" in desc:
-                    item_type = "equipment"
-                elif "delivery" in desc:
-                    item_type = "delivery"
-                elif "misc" in desc:
-                    item_type = "misc"
 
             cur.execute(
                 """
@@ -1076,46 +1088,52 @@ def convert_quote_to_job(quote_id):
                     line_total,
                     billable
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
                     job_id,
                     item_type,
-                    i["description"],
+                    desc,
                     qty,
                     i["unit"],
                     sale_price,
                     sale_price,
                     cost_amount,
                     line_total,
+                    1,
                 ),
             )
 
-            job_item_id = cur.fetchone()[0]
+            item_row = cur.fetchone()
+            if not item_row:
+                raise Exception(f"Failed to create job item for quote item {i['id']}.")
+
+            job_item_id = item_row[0]
             ensure_job_cost_ledger(conn, job_item_id)
 
         recalc_job(conn, job_id)
 
-        conn.execute(
+        cur.execute(
             """
             UPDATE quotes
-            SET status = 'Converted'
+            SET status = %s
             WHERE id = %s AND company_id = %s
             """,
-            (quote_id, cid),
+            ("Converted", quote_id, cid),
         )
 
         conn.commit()
-        conn.close()
-
         flash("Quote converted to job.")
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
-    except Exception:
+    except Exception as e:
         conn.rollback()
+        flash(f"Could not convert quote to job: {e}")
+        return redirect(url_for("quotes.view_quote", quote_id=quote_id))
+
+    finally:
         conn.close()
-        raise
 
 
 @quotes_bp.route("/quotes/<int:quote_id>/delete", methods=["POST"])
