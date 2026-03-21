@@ -41,24 +41,25 @@ def render_page(content, title="TerraLedger"):
 
         <style>
             :root {{
-                --bg: #f5f7fb;
-                --panel: #ffffff;
-                --panel-soft: #f8fafc;
-                --border: #dbe2ea;
-                --border-soft: #e8edf3;
-                --text: #0f172a;
-                --muted: #64748b;
+                --bg: #13212b;
+                --bg-deep: #0d1720;
+                --panel: #1b2c38;
+                --panel-soft: #223746;
+                --border: #314756;
+                --border-soft: #3b5364;
+                --text: #f7f3ea;
+                --muted: #b8c4cf;
 
-                --primary: #2563eb;
-                --primary-dark: #1d4ed8;
-                --secondary: #ffffff;
-                --secondary-text: #0f172a;
+                --sand: #d6c2a8;
+                --blue: #5aa2d6;
+                --orange: #f08c4a;
+                --orange-soft: #ffb06b;
+                --green: #6bbf72;
+                --green-soft: #8fd49a;
+                --red: #e46f6f;
+                --yellow: #f0c36d;
 
-                --success: #16a34a;
-                --warning: #f59e0b;
-                --danger: #dc2626;
-
-                --shadow: 0 10px 25px rgba(15, 23, 42, 0.06);
+                --shadow: 0 10px 25px rgba(0, 0, 0, 0.28);
                 --radius: 16px;
                 --radius-sm: 12px;
             }}
@@ -70,7 +71,7 @@ def render_page(content, title="TerraLedger"):
             html, body {{
                 margin: 0;
                 padding: 0;
-                background: var(--bg);
+                background: linear-gradient(180deg, var(--bg-deep) 0%, var(--bg) 100%);
                 color: var(--text);
                 font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
             }}
@@ -93,7 +94,7 @@ def render_page(content, title="TerraLedger"):
                 position: sticky;
                 top: 0;
                 z-index: 100;
-                background: rgba(255,255,255,.92);
+                background: rgba(13, 23, 32, 0.92);
                 backdrop-filter: blur(10px);
                 border-bottom: 1px solid var(--border);
             }}
@@ -123,11 +124,12 @@ def render_page(content, title="TerraLedger"):
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
-                background: linear-gradient(135deg, #1e293b, #334155);
-                color: #fff;
-                font-weight: 800;
+                background: linear-gradient(135deg, var(--orange), var(--orange-soft));
+                color: #13212b;
+                font-weight: 900;
                 font-size: 1rem;
                 flex: 0 0 auto;
+                box-shadow: 0 8px 20px rgba(240, 140, 74, .28);
             }}
 
             .brand-text {{
@@ -138,6 +140,7 @@ def render_page(content, title="TerraLedger"):
                 font-size: 1rem;
                 font-weight: 800;
                 line-height: 1.1;
+                color: var(--text);
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
@@ -160,16 +163,18 @@ def render_page(content, title="TerraLedger"):
             .nav-wrap a {{
                 text-decoration: none;
                 font-size: .95rem;
-                font-weight: 600;
+                font-weight: 700;
                 color: var(--muted);
                 padding: 10px 12px;
                 border-radius: 10px;
-                transition: background .15s ease, color .15s ease;
+                transition: background .15s ease, color .15s ease, border-color .15s ease;
+                border: 1px solid transparent;
             }}
 
             .nav-wrap a:hover {{
-                background: #eef4ff;
-                color: var(--primary);
+                background: rgba(90, 162, 214, 0.12);
+                color: var(--text);
+                border-color: rgba(90, 162, 214, 0.18);
             }}
 
             .page-wrap {{
@@ -186,16 +191,16 @@ def render_page(content, title="TerraLedger"):
             }}
 
             .flash-message {{
-                background: #eff6ff;
-                color: #1d4ed8;
-                border: 1px solid #bfdbfe;
+                background: rgba(240, 195, 109, .12);
+                color: #ffe2a8;
+                border: 1px solid rgba(240, 195, 109, .35);
                 border-radius: 14px;
                 padding: 14px 16px;
-                font-weight: 600;
+                font-weight: 700;
             }}
 
             .card {{
-                background: var(--panel);
+                background: linear-gradient(180deg, var(--panel) 0%, #182732 100%);
                 border: 1px solid var(--border);
                 border-radius: var(--radius);
                 padding: 18px;
@@ -225,12 +230,16 @@ def render_page(content, title="TerraLedger"):
                 font-size: clamp(1.12rem, 1.4vw, 1.4rem);
             }}
 
+            h3 {{
+                color: var(--sand);
+            }}
+
             label {{
                 display: block;
                 font-size: .92rem;
                 font-weight: 700;
                 margin-bottom: 7px;
-                color: #334155;
+                color: var(--sand);
             }}
 
             input,
@@ -245,19 +254,25 @@ def render_page(content, title="TerraLedger"):
             textarea {{
                 width: 100%;
                 border: 1px solid var(--border);
-                background: #fff;
+                background: #14232d;
                 color: var(--text);
                 border-radius: 12px;
                 padding: 12px 14px;
                 outline: none;
-                transition: border-color .15s ease, box-shadow .15s ease;
+                transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+            }}
+
+            input::placeholder,
+            textarea::placeholder {{
+                color: #8ea3b3;
             }}
 
             input:focus,
             select:focus,
             textarea:focus {{
-                border-color: #93c5fd;
-                box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.10);
+                border-color: var(--blue);
+                box-shadow: 0 0 0 4px rgba(90, 162, 214, 0.12);
+                background: #172a35;
             }}
 
             textarea {{
@@ -286,6 +301,7 @@ def render_page(content, title="TerraLedger"):
 
             .stat-card {{
                 text-align: center;
+                background: linear-gradient(180deg, var(--panel-soft) 0%, var(--panel) 100%);
             }}
 
             .stat-label {{
@@ -298,6 +314,7 @@ def render_page(content, title="TerraLedger"):
                 font-size: 1.6rem;
                 font-weight: 800;
                 line-height: 1.1;
+                color: var(--text);
             }}
 
             .section-head {{
@@ -328,62 +345,63 @@ def render_page(content, title="TerraLedger"):
                 min-height: 42px;
                 padding: 10px 14px;
                 border-radius: 12px;
-                border: 1px solid var(--primary);
-                background: var(--primary);
-                color: #fff;
+                border: 1px solid var(--blue);
+                background: var(--blue);
+                color: #08131b;
                 text-decoration: none;
-                font-weight: 700;
+                font-weight: 800;
                 cursor: pointer;
-                transition: transform .15s ease, background .15s ease, border-color .15s ease;
+                transition: transform .15s ease, background .15s ease, border-color .15s ease, color .15s ease;
             }}
 
             .btn:hover {{
-                background: var(--primary-dark);
-                border-color: var(--primary-dark);
+                background: #6bb5ea;
+                border-color: #6bb5ea;
                 transform: translateY(-1px);
             }}
 
             .btn.secondary {{
-                background: #fff;
-                color: var(--secondary-text);
+                background: transparent;
+                color: var(--text);
                 border-color: var(--border);
             }}
 
             .btn.secondary:hover {{
-                background: #f8fafc;
-                border-color: #cbd5e1;
+                background: rgba(255,255,255,0.05);
+                border-color: #4c6577;
             }}
 
             .btn.success {{
-                background: var(--success);
-                border-color: var(--success);
+                background: var(--green);
+                border-color: var(--green);
+                color: #0d1b12;
             }}
 
             .btn.success:hover {{
-                background: #15803d;
-                border-color: #15803d;
+                background: var(--green-soft);
+                border-color: var(--green-soft);
             }}
 
             .btn.warning {{
-                background: var(--warning);
-                border-color: var(--warning);
-                color: #111827;
+                background: var(--orange);
+                border-color: var(--orange);
+                color: #1f140a;
             }}
 
             .btn.warning:hover {{
-                background: #d97706;
-                border-color: #d97706;
-                color: #fff;
+                background: var(--orange-soft);
+                border-color: var(--orange-soft);
             }}
 
             .btn.danger {{
-                background: var(--danger);
-                border-color: var(--danger);
+                background: var(--red);
+                border-color: var(--red);
+                color: #180b0b;
             }}
 
             .btn.danger:hover {{
-                background: #b91c1c;
-                border-color: #b91c1c;
+                background: #ef8585;
+                border-color: #ef8585;
             }}
 
             .btn.small {{
@@ -399,10 +417,11 @@ def render_page(content, title="TerraLedger"):
                 justify-content: center;
                 padding: 5px 10px;
                 border-radius: 999px;
-                background: #eef2ff;
-                color: #4338ca;
+                background: rgba(90, 162, 214, 0.14);
+                color: #bfe4ff;
+                border: 1px solid rgba(90, 162, 214, 0.25);
                 font-size: .82rem;
-                font-weight: 700;
+                font-weight: 800;
                 vertical-align: middle;
             }}
 
@@ -410,6 +429,7 @@ def render_page(content, title="TerraLedger"):
                 width: 100%;
                 border-collapse: collapse;
                 min-width: 720px;
+                color: var(--text);
             }}
 
             th, td {{
@@ -420,10 +440,14 @@ def render_page(content, title="TerraLedger"):
             }}
 
             th {{
-                background: #f8fafc;
-                color: #334155;
+                background: #16252f;
+                color: var(--sand);
                 font-size: .9rem;
                 font-weight: 800;
+            }}
+
+            tr:hover td {{
+                background: rgba(255,255,255,0.02);
             }}
 
             .table-wrap,
@@ -438,13 +462,13 @@ def render_page(content, title="TerraLedger"):
                 padding: 14px 16px;
                 border-radius: 12px;
                 margin-bottom: 14px;
-                font-weight: 600;
+                font-weight: 700;
             }}
 
             .notice.warning {{
-                background: #fff7ed;
-                color: #9a3412;
-                border: 1px solid #fdba74;
+                background: rgba(240, 195, 109, .10);
+                color: #ffe2a8;
+                border: 1px solid rgba(240, 195, 109, .32);
             }}
 
             .checkbox-field {{
@@ -459,6 +483,7 @@ def render_page(content, title="TerraLedger"):
                 gap: 10px;
                 font-weight: 700;
                 margin-bottom: 4px;
+                color: var(--text);
             }}
 
             .checkbox-label input[type="checkbox"] {{
@@ -469,6 +494,7 @@ def render_page(content, title="TerraLedger"):
 
             iframe {{
                 max-width: 100%;
+                background: #fff;
             }}
 
             img {{
