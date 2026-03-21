@@ -1,14 +1,12 @@
-from flask import Blueprint, request, redirect, url_for, session, flash, render_template
-from datetime import date, datetime
+from flask import Blueprint, session, url_for
 from html import escape
 
 from db import get_db_connection, ensure_bookkeeping_history_table, table_columns
 from decorators import login_required, require_permission
-from page_helpers import *
-from helpers import *
-from calculations import *
+from page_helpers import render_page
 
 bookkeeping_bp = Blueprint("bookkeeping", __name__)
+
 
 @bookkeeping_bp.route("/bookkeeping")
 @login_required
@@ -95,8 +93,8 @@ def bookkeeping():
         <tr>
             <td>#{r['id']}</td>
             <td>{escape((r['entry_date'] if 'entry_date' in r.keys() else '-') or '-')}</td>
-            <td>{escape(r['entry_type'] or '-')}</td>
-            <td>{escape(r['description'] or '-')}</td>
+            <td>{escape((r['entry_type'] or '-'))}</td>
+            <td>{escape((r['description'] or '-'))}</td>
             <td class="amount-cell">${float(r['amount'] or 0):.2f}</td>
             <td class="balance-cell">${balances.get(r['id'], 0):.2f}</td>
         </tr>

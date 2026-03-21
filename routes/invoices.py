@@ -1,5 +1,5 @@
-from flask import Blueprint, request, redirect, url_for, session, flash, render_template, abort, make_response, current_app
-from datetime import date, datetime
+from flask import Blueprint, request, redirect, url_for, session, flash, abort, make_response, current_app
+from datetime import date
 from html import escape
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -51,9 +51,9 @@ def build_invoice_pdf(invoice, items, company, profile):
 
             city_state_zip = " ".join(
                 part for part in [
-                    f"{company['city']}," if company["city"] else "",
-                    company["state"] or "",
-                    company["zip_code"] or "",
+                    f"{company['city']}," if company["city"] and str(company["city"]).strip().lower() != "none" else "",
+                    company["state"] if company["state"] and str(company["state"]).strip().lower() != "none" else "",
+                    company["zip_code"] if company["zip_code"] and str(company["zip_code"]).strip().lower() != "none" else "",
                 ] if part
             ).strip()
 
@@ -144,7 +144,7 @@ def build_invoice_pdf(invoice, items, company, profile):
                         logo_y,
                         width=draw_width,
                         height=draw_height,
-                        mask='auto'
+                        mask="auto"
                     )
 
                     text_x = 250
@@ -272,8 +272,8 @@ def invoices():
         FROM invoices i
         JOIN customers c ON i.customer_id = c.id
         WHERE i.company_id = ?
-          AND IFNULL(i.status, '') != 'Paid'
-        ORDER BY c.name COLLATE NOCASE ASC,
+          AND COALESCE(i.status, '') != 'Paid'
+        ORDER BY LOWER(COALESCE(c.name, '')) ASC,
                  COALESCE(i.invoice_date, '') DESC,
                  i.id DESC
         """,
@@ -349,7 +349,7 @@ def paid_invoices():
         JOIN customers c ON i.customer_id = c.id
         WHERE i.company_id = ?
           AND i.status = 'Paid'
-        ORDER BY c.name COLLATE NOCASE, i.invoice_date DESC, i.id DESC
+        ORDER BY LOWER(COALESCE(c.name, '')), COALESCE(i.invoice_date, '') DESC, i.id DESC
         """,
         (cid,),
     ).fetchall()
@@ -1022,7 +1022,6 @@ def mark_invoice_paid(invoice_id):
         flash("Invoice is already fully paid.")
         return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
-    # ✅ Insert final payment
     conn.execute(
         """
         INSERT INTO invoice_payments
@@ -1042,10 +1041,8 @@ def mark_invoice_paid(invoice_id):
 
     conn.commit()
 
-    # ✅ Update invoice balance/status
     update_invoice_balance(invoice_id)
 
-    # ✅ REFETCH updated invoice (now should be Paid)
     invoice = conn.execute(
         """
         SELECT *
@@ -1055,7 +1052,6 @@ def mark_invoice_paid(invoice_id):
         (invoice_id, cid),
     ).fetchone()
 
-    # ✅ AUTO FINISH JOB
     if "job_id" in invoice.keys() and invoice["job_id"]:
         conn.execute(
             """
@@ -1066,7 +1062,6 @@ def mark_invoice_paid(invoice_id):
             (invoice["job_id"], cid),
         )
 
-    # ✅ AUTO FINISH QUOTE
     if "quote_id" in invoice.keys() and invoice["quote_id"]:
         conn.execute(
             """

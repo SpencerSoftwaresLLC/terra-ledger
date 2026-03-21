@@ -13,7 +13,13 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 
-from db import get_db_connection, ensure_job_cost_ledger, get_next_quote_number, ensure_document_number_columns
+from db import (
+    get_db_connection,
+    ensure_job_cost_ledger,
+    get_next_quote_number,
+    ensure_document_number_columns,
+    table_columns,
+)
 from decorators import login_required, require_permission, subscription_required
 from page_helpers import *
 from helpers import *
@@ -27,11 +33,10 @@ def ensure_quote_item_cost_columns():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute("PRAGMA table_info(quote_items)")
-    cols = [row[1] for row in cur.fetchall()]
+    cols = table_columns(conn, "quote_items")
 
     if "unit_cost" not in cols:
-        cur.execute("ALTER TABLE quote_items ADD COLUMN unit_cost REAL NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE quote_items ADD COLUMN unit_cost DOUBLE PRECISION NOT NULL DEFAULT 0")
 
     conn.commit()
     conn.close()
@@ -1120,6 +1125,7 @@ def delete_quote_item(quote_id, item_id):
     flash("Quote line item deleted.")
     return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
+
 @quotes_bp.route("/quotes/finished")
 @login_required
 @require_permission("can_manage_jobs")
@@ -1183,6 +1189,7 @@ def finished_quotes():
     </div>
     """
     return render_page(content, "Finished Quotes")
+
 
 @quotes_bp.route("/quotes/<int:quote_id>/reopen")
 @login_required

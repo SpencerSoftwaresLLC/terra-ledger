@@ -1,6 +1,5 @@
 from flask import Blueprint, request, redirect, url_for, session, flash
 from html import escape
-import sqlite3
 
 from db import (
     get_db_connection,
@@ -348,9 +347,7 @@ def new_employee():
     conn = get_db_connection()
     cid = session["company_id"]
 
-    cur = conn.cursor()
-    cur.execute("PRAGMA table_info(employees)")
-    cols = [row[1] for row in cur.fetchall()]
+    cols = get_employee_columns()
 
     if request.method == "POST":
         first_name = (request.form.get("first_name") or "").strip()
@@ -515,7 +512,7 @@ def view_employee(employee_id):
             """,
             (employee_id, cid),
         ).fetchall()
-    except sqlite3.OperationalError:
+    except Exception:
         payroll_rows = []
 
     conn.close()
@@ -860,7 +857,7 @@ def delete_employee(employee_id):
             """,
             (employee_id, cid),
         )
-    except sqlite3.OperationalError:
+    except Exception:
         pass
 
     conn.execute(

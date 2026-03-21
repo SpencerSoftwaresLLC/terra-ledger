@@ -13,55 +13,62 @@ def dashboard():
     conn = get_db_connection()
     cid = session["company_id"]
 
-    customers_count = conn.execute(
-        "SELECT COUNT(*) FROM customers WHERE company_id=?",
+    customers_count_row = conn.execute(
+        "SELECT COUNT(*) AS count FROM customers WHERE company_id=?",
         (cid,)
-    ).fetchone()[0]
+    ).fetchone()
+    customers_count = int(customers_count_row["count"] or 0) if customers_count_row else 0
 
-    quotes_count = conn.execute(
-        "SELECT COUNT(*) FROM quotes WHERE company_id=?",
+    quotes_count_row = conn.execute(
+        "SELECT COUNT(*) AS count FROM quotes WHERE company_id=?",
         (cid,)
-    ).fetchone()[0]
+    ).fetchone()
+    quotes_count = int(quotes_count_row["count"] or 0) if quotes_count_row else 0
 
-    jobs_count = conn.execute(
-        "SELECT COUNT(*) FROM jobs WHERE company_id=?",
+    jobs_count_row = conn.execute(
+        "SELECT COUNT(*) AS count FROM jobs WHERE company_id=?",
         (cid,)
-    ).fetchone()[0]
+    ).fetchone()
+    jobs_count = int(jobs_count_row["count"] or 0) if jobs_count_row else 0
 
-    invoices_count = conn.execute(
-        "SELECT COUNT(*) FROM invoices WHERE company_id=?",
+    invoices_count_row = conn.execute(
+        "SELECT COUNT(*) AS count FROM invoices WHERE company_id=?",
         (cid,)
-    ).fetchone()[0]
+    ).fetchone()
+    invoices_count = int(invoices_count_row["count"] or 0) if invoices_count_row else 0
 
-    ledger_income_total = conn.execute(
+    ledger_income_total_row = conn.execute(
         """
-        SELECT COALESCE(SUM(amount), 0)
+        SELECT COALESCE(SUM(amount), 0) AS total
         FROM ledger_entries
         WHERE company_id = ?
           AND entry_type = 'Income'
-          AND IFNULL(source_type, '') NOT IN ('invoice_payment', 'invoice_paid', 'invoice_mark_paid')
+          AND COALESCE(source_type, '') NOT IN ('invoice_payment', 'invoice_paid', 'invoice_mark_paid')
         """,
         (cid,)
-    ).fetchone()[0]
+    ).fetchone()
+    ledger_income_total = float(ledger_income_total_row["total"] or 0) if ledger_income_total_row else 0.0
 
-    invoice_payment_total = conn.execute(
+    invoice_payment_total_row = conn.execute(
         """
-        SELECT COALESCE(SUM(amount), 0)
+        SELECT COALESCE(SUM(amount), 0) AS total
         FROM invoice_payments
         WHERE company_id = ?
         """,
         (cid,)
-    ).fetchone()[0]
+    ).fetchone()
+    invoice_payment_total = float(invoice_payment_total_row["total"] or 0) if invoice_payment_total_row else 0.0
 
-    expense_total = conn.execute(
+    expense_total_row = conn.execute(
         """
-        SELECT COALESCE(SUM(amount), 0)
+        SELECT COALESCE(SUM(amount), 0) AS total
         FROM ledger_entries
         WHERE company_id = ?
           AND entry_type = 'Expense'
         """,
         (cid,)
-    ).fetchone()[0]
+    ).fetchone()
+    expense_total = float(expense_total_row["total"] or 0) if expense_total_row else 0.0
 
     income_total = float(ledger_income_total or 0) + float(invoice_payment_total or 0)
     expense_total = float(expense_total or 0)
@@ -103,17 +110,45 @@ def dashboard():
             i.balance_due,
             c.name AS customer_name,
             CASE
-                WHEN CAST(julianday('now') - julianday(COALESCE(NULLIF(i.due_date, ''), i.invoice_date)) AS INTEGER) <= 0 THEN 'Current'
-                WHEN CAST(julianday('now') - julianday(COALESCE(NULLIF(i.due_date, ''), i.invoice_date)) AS INTEGER) BETWEEN 1 AND 30 THEN '1-30'
-                WHEN CAST(julianday('now') - julianday(COALESCE(NULLIF(i.due_date, ''), i.invoice_date)) AS INTEGER) BETWEEN 31 AND 60 THEN '31-60'
-                WHEN CAST(julianday('now') - julianday(COALESCE(NULLIF(i.due_date, ''), i.invoice_date)) AS INTEGER) BETWEEN 61 AND 90 THEN '61-90'
+                WHEN (
+                    CURRENT_DATE - COALESCE(
+                        NULLIF(i.due_date, '')::date,
+                        NULLIF(i.invoice_date, '')::date,
+                        CURRENT_DATE
+                    )
+                ) <= 0 THEN 'Current'
+                WHEN (
+                    CURRENT_DATE - COALESCE(
+                        NULLIF(i.due_date, '')::date,
+                        NULLIF(i.invoice_date, '')::date,
+                        CURRENT_DATE
+                    )
+                ) BETWEEN 1 AND 30 THEN '1-30'
+                WHEN (
+                    CURRENT_DATE - COALESCE(
+                        NULLIF(i.due_date, '')::date,
+                        NULLIF(i.invoice_date, '')::date,
+                        CURRENT_DATE
+                    )
+                ) BETWEEN 31 AND 60 THEN '31-60'
+                WHEN (
+                    CURRENT_DATE - COALESCE(
+                        NULLIF(i.due_date, '')::date,
+                        NULLIF(i.invoice_date, '')::date,
+                        CURRENT_DATE
+                    )
+                ) BETWEEN 61 AND 90 THEN '61-90'
                 ELSE '90+'
             END AS aging_bucket
         FROM invoices i
         JOIN customers c ON i.customer_id = c.id
         WHERE i.company_id = ?
           AND COALESCE(i.balance_due, 0) > 0
-        ORDER BY COALESCE(NULLIF(i.due_date, ''), i.invoice_date) ASC
+        ORDER BY COALESCE(
+            NULLIF(i.due_date, '')::date,
+            NULLIF(i.invoice_date, '')::date,
+            CURRENT_DATE
+        ) ASC
         """,
         (cid,)
     ).fetchall()
