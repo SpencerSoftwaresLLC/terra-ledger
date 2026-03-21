@@ -578,11 +578,18 @@ def stripe_webhook():
             sig_header=sig_header,
             secret=cfg["webhook_secret"]
         )
-    except Exception:
+    except Exception as e:
+        print("STRIPE WEBHOOK SIGNATURE ERROR:", e)
         return {"ok": False}, 400
 
     event_type = event.get("type")
     obj = event["data"]["object"]
+
+    print("STRIPE WEBHOOK EVENT:", event_type)
+    print("WEBHOOK OBJECT ID:", obj.get("id"))
+    print("WEBHOOK CUSTOMER:", obj.get("customer"))
+    print("WEBHOOK SUBSCRIPTION:", obj.get("subscription"))
+    print("WEBHOOK METADATA:", obj.get("metadata"))
 
     def company_id_from_customer(customer_id):
         conn = get_db_connection()
@@ -610,6 +617,7 @@ def stripe_webhook():
             try:
                 if subscription_id:
                     _sync_subscription_from_stripe(company_id, subscription_id)
+                    print("checkout.session.completed sync success:", company_id, subscription_id)
                 else:
                     upsert_company_subscription(
                         company_id=company_id,
@@ -628,8 +636,9 @@ def stripe_webhook():
                         payment_method_last4=None,
                         payment_method_label=None,
                     )
-            except Exception:
-                pass
+                    print("checkout.session.completed linked customer only:", company_id, customer_id)
+            except Exception as e:
+                print("checkout.session.completed sync failed:", e)
 
     elif event_type in (
         "customer.subscription.created",
@@ -640,8 +649,9 @@ def stripe_webhook():
         if company_id and obj.get("id"):
             try:
                 _sync_subscription_from_stripe(company_id, obj["id"])
-            except Exception:
-                pass
+                print("subscription sync success:", company_id, obj["id"])
+            except Exception as e:
+                print("subscription sync failed:", e)
 
     elif event_type in (
         "invoice.paid",
@@ -654,18 +664,22 @@ def stripe_webhook():
             if obj.get("created"):
                 event_date = datetime.fromtimestamp(obj["created"]).strftime("%Y-%m-%d")
 
-            insert_billing_event(
-                company_id=company_id,
-                stripe_invoice_id=obj.get("id"),
-                stripe_event_id=event.get("id"),
-                event_type=event_type,
-                amount_cents=obj.get("amount_paid") or obj.get("amount_due") or 0,
-                currency=obj.get("currency"),
-                status=obj.get("status"),
-                hosted_invoice_url=obj.get("hosted_invoice_url"),
-                invoice_pdf=obj.get("invoice_pdf"),
-                event_date=event_date,
-                notes=obj.get("number"),
-            )
+            try:
+                insert_billing_event(
+                    company_id=company_id,
+                    stripe_invoice_id=obj.get("id"),
+                    stripe_event_id=event.get("id"),
+                    event_type=event_type,
+                    amount_cents=obj.get("amount_paid") or obj.get("amount_due") or 0,
+                    currency=obj.get("currency"),
+                    status=obj.get("status"),
+                    hosted_invoice_url=obj.get("hosted_invoice_url"),
+                    invoice_pdf=obj.get("invoice_pdf"),
+                    event_date=event_date,
+                    notes=obj.get("number"),
+                )
+                print("invoice event saved:", event_type, company_id)
+            except Exception as e:
+                print("invoice event save failed:", e)
 
     return {"ok": True}
