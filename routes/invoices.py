@@ -960,6 +960,7 @@ def view_invoice(invoice_id):
     content = f"""
     <div class='card'>
         <div style='display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;'>
+
             <div>
                 <h1>Invoice #{escape(str(invoice["invoice_number"] or invoice["id"]))}</h1>
                 <p class='muted'>
@@ -973,13 +974,24 @@ def view_invoice(invoice_id):
             </div>
 
             <div style='display:flex; gap:8px; flex-wrap:wrap;'>
+
                 <a class='btn secondary' href='{url_for("invoices.invoices")}'>Back</a>
-                <form method='post' action='{url_for("invoices.mark_invoice_paid", invoice_id=invoice_id)}' style='display:inline;'>
-                    <button class='btn success' type='submit'>Mark Paid</button>
+
+                <form method='post' action='{url_for("invoices.mark_invoice_paid", invoice_id=invoice_id)}'>
+                    <button class='btn success'>Mark Paid</button>
                 </form>
-                <form method='post' action='{url_for("invoices.mark_invoice_unpaid", invoice_id=invoice_id)}' style='display:inline;'>
-                    <button class='btn secondary' type='submit'>Mark Unpaid</button>
+
+                <form method='post' action='{url_for("invoices.mark_invoice_unpaid", invoice_id=invoice_id)}'>
+                    <button class='btn secondary'>Mark Unpaid</button>
                 </form>
+
+                <!-- ✅ FIX: DELETE BUTTON RESTORED -->
+                <form method='post'
+                      action='{url_for("invoices.delete_invoice", invoice_id=invoice_id)}'
+                      onsubmit="return confirm('Delete this invoice? This cannot be undone.');">
+                    <button class='btn danger'>Delete Invoice</button>
+                </form>
+
             </div>
         </div>
     </div>
@@ -1018,37 +1030,6 @@ def view_invoice(invoice_id):
     </div>
 
     <div class='card'>
-        <h2>Add Payment</h2>
-        <form method='post' action='{url_for("invoices.add_invoice_payment", invoice_id=invoice_id)}'>
-            <div class='grid'>
-                <div>
-                    <label>Amount</label>
-                    <input type='number' step='0.01' min='0.01' name='amount' required>
-                </div>
-                <div>
-                    <label>Payment Date</label>
-                    <input type='date' name='payment_date' value='{date.today().isoformat()}'>
-                </div>
-                <div>
-                    <label>Payment Method</label>
-                    <input name='payment_method' placeholder='Cash, Check, Card, ACH'>
-                </div>
-                <div>
-                    <label>Reference</label>
-                    <input name='reference' placeholder='Check # or transaction ID'>
-                </div>
-                <div style='grid-column:1 / -1;'>
-                    <label>Notes</label>
-                    <textarea name='notes'></textarea>
-                </div>
-            </div>
-
-            <br>
-            <button class='btn success' type='submit'>Record Payment</button>
-        </form>
-    </div>
-
-    <div class='card'>
         <h2>Payment History</h2>
         <table class='table'>
             <thead>
@@ -1065,12 +1046,8 @@ def view_invoice(invoice_id):
             </tbody>
         </table>
     </div>
-
-    <div class='card'>
-        <h2>Notes</h2>
-        <p>{escape(_clean_display(invoice["notes"]))}</p>
-    </div>
     """
+
     return render_page(content, f"Invoice #{invoice['invoice_number'] or invoice_id}")
 
 

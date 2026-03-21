@@ -1021,7 +1021,7 @@ def convert_job_to_invoice(job_id):
             """
             SELECT *
             FROM job_items
-            WHERE job_id = %s AND billable = 1
+            WHERE job_id = %s AND COALESCE(billable, 1) = 1
             ORDER BY id
             """,
             (job_id,),
@@ -1031,16 +1031,14 @@ def convert_job_to_invoice(job_id):
             flash("This job has no billable items to invoice.")
             return redirect(url_for("jobs.view_job", job_id=job_id))
 
-        cur = conn.cursor()
-
-        invoice_date = date.today()
+        invoice_date = date.today().isoformat()
         due_date = invoice_date
         notes = clean_text_input(job["notes"]) if "notes" in job.keys() and job["notes"] else ""
 
-        # Keep your current invoice number format for now, unless you already
-        # have an auto-number helper elsewhere in the app.
+        # safer temporary invoice number format
         invoice_number = f"INV-{int(datetime.now().timestamp())}"
 
+        cur = conn.cursor()
         cur.execute(
             """
             INSERT INTO invoices (
@@ -1063,7 +1061,7 @@ def convert_job_to_invoice(job_id):
                 job["company_id"],
                 job["customer_id"],
                 job_id,
-                job["quote_id"],
+                job["quote_id"] if "quote_id" in job.keys() else None,
                 invoice_number,
                 invoice_date,
                 due_date,
@@ -1075,16 +1073,16 @@ def convert_job_to_invoice(job_id):
         )
 
         row = cur.fetchone()
-        if not row:
+        if not row or "id" not in row:
             raise Exception("Failed to create invoice record.")
 
-        invoice_id = row[0]
+        invoice_id = row["id"]
 
         for i in items:
             description = clean_text_input(i["description"]) if i["description"] else ""
             quantity = safe_float(i["quantity"])
             unit = clean_text_input(i["unit"]) if i["unit"] else ""
-            unit_price = safe_float(i["sale_price"])
+            unit_price = safe_float(i["sale_price"] if i["sale_price"] is not None else i["unit_price"])
             line_total = safe_float(i["line_total"])
 
             cur.execute(

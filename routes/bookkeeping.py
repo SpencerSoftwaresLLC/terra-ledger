@@ -238,7 +238,10 @@ def bookkeeping():
     <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
             <h1 style="margin:0;">Bookkeeping</h1>
-            <a href="{url_for('bookkeeping.bookkeeping_history')}" class="btn secondary">History View</a>
+            <div class="row-actions">
+                <a href="{url_for('bookkeeping.bookkeeping_history')}" class="btn secondary">History</a>
+                <a href="{url_for('bookkeeping.bookkeeping_pnl')}" class="btn success">P&amp;L</a>
+            </div>
         </div>
 
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:18px;">
@@ -519,7 +522,10 @@ def bookkeeping_history():
     <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
             <h1 style="margin:0;">Bookkeeping History</h1>
-            <a href="{url_for('bookkeeping.bookkeeping')}" class="btn secondary">Back to Bookkeeping</a>
+            <div class="row-actions">
+                <a href="{url_for('bookkeeping.bookkeeping')}" class="btn secondary">Back to Bookkeeping</a>
+                <a href="{url_for('bookkeeping.bookkeeping_pnl')}" class="btn success">P&amp;L</a>
+            </div>
         </div>
 
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:18px;margin-bottom:18px;">
@@ -562,3 +568,112 @@ def bookkeeping_history():
     """
 
     return render_page(content, "Bookkeeping History")
+
+
+@bookkeeping_bp.route("/bookkeeping/pnl")
+@login_required
+@require_permission("can_view_bookkeeping")
+def bookkeeping_pnl():
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    rows = conn.execute(
+        """
+        SELECT
+            id,
+            entry_type,
+            description,
+            amount
+        FROM ledger_entries
+        WHERE company_id = %s
+        ORDER BY id DESC
+        """,
+        (cid,),
+    ).fetchall()
+
+    conn.close()
+
+    total_income = 0.0
+    total_expenses = 0.0
+    breakdown = {}
+
+    for r in rows:
+        amount = abs(_safe_float(r["amount"]))
+        entry_type = str(r["entry_type"] or "Other")
+        description = str(r["description"] or "")
+
+        is_expense = _is_expense_entry(entry_type, description)
+
+        category = entry_type if entry_type else "Other"
+
+        if category not in breakdown:
+            breakdown[category] = 0.0
+
+        if is_expense:
+            total_expenses += amount
+            breakdown[category] -= amount
+        else:
+            total_income += amount
+            breakdown[category] += amount
+
+    net_profit = total_income - total_expenses
+
+    rows_html = ""
+    for cat, amt in sorted(breakdown.items(), key=lambda x: x[0].lower()):
+        color = "#16a34a" if amt >= 0 else "#dc2626"
+        rows_html += f"""
+        <tr>
+            <td>{escape(cat)}</td>
+            <td style="color:{color};">{_fmt_money(amt, show_plus=True)}</td>
+        </tr>
+        """
+
+    net_color = "#16a34a" if net_profit >= 0 else "#dc2626"
+
+    content = f"""
+    <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+            <h1 style="margin:0;">Profit &amp; Loss</h1>
+            <div class="row-actions">
+                <a href="{url_for('bookkeeping.bookkeeping')}" class="btn secondary">Back</a>
+                <a href="{url_for('bookkeeping.bookkeeping_history')}" class="btn secondary">History</a>
+            </div>
+        </div>
+
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:20px;">
+            <div class="card stat-card" style="flex:1;min-width:220px;">
+                <div class="stat-label">Total Income</div>
+                <div class="stat-value" style="color:#16a34a;">{_fmt_money(total_income)}</div>
+            </div>
+
+            <div class="card stat-card" style="flex:1;min-width:220px;">
+                <div class="stat-label">Total Expenses</div>
+                <div class="stat-value" style="color:#dc2626;">-{abs(total_expenses):,.2f}</div>
+            </div>
+
+            <div class="card stat-card" style="flex:1;min-width:220px;">
+                <div class="stat-label">Net Profit</div>
+                <div class="stat-value" style="color:{net_color};">{_fmt_money(net_profit, show_plus=True)}</div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top:20px;">
+            <h2>Breakdown</h2>
+            <div class="table-wrap">
+                <table style="width:100%;border-collapse:collapse;">
+                    <thead>
+                        <tr>
+                            <th>Category</th>
+                            <th>Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows_html or '<tr><td colspan="2" class="muted">No P&amp;L data yet.</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    """
+
+    return render_page(content, "Profit & Loss")

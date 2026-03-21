@@ -197,7 +197,6 @@ def build_quote_pdf(quote, items, company, profile):
                 info_y -= 14
 
             draw_footer()
-
             return min(info_y - 10, height - 125 if logo_reader else info_y - 10)
 
         def new_page():
@@ -417,7 +416,6 @@ def quotes():
                     <a class='btn secondary small' href='{url_for("quotes.view_quote", quote_id=r["id"])}'>View</a>
                     <a class='btn small' href='{url_for("quotes.email_quote_preview", quote_id=r["id"])}'>Email</a>
                     <a class='btn success small' href='{url_for("quotes.convert_quote_to_job", quote_id=r["id"])}'>Convert to Job</a>
-
                     <form method='post'
                           action='{url_for("quotes.delete_quote", quote_id=r["id"])}'
                           style='display:inline;'
@@ -687,7 +685,10 @@ def view_quote(quote_id):
             <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
                 <div>
                     <h1 style='margin-bottom:6px;'>Quote #{quote['id']} <span class='pill'>{escape(quote['status'] or '-')}</span></h1>
-                    <p style='margin:0;'><strong>Customer:</strong> {escape(quote['customer_name'] or '-')}<br><strong>Total:</strong> ${float(quote['total'] or 0):.2f}</p>
+                    <p style='margin:0;'>
+                        <strong>Customer:</strong> {escape(quote['customer_name'] or '-')}<br>
+                        <strong>Total:</strong> ${float(quote['total'] or 0):.2f}
+                    </p>
                 </div>
                 <div class='row-actions'>
                     <a class='btn secondary' href='{url_for("quotes.quotes")}'>Back to Quotes</a>
@@ -698,6 +699,11 @@ def view_quote(quote_id):
         </div>
 
         <div class='card'>
+            <div class='notice' style='margin-bottom:16px;'>
+                <strong>Internal pricing note:</strong> “Your Cost (Internal)” is saved for your records and job profit tracking only.
+                It is not shown on the customer PDF or email.
+            </div>
+
             <h2>Add Quote Item</h2>
             <form method='post'>
                 <div class='grid'>
@@ -712,13 +718,29 @@ def view_quote(quote_id):
                             <option value='misc'>Misc</option>
                         </select>
                     </div>
-                    <div><label>Description</label><input name='description' required></div>
-                    <div><label id='quantity_label'>Quantity</label><input name='quantity' type='number' step='0.01' min='0' required></div>
-                    <div><label>Unit</label><input name='unit' id='quote_unit' placeholder='yards, hrs, ea'></div>
-                    <div><label id='unit_price_label'>Unit Price</label><input name='unit_price' type='number' step='0.01' min='0' required></div>
-                    <div id='unit_cost_wrap'><label>Unit Cost</label><input name='unit_cost' type='number' step='0.01' min='0' value='0.00' required></div>
+                    <div>
+                        <label>Description</label>
+                        <input name='description' required>
+                    </div>
+                    <div>
+                        <label id='quantity_label'>Quantity</label>
+                        <input name='quantity' type='number' step='0.01' min='0' required>
+                    </div>
+                    <div>
+                        <label>Unit</label>
+                        <input name='unit' id='quote_unit' placeholder='yards, hrs, ea'>
+                    </div>
+                    <div>
+                        <label id='unit_price_label'>Customer Price</label>
+                        <input name='unit_price' type='number' step='0.01' min='0' required>
+                    </div>
+                    <div id='unit_cost_wrap'>
+                        <label>Your Cost (Internal)</label>
+                        <input name='unit_cost' type='number' step='0.01' min='0' value='0.00' required>
+                    </div>
                 </div>
-                <br><button class='btn'>Add Item</button>
+                <br>
+                <button class='btn'>Add Item</button>
             </form>
         </div>
 
@@ -731,8 +753,8 @@ def view_quote(quote_id):
                         <th>Description</th>
                         <th>Qty</th>
                         <th>Unit</th>
-                        <th>Unit Price / Hours</th>
-                        <th>Unit Cost</th>
+                        <th>Customer Price / Hours</th>
+                        <th>Your Cost (Internal)</th>
                         <th>Line Total</th>
                         <th>Actions</th>
                     </tr>
@@ -766,7 +788,7 @@ def view_quote(quote_id):
                     if (unitCostWrap) {{
                         unitCostWrap.style.display = "";
                     }}
-                    if (unitPriceLabel) unitPriceLabel.textContent = "Unit Price";
+                    if (unitPriceLabel) unitPriceLabel.textContent = "Customer Price";
                     if (quantityLabel) quantityLabel.textContent = "Quantity";
                 }}
             }}
@@ -803,7 +825,6 @@ def email_quote_preview(quote_id):
         abort(404)
 
     recipient = (quote["customer_email"] or "").strip()
-
     conn.close()
 
     preview_url = url_for("quotes.preview_quote_pdf", quote_id=quote_id)
@@ -828,6 +849,10 @@ def email_quote_preview(quote_id):
     </div>
 
     <div class='card'>
+        <div class='notice' style='margin-bottom:16px;'>
+            Customer-facing quote delivery hides all internal cost fields. Only description, quantity, unit, price, and totals are shown.
+        </div>
+
         <h2>Preview</h2>
         <div style='margin-bottom:14px;'>
             <iframe src='{preview_url}' style='width:100%; height:820px; border:1px solid #dbe2ea; border-radius:12px; background:#fff;'></iframe>
@@ -1037,7 +1062,6 @@ def convert_quote_to_job(quote_id):
         job_title = quote_title or f"Job from Quote {quote_number}"
 
         cur = conn.cursor()
-
         cur.execute(
             """
             INSERT INTO jobs (
@@ -1179,7 +1203,6 @@ def delete_quote(quote_id):
         return redirect(url_for("quotes.quotes"))
 
     conn.execute("DELETE FROM quote_items WHERE quote_id = %s", (quote_id,))
-
     conn.execute(
         "DELETE FROM quotes WHERE id = %s AND company_id = %s",
         (quote_id, cid),
