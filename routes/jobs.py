@@ -93,9 +93,16 @@ def jobs():
             """,
             (cid, customer_id, title, scheduled_date or None, status, address, notes),
         )
-        job_id = cur.fetchone()[0]
+
+        row = cur.fetchone()
+        job_id = row["id"] if row and "id" in row else None
+
         conn.commit()
         conn.close()
+
+        if not job_id:
+            flash("Could not create job.")
+            return redirect(url_for("jobs.jobs"))
 
         flash("Job created.")
         return redirect(url_for("jobs.view_job", job_id=job_id))

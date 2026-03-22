@@ -910,7 +910,7 @@ def view_quote(quote_id):
                     if (unitPriceLabel) unitPriceLabel.textContent = "Fee Amount";
                     setFieldValue("quote_unit", "fee", true);
                     if (quantityInput) {{
-                        quantityInput.value = "1";
+                        quantityInput.value = "0.00";
                         quantityInput.readOnly = true;
                     }}
                     if (unitCostWrap) unitCostWrap.style.display = "none";
