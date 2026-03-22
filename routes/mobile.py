@@ -142,7 +142,6 @@ def mobile_home():
 
             <a class="mobile-card-btn" href="{url_for('bookkeeping.bookkeeping')}">
                 <div class="mobile-card-title">Bookkeeping</div>
-                <div class="mobile-card-text">Review ledger entries and bookkeeping history.</div>
             </a>
 
             <a class="mobile-card-btn" href="{url_for('employees.employees')}">

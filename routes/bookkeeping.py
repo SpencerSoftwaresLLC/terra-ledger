@@ -1510,115 +1510,6 @@ def delete_bookkeeping_entry(entry_id):
     return redirect(url_for("bookkeeping.bookkeeping"))
 
 
-@bookkeeping_bp.route("/bookkeeping-history")
-@login_required
-@require_permission("can_view_bookkeeping")
-def bookkeeping_history():
-    ensure_bookkeeping_history_table()
-
-    conn = get_db_connection()
-    cid = session["company_id"]
-
-    rows = conn.execute(
-        """
-        SELECT
-            id,
-            entry_date,
-            category,
-            entry_type,
-            description,
-            money_in,
-            money_out,
-            notes
-        FROM bookkeeping_history
-        WHERE company_id = %s
-        ORDER BY
-            CASE WHEN entry_date IS NULL THEN 1 ELSE 0 END,
-            entry_date DESC,
-            id DESC
-        """,
-        (cid,),
-    ).fetchall()
-
-    conn.close()
-
-    total_in = sum(_safe_float(r["money_in"]) for r in rows)
-    total_out = sum(_safe_float(r["money_out"]) for r in rows)
-    net = total_in - total_out
-
-    table_row_html = []
-    for r in rows:
-        table_row_html.append(
-            f"""
-            <tr>
-                <td>#{r['id']}</td>
-                <td>{escape(str(r['entry_date'] or '-'))}</td>
-                <td>{escape(str(r['category'] or '-'))}</td>
-                <td>{escape(str(r['entry_type'] or '-'))}</td>
-                <td>{escape(str(r['description'] or '-'))}</td>
-                <td style="color:#16a34a;">{_fmt_money(r['money_in'])}</td>
-                <td style="color:#dc2626;">-{abs(_safe_float(r['money_out'])):,.2f}</td>
-                <td>{escape(str(r['notes'] or ''))}</td>
-            </tr>
-            """
-        )
-    table_rows = "".join(table_row_html)
-
-    net_color = "#16a34a" if net >= 0 else "#dc2626"
-    net_text = _fmt_money(net, show_plus=True)
-
-    content = f"""
-    <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-            <h1 style="margin:0;">Bookkeeping History</h1>
-            <div class="row-actions">
-                <a href="{url_for('bookkeeping.bookkeeping')}" class="btn secondary">Back to Bookkeeping</a>
-                <a href="{url_for('bookkeeping.bookkeeping_pnl')}" class="btn success">P&amp;L</a>
-            </div>
-        </div>
-
-        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:18px;margin-bottom:18px;">
-            <div class="card stat-card" style="flex:1;min-width:220px;">
-                <div class="stat-label">Total Money In</div>
-                <div class="stat-value" style="color:#16a34a;">{_fmt_money(total_in)}</div>
-            </div>
-
-            <div class="card stat-card" style="flex:1;min-width:220px;">
-                <div class="stat-label">Total Money Out</div>
-                <div class="stat-value" style="color:#dc2626;">-{abs(total_out):,.2f}</div>
-            </div>
-
-            <div class="card stat-card" style="flex:1;min-width:220px;">
-                <div class="stat-label">Net</div>
-                <div class="stat-value" style="color:{net_color};">{net_text}</div>
-            </div>
-        </div>
-
-        <div class="table-wrap">
-            <table style="width:100%;border-collapse:collapse;">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Date</th>
-                        <th>Category</th>
-                        <th>Type</th>
-                        <th>Description</th>
-                        <th>Money In</th>
-                        <th>Money Out</th>
-                        <th>Notes</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {table_rows or '<tr><td colspan="8" class="muted">No bookkeeping history yet.</td></tr>'}
-                </tbody>
-            </table>
-        </div>
-    </div>
-    """
-
-    return render_page(content, "Bookkeeping History")
-
-
 @bookkeeping_bp.route("/bookkeeping/pnl")
 @login_required
 @require_permission("can_view_bookkeeping")
@@ -1699,7 +1590,6 @@ def bookkeeping_pnl():
             <h1 style="margin:0;">Profit &amp; Loss</h1>
             <div class="row-actions">
                 <a href="{url_for('bookkeeping.bookkeeping')}" class="btn secondary">Back</a>
-                <a href="{url_for('bookkeeping.bookkeeping_history')}" class="btn secondary">History</a>
             </div>
         </div>
 
