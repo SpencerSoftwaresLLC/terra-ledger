@@ -22,6 +22,7 @@ from routes.employees import employees_bp
 from routes.users import users_bp
 from routes.settings import settings_bp
 from routes.billing import billing_bp
+from routes.calendar import calendar_bp
 from routes.bookkeeping import bookkeeping_bp
 from routes.help_assistant import help_assistant_bp
 from routes.mobile import mobile_bp
@@ -87,6 +88,7 @@ def create_app():
     app.register_blueprint(bookkeeping_bp)
     app.register_blueprint(help_assistant_bp)
     app.register_blueprint(mobile_bp)
+    app.register_blueprint(calendar_bp)
 
     @app.get("/healthz")
     def healthz():
