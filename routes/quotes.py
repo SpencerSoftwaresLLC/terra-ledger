@@ -673,26 +673,41 @@ def view_quote(quote_id):
             flash("Description is required.")
             return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
+        # ================================
+        # ✅ FIXED UNIT LOGIC
+        # ================================
         if item_type == "mulch" and not unit:
             unit = "Yards"
         elif item_type == "stone" and not unit:
             unit = "Tons"
         elif item_type == "soil" and not unit:
             unit = "Yards"
-        elif item_type == "fertilizer" and not unit:
-            unit = "Bags"
         elif item_type == "hardscape_material" and not unit:
             unit = "Tons"
-        elif item_type == "plants" and not unit:
-            unit = "EA"
-        elif item_type == "trees" and not unit:
-            unit = "EA"
+        elif item_type == "fuel" and not unit:
+            unit = "Gallons"
+        elif item_type == "delivery" and not unit:
+            unit = "Miles"
         elif item_type == "labor" and not unit:
-            unit = "hr"
-        elif item_type == "dump_fee" and not unit:
-            unit = "fee"
+            unit = "Hours"
+        elif item_type == "equipment" and not unit:
+            unit = "Rentals"
 
+        # ❌ NEVER auto-set units for these
+        elif item_type in ["plants", "trees", "misc", "dump_fee"]:
+            unit = ""
+
+        # ================================
+        # ✅ SPECIAL RULES
+        # ================================
+
+        # Labor = no unit cost
+        if item_type == "labor":
+            unit_cost = 0.0
+
+        # Dump fee rules
         if item_type == "dump_fee":
+            unit = ""
             if quantity <= 0:
                 quantity = 1
             unit_cost = 0.0
@@ -706,6 +721,7 @@ def view_quote(quote_id):
             """,
             (quote_id, item_type, description, quantity, unit, unit_price, unit_cost, line_total),
         )
+
         recalc_quote(conn, quote_id)
         conn.commit()
         conn.close()
@@ -719,214 +735,7 @@ def view_quote(quote_id):
     ).fetchall()
     conn.close()
 
-    item_rows = "".join(
-        f"""
-        <tr>
-            <td>{escape(_display_item_type(i['item_type']))}</td>
-            <td>{escape(i['description'] or '')}</td>
-            <td>{float(i['quantity'] or 0):g}</td>
-            <td>{escape(i['unit'] or '-')}</td>
-            <td>${float(i['unit_price'] or 0):.2f}</td>
-            <td>{"-" if (i['item_type'] or '').strip().lower() == 'dump_fee' else f"${float(i['unit_cost'] or 0):.2f}"}</td>
-            <td>${float(i['line_total'] or 0):.2f}</td>
-            <td>
-                <form method="post"
-                      action="{url_for('quotes.delete_quote_item', quote_id=quote_id, item_id=i['id'])}"
-                      style="display:inline;"
-                      onsubmit="return confirm('Delete this line item?');">
-                    <button class="btn danger small" type="submit">Delete</button>
-                </form>
-            </td>
-        </tr>
-        """
-        for i in items
-    )
-
-    content = f"""
-        <div class='card'>
-            <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
-                <div>
-                    <h1 style='margin-bottom:6px;'>Quote #{quote['id']} <span class='pill'>{escape(quote['status'] or '-')}</span></h1>
-                    <p style='margin:0;'>
-                        <strong>Customer:</strong> {escape(quote['customer_name'] or '-')}<br>
-                        <strong>Total:</strong> ${float(quote['total'] or 0):.2f}
-                    </p>
-                </div>
-                <div class='row-actions'>
-                    <a class='btn secondary' href='{url_for("quotes.quotes")}'>Back to Quotes</a>
-                    <a class='btn' href='{url_for("quotes.email_quote_preview", quote_id=quote_id)}'>Email Quote</a>
-                    <a class='btn success' href='{url_for("quotes.convert_quote_to_job", quote_id=quote_id)}'>Convert to Job</a>
-                </div>
-            </div>
-        </div>
-
-        <div class='card'>
-            <div class='notice' style='margin-bottom:16px;'>
-                <strong>Internal pricing note:</strong> “Your Cost (Internal)” is saved for your records and job profit tracking only.
-                It is not shown on the customer PDF or email.
-            </div>
-
-            <h2>Add Quote Item</h2>
-            <form method='post'>
-                <div class='grid'>
-                    <div>
-                        <label>Item Type</label>
-                        <select name='item_type' id='quote_item_type' onchange='toggleQuoteItemType()'>
-                            <option value='mulch'>Mulch</option>
-                            <option value='stone'>Stone</option>
-                            <option value='dump_fee'>Dump Fee</option>
-                            <option value='plants'>Plants</option>
-                            <option value='trees'>Trees</option>
-                            <option value='soil'>Soil</option>
-                            <option value='fertilizer'>Fertilizer</option>
-                            <option value='hardscape_material'>Hardscape Material</option>
-                            <option value='labor'>Labor</option>
-                            <option value='equipment'>Equipment</option>
-                            <option value='delivery'>Delivery</option>
-                            <option value='fuel'>Fuel</option>
-                            <option value='misc'>Misc</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label>Description</label>
-                        <input name='description' required>
-                    </div>
-                    <div>
-                        <label id='quantity_label'>Quantity</label>
-                        <input name='quantity' id='quote_quantity' type='number' step='0.01' min='0' required>
-                    </div>
-                    <div>
-                        <label>Unit</label>
-                        <input name='unit' id='quote_unit' placeholder='Unit'>
-                    </div>
-                    <div>
-                        <label id='unit_price_label'>Sale Price</label>
-                        <input name='unit_price' id='quote_unit_price' type='number' step='0.01' min='0' required>
-                    </div>
-                    <div id='unit_cost_wrap'>
-                        <label id='unit_cost_label'>Unit Cost (Internal)</label>
-                        <input name='unit_cost' id='quote_unit_cost' type='number' step='0.01' min='0' value='none' required>
-                    </div>
-                </div>
-                <br>
-                <button class='btn'>Add Item</button>
-            </form>
-        </div>
-
-        <div class='card'>
-            <h2>Items</h2>
-            <div class='table-wrap'>
-                <table>
-                    <tr>
-                        <th>Type</th>
-                        <th>Description</th>
-                        <th>Qty</th>
-                        <th>Unit</th>
-                        <th>Sale Price / Rate / Fee</th>
-                        <th>Unit Cost (Internal)</th>
-                        <th>Line Total</th>
-                        <th>Actions</th>
-                    </tr>
-                    {item_rows or '<tr><td colspan="8" class="muted">No items yet.</td></tr>'}
-                </table>
-            </div>
-        </div>
-
-        <script>
-            function setFieldValue(id, value, overwriteBlankOnly=false) {{
-                var el = document.getElementById(id);
-                if (!el) return;
-                if (overwriteBlankOnly) {{
-                    if (!el.value || !el.value.trim()) {{
-                        el.value = value;
-                    }}
-                }} else {{
-                    el.value = value;
-                }}
-            }}
-
-            function toggleQuoteItemType() {{
-                var typeEl = document.getElementById("quote_item_type");
-                var quantityLabel = document.getElementById("quantity_label");
-                var unitField = document.getElementById("quote_unit");
-                var unitPriceLabel = document.getElementById("unit_price_label");
-                var unitCostWrap = document.getElementById("unit_cost_wrap");
-                var unitCostLabel = document.getElementById("unit_cost_label");
-                var quantityInput = document.getElementById("quote_quantity");
-                var unitCostInput = document.getElementById("quote_unit_cost");
-
-                if (!typeEl) return;
-
-                var type = typeEl.value;
-
-                if (unitCostWrap) unitCostWrap.style.display = "";
-                if (quantityInput) {{
-                    quantityInput.readOnly = false;
-                    quantityInput.step = "0.01";
-                }}
-
-                if (type === "mulch") {{
-                    if (quantityLabel) quantityLabel.textContent = "Amount";
-                    if (unitPriceLabel) unitPriceLabel.textContent = "Sale Price";
-                    if (unitCostLabel) unitCostLabel.textContent = "Unit Cost (Internal)";
-                    setFieldValue("quote_unit", "Yards", true);
-                }} else if (type === "stone") {{
-                    if (quantityLabel) quantityLabel.textContent = "Amount";
-                    if (unitPriceLabel) unitPriceLabel.textContent = "Sale Price";
-                    if (unitCostLabel) unitCostLabel.textContent = "Unit Cost (Internal)";
-                    setFieldValue("quote_unit", "Tons", true);
-                }} else if (type === "soil") {{
-                    if (quantityLabel) quantityLabel.textContent = "Amount";
-                    if (unitPriceLabel) unitPriceLabel.textContent = "Sale Price";
-                    if (unitCostLabel) unitCostLabel.textContent = "Unit Cost (Internal)";
-                    setFieldValue("quote_unit", "Yards", true);
-                }} else if (type === "fertilizer") {{
-                    if (quantityLabel) quantityLabel.textContent = "Amount";
-                    if (unitPriceLabel) unitPriceLabel.textContent = "Sale Price";
-                    if (unitCostLabel) unitCostLabel.textContent = "Unit Cost (Internal)";
-                    setFieldValue("quote_unit", "Bags", true);
-                }} else if (type === "hardscape_material") {{
-                    if (quantityLabel) quantityLabel.textContent = "Amount";
-                    if (unitPriceLabel) unitPriceLabel.textContent = "Sale Price";
-                    if (unitCostLabel) unitCostLabel.textContent = "Unit Cost (Internal)";
-                    setFieldValue("quote_unit", "Tons", true);
-                }} else if (type === "plants") {{
-                    if (quantityLabel) quantityLabel.textContent = "Quantity";
-                    if (unitPriceLabel) unitPriceLabel.textContent = "Sale Price";
-                    if (unitCostLabel) unitCostLabel.textContent = "Unit Cost (Internal)";
-                    setFieldValue("quote_unit", "EA", true);
-                }} else if (type === "trees") {{
-                    if (quantityLabel) quantityLabel.textContent = "Quantity";
-                    if (unitPriceLabel) unitPriceLabel.textContent = "Sale Price";
-                    if (unitCostLabel) unitCostLabel.textContent = "Unit Cost (Internal)";
-                    setFieldValue("quote_unit", "EA", true);
-                }} else if (type === "labor") {{
-                    if (quantityLabel) quantityLabel.textContent = "Hours";
-                    if (unitPriceLabel) unitPriceLabel.textContent = "Billable Hours";
-                    setFieldValue("quote_unit", "hr", true);
-                }} else if (type === "dump_fee") {{
-                    if (quantityLabel) quantityLabel.textContent = "Fees";
-                    if (unitPriceLabel) unitPriceLabel.textContent = "Fee Amount";
-                    setFieldValue("quote_unit", "fee", true);
-                    if (quantityInput) {{
-                        quantityInput.value = "none";
-                        quantityInput.readOnly = true;
-                    }}
-                    if (unitCostWrap) unitCostWrap.style.display = "none";
-                    if (unitCostInput) unitCostInput.value = "none";
-                }} else {{
-                    if (quantityLabel) quantityLabel.textContent = "Quantity";
-                    if (unitPriceLabel) unitPriceLabel.textContent = "Sale Price";
-                    if (unitCostLabel) unitCostLabel.textContent = "Unit Cost (Internal)";
-                }}
-            }}
-
-            document.addEventListener("DOMContentLoaded", function () {{
-                toggleQuoteItemType();
-            }});
-        </script>
-        """
-    return render_page(content, f"Quote #{quote_id}")
+    # (leave the rest of your function EXACTLY the same below this)
 
 
 @quotes_bp.route("/quotes/<int:quote_id>/email")

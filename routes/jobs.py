@@ -497,20 +497,24 @@ def view_job(job_id):
             unit = "Tons"
         elif item_type == "soil" and not unit:
             unit = "Yards"
-        elif item_type == "fertilizer" and not unit:
-            unit = "Bags"
         elif item_type == "hardscape_material" and not unit:
             unit = "Tons"
-        elif item_type == "plants" and not unit:
-            unit = "EA"
-        elif item_type == "trees" and not unit:
-            unit = "EA"
+        elif item_type == "fuel" and not unit:
+            unit = "Gallons"
+        elif item_type == "delivery" and not unit:
+            unit = "Miles"
         elif item_type == "labor" and not unit:
-            unit = "hr"
-        elif item_type == "dump_fee" and not unit:
-            unit = "fee"
+            unit = "Hours"
+        elif item_type == "equipment" and not unit:
+            unit = "Rentals"
+        elif item_type in ["plants", "trees", "misc", "dump_fee"]:
+            unit = ""
+
+        if item_type == "labor":
+            unit_cost = 0.0
 
         if item_type == "dump_fee":
+            unit = ""
             if qty <= 0:
                 qty = 1
             unit_cost = 0.0
@@ -574,7 +578,7 @@ def view_job(job_id):
             <td>{safe_float(i['quantity']):g}</td>
             <td>{escape(clean_text_display(i['unit']))}</td>
             <td>${safe_float(i['sale_price']):.2f}</td>
-            <td>{"-" if clean_text_input(i['item_type']).lower() == 'dump_fee' else f"${((safe_float(i['cost_amount']) / safe_float(i['quantity'])) if safe_float(i['quantity']) else 0):.2f}"}</td>
+            <td>{"-" if clean_text_input(i['item_type']).lower() in ['dump_fee', 'labor'] else f"${((safe_float(i['cost_amount']) / safe_float(i['quantity'])) if safe_float(i['quantity']) else 0):.2f}"}</td>
             <td>${safe_float(i['cost_amount']):.2f}</td>
             <td>{'Yes' if i['billable'] else 'No'}</td>
             <td>${safe_float(i['line_total']):.2f}</td>
@@ -657,12 +661,12 @@ def view_job(job_id):
 
                     <div id='sale_price_wrap'>
                         <label id='sale_price_label'>Sale Price</label>
-                        <input type='number' step='0.01' name='sale_price' id='sale_price' value='none' required>
+                        <input type='number' step='0.01' name='sale_price' id='sale_price' value='0' required>
                     </div>
 
                     <div id='unit_cost_wrap'>
                         <label id='cost_label'>Unit Cost</label>
-                        <input type='number' step='0.01' name='unit_cost' id='unit_cost' value='none'>
+                        <input type='number' step='0.01' name='unit_cost' id='unit_cost' value='0'>
                     </div>
 
                     <div>
@@ -693,66 +697,62 @@ def view_job(job_id):
             const quantityInput = document.getElementById('quantity');
             const unitCostInput = document.getElementById('unit_cost');
 
+            quantityLabel.innerText = 'Quantity';
+            salePriceLabel.innerText = 'Sale Price';
+            costLabel.innerText = 'Unit Cost';
             if (salePriceWrap) salePriceWrap.style.display = 'block';
             if (unitCostWrap) unitCostWrap.style.display = 'block';
+
             if (quantityInput) {{
                 quantityInput.readOnly = false;
                 quantityInput.step = '0.01';
             }}
 
+            if (unitInput) unitInput.value = '';
+
             if (type === 'mulch') {{
-                quantityLabel.innerText = 'Amount';
-                salePriceLabel.innerText = 'Sale Price';
-                costLabel.innerText = 'Unit Cost';
-                if (unitInput && !unitInput.value) unitInput.value = 'Yards';
+                quantityLabel.innerText = 'Yards';
+                unitInput.value = 'Yards';
             }} else if (type === 'stone') {{
-                quantityLabel.innerText = 'Amount';
-                salePriceLabel.innerText = 'Sale Price';
-                costLabel.innerText = 'Unit Cost';
-                if (unitInput && !unitInput.value) unitInput.value = 'Tons';
+                quantityLabel.innerText = 'Tons';
+                unitInput.value = 'Tons';
             }} else if (type === 'soil') {{
-                quantityLabel.innerText = 'Amount';
-                salePriceLabel.innerText = 'Sale Price';
-                costLabel.innerText = 'Unit Cost';
-                if (unitInput && !unitInput.value) unitInput.value = 'Yards';
-            }} else if (type === 'fertilizer') {{
-                quantityLabel.innerText = 'Amount';
-                salePriceLabel.innerText = 'Sale Price';
-                costLabel.innerText = 'Unit Cost';
-                if (unitInput && !unitInput.value) unitInput.value = 'Bags';
+                quantityLabel.innerText = 'Yards';
+                unitInput.value = 'Yards';
             }} else if (type === 'hardscape_material') {{
-                quantityLabel.innerText = 'Amount';
-                salePriceLabel.innerText = 'Sale Price';
-                costLabel.innerText = 'Unit Cost';
-                if (unitInput && !unitInput.value) unitInput.value = 'Tons';
-            }} else if (type === 'plants') {{
-                quantityLabel.innerText = 'Quantity';
-                salePriceLabel.innerText = 'Sale Price';
-                costLabel.innerText = 'Unit Cost';
-                if (unitInput && !unitInput.value) unitInput.value = 'EA';
-            }} else if (type === 'trees') {{
-                quantityLabel.innerText = 'Quantity';
-                salePriceLabel.innerText = 'Sale Price';
-                costLabel.innerText = 'Unit Cost';
-                if (unitInput && !unitInput.value) unitInput.value = 'EA';
+                quantityLabel.innerText = 'Tons';
+                unitInput.value = 'Tons';
+            }} else if (type === 'fuel') {{
+                quantityLabel.innerText = 'Gallons';
+                unitInput.value = 'Gallons';
+            }} else if (type === 'delivery') {{
+                quantityLabel.innerText = 'Miles';
+                unitInput.value = 'Miles';
             }} else if (type === 'labor') {{
-                quantityLabel.innerText = 'Hours';
-                salePriceLabel.innerText = 'Billable Hours';
-                if (unitInput && !unitInput.value) unitInput.value = 'hr';
+                quantityLabel.innerText = 'Billable Hours';
+                salePriceLabel.innerText = 'Hourly Rate';
+                unitInput.value = 'Hours';
+                if (unitCostWrap) unitCostWrap.style.display = 'none';
+                if (unitCostInput) unitCostInput.value = '0';
+            }} else if (type === 'equipment') {{
+                quantityLabel.innerText = 'Rentals';
+                unitInput.value = 'Rentals';
+            }} else if (type === 'plants' || type === 'trees' || type === 'misc') {{
+                quantityLabel.innerText = 'Quantity';
+                unitInput.value = '';
             }} else if (type === 'dump_fee') {{
-                quantityLabel.innerText = 'Fees';
+                quantityLabel.innerText = 'Fee';
                 salePriceLabel.innerText = 'Fee Amount';
-                if (unitInput && !unitInput.value) unitInput.value = 'fee';
+                unitInput.value = '';
+                if (unitCostWrap) unitCostWrap.style.display = 'none';
+                if (unitCostInput) unitCostInput.value = '0';
                 if (quantityInput) {{
                     quantityInput.value = '1';
                     quantityInput.readOnly = true;
                 }}
-                if (unitCostWrap) unitCostWrap.style.display = 'none';
-                if (unitCostInput) unitCostInput.value = 'none';
-            }} else {{
+            }} else if (type === 'fertilizer') {{
                 quantityLabel.innerText = 'Quantity';
-                salePriceLabel.innerText = 'Sale Price';
-                costLabel.innerText = 'Unit Cost';
+                unitInput.value = '';
             }}
         }}
 
@@ -783,110 +783,6 @@ def view_job(job_id):
         </div>
         """
     return render_page(content, f"Job #{job_id}")
-
-
-@jobs_bp.route("/jobs/<int:job_id>/edit", methods=["GET", "POST"])
-@login_required
-@require_permission("can_manage_jobs")
-def edit_job(job_id):
-    conn = get_db_connection()
-    cid = session["company_id"]
-
-    job = conn.execute(
-        """
-        SELECT *
-        FROM jobs
-        WHERE id = %s AND company_id = %s
-        """,
-        (job_id, cid),
-    ).fetchone()
-
-    if not job:
-        conn.close()
-        flash("Job not found.")
-        return redirect(url_for("jobs.jobs"))
-
-    customers = conn.execute(
-        "SELECT id, name FROM customers WHERE company_id = %s ORDER BY name",
-        (cid,),
-    ).fetchall()
-
-    if request.method == "POST":
-        customer_id = request.form.get("customer_id", type=int)
-        title = clean_text_input(request.form.get("title", ""))
-        scheduled_date = clean_text_input(request.form.get("scheduled_date", ""))
-        status = clean_text_input(request.form.get("status", ""))
-        address = clean_text_input(request.form.get("address", ""))
-        notes = clean_text_input(request.form.get("notes", ""))
-
-        if not customer_id or not title:
-            conn.close()
-            flash("Customer and title are required.")
-            return redirect(url_for("jobs.edit_job", job_id=job_id))
-
-        conn.execute(
-            """
-            UPDATE jobs
-            SET customer_id = %s, title = %s, scheduled_date = %s, status = %s, address = %s, notes = %s
-            WHERE id = %s AND company_id = %s
-            """,
-            (customer_id, title, scheduled_date or None, status, address, notes, job_id, cid),
-        )
-        conn.commit()
-        conn.close()
-
-        flash("Job updated.")
-        return redirect(url_for("jobs.view_job", job_id=job_id))
-
-    customer_opts = "".join(
-        f"<option value='{c['id']}' {'selected' if c['id'] == job['customer_id'] else ''}>{escape(clean_text_display(c['name'], 'Customer #' + str(c['id'])))}</option>"
-        for c in customers
-    )
-
-    content = f"""
-    <div class='card'>
-        <h1>Edit Job #{job['id']}</h1>
-        <form method='post'>
-            <div class='grid'>
-                <div>
-                    <label>Customer</label>
-                    <select name='customer_id' required>
-                        <option value=''>Select customer</option>
-                        {customer_opts}
-                    </select>
-                </div>
-                <div>
-                    <label>Title</label>
-                    <input name='title' value="{escape(clean_text_input(job['title']))}" required>
-                </div>
-                <div>
-                    <label>Scheduled Date</label>
-                    <input type='date' name='scheduled_date' value="{escape(clean_text_input(job['scheduled_date']))}">
-                </div>
-                <div>
-                    <label>Status</label>
-                    <select name='status'>
-                        <option {'selected' if job['status'] == 'Scheduled' else ''}>Scheduled</option>
-                        <option {'selected' if job['status'] == 'In Progress' else ''}>In Progress</option>
-                        <option {'selected' if job['status'] == 'Completed' else ''}>Completed</option>
-                    </select>
-                </div>
-                <div>
-                    <label>Address</label>
-                    <input name='address' value="{escape(clean_text_input(job['address']))}">
-                </div>
-            </div>
-            <br>
-            <label>Notes</label>
-            <textarea name='notes'>{escape(clean_text_input(job['notes']))}</textarea>
-            <br>
-            <button class='btn'>Save Changes</button>
-            <a class='btn secondary' href='{url_for("jobs.view_job", job_id=job_id)}'>Cancel</a>
-        </form>
-    </div>
-    """
-    conn.close()
-    return render_page(content, f"Edit Job #{job['id']}")
 
 
 @jobs_bp.route("/jobs/<int:job_id>/items/<int:item_id>/edit", methods=["GET", "POST"])
@@ -945,20 +841,24 @@ def edit_job_item(job_id, item_id):
             unit = "Tons"
         elif item_type == "soil" and not unit:
             unit = "Yards"
-        elif item_type == "fertilizer" and not unit:
-            unit = "Bags"
         elif item_type == "hardscape_material" and not unit:
             unit = "Tons"
-        elif item_type == "plants" and not unit:
-            unit = "EA"
-        elif item_type == "trees" and not unit:
-            unit = "EA"
+        elif item_type == "fuel" and not unit:
+            unit = "Gallons"
+        elif item_type == "delivery" and not unit:
+            unit = "Miles"
         elif item_type == "labor" and not unit:
-            unit = "hr"
-        elif item_type == "dump_fee" and not unit:
-            unit = "fee"
+            unit = "Hours"
+        elif item_type == "equipment" and not unit:
+            unit = "Rentals"
+        elif item_type in ["plants", "trees", "misc", "dump_fee"]:
+            unit = ""
+
+        if item_type == "labor":
+            unit_cost = 0.0
 
         if item_type == "dump_fee":
+            unit = ""
             if qty <= 0:
                 qty = 1
             unit_cost = 0.0
@@ -1009,7 +909,7 @@ def edit_job_item(job_id, item_id):
     qty_val = safe_float(item["quantity"])
     sale_price_val = safe_float(item["sale_price"])
     unit_cost_val = (safe_float(item["cost_amount"]) / safe_float(item["quantity"])) if safe_float(item["quantity"]) else 0
-    is_dump_fee = item_type_val == "dump_fee"
+    hide_cost = item_type_val in ["dump_fee", "labor"]
 
     content = f"""
     <div class='card'>
@@ -1060,7 +960,7 @@ def edit_job_item(job_id, item_id):
                     <input type='number' step='0.01' name='sale_price' id='edit_sale_price' value="{sale_price_val:.2f}">
                 </div>
 
-                <div id='edit_unit_cost_wrap' style="display:{'none' if is_dump_fee else 'block'};">
+                <div id='edit_unit_cost_wrap' style="display:{'none' if hide_cost else 'block'};">
                     <label id='edit_cost_label'>Unit Cost</label>
                     <input type='number' step='0.01' name='unit_cost' id='edit_unit_cost' value="{unit_cost_val:.2f}">
                 </div>
@@ -1083,6 +983,7 @@ def edit_job_item(job_id, item_id):
     <script>
     function toggleEditJobItemMode() {{
         const type = document.getElementById('edit_item_type').value;
+
         const quantityLabel = document.getElementById('edit_quantity_label');
         const costLabel = document.getElementById('edit_cost_label');
         const salePriceLabel = document.getElementById('edit_sale_price_label');
@@ -1092,66 +993,62 @@ def edit_job_item(job_id, item_id):
         const quantityInput = document.getElementById('edit_quantity');
         const unitCostInput = document.getElementById('edit_unit_cost');
 
+        quantityLabel.innerText = 'Quantity';
+        salePriceLabel.innerText = 'Sale Price';
+        costLabel.innerText = 'Unit Cost';
         if (salePriceWrap) salePriceWrap.style.display = 'block';
         if (unitCostWrap) unitCostWrap.style.display = 'block';
+
         if (quantityInput) {{
             quantityInput.readOnly = false;
             quantityInput.step = '0.01';
         }}
 
+        if (unitInput) unitInput.value = '';
+
         if (type === 'mulch') {{
-            quantityLabel.innerText = 'Amount';
-            salePriceLabel.innerText = 'Sale Price';
-            costLabel.innerText = 'Unit Cost';
-            if (unitInput && !unitInput.value) unitInput.value = 'Yards';
+            quantityLabel.innerText = 'Yards';
+            unitInput.value = 'Yards';
         }} else if (type === 'stone') {{
-            quantityLabel.innerText = 'Amount';
-            salePriceLabel.innerText = 'Sale Price';
-            costLabel.innerText = 'Unit Cost';
-            if (unitInput && !unitInput.value) unitInput.value = 'Tons';
+            quantityLabel.innerText = 'Tons';
+            unitInput.value = 'Tons';
         }} else if (type === 'soil') {{
-            quantityLabel.innerText = 'Amount';
-            salePriceLabel.innerText = 'Sale Price';
-            costLabel.innerText = 'Unit Cost';
-            if (unitInput && !unitInput.value) unitInput.value = 'Yards';
-        }} else if (type === 'fertilizer') {{
-            quantityLabel.innerText = 'Amount';
-            salePriceLabel.innerText = 'Sale Price';
-            costLabel.innerText = 'Unit Cost';
-            if (unitInput && !unitInput.value) unitInput.value = 'Bags';
+            quantityLabel.innerText = 'Yards';
+            unitInput.value = 'Yards';
         }} else if (type === 'hardscape_material') {{
-            quantityLabel.innerText = 'Amount';
-            salePriceLabel.innerText = 'Sale Price';
-            costLabel.innerText = 'Unit Cost';
-            if (unitInput && !unitInput.value) unitInput.value = 'Tons';
-        }} else if (type === 'plants') {{
-            quantityLabel.innerText = 'Quantity';
-            salePriceLabel.innerText = 'Sale Price';
-            costLabel.innerText = 'Unit Cost';
-            if (unitInput && !unitInput.value) unitInput.value = 'EA';
-        }} else if (type === 'trees') {{
-            quantityLabel.innerText = 'Quantity';
-            salePriceLabel.innerText = 'Sale Price';
-            costLabel.innerText = 'Unit Cost';
-            if (unitInput && !unitInput.value) unitInput.value = 'EA';
+            quantityLabel.innerText = 'Tons';
+            unitInput.value = 'Tons';
+        }} else if (type === 'fuel') {{
+            quantityLabel.innerText = 'Gallons';
+            unitInput.value = 'Gallons';
+        }} else if (type === 'delivery') {{
+            quantityLabel.innerText = 'Miles';
+            unitInput.value = 'Miles';
         }} else if (type === 'labor') {{
-            quantityLabel.innerText = 'Hours';
-            salePriceLabel.innerText = 'Billable Hours';
-            if (unitInput && !unitInput.value) unitInput.value = 'hr';
+            quantityLabel.innerText = 'Billable Hours';
+            salePriceLabel.innerText = 'Hourly Rate';
+            unitInput.value = 'Hours';
+            if (unitCostWrap) unitCostWrap.style.display = 'none';
+            if (unitCostInput) unitCostInput.value = '0';
+        }} else if (type === 'equipment') {{
+            quantityLabel.innerText = 'Rentals';
+            unitInput.value = 'Rentals';
+        }} else if (type === 'plants' || type === 'trees' || type === 'misc') {{
+            quantityLabel.innerText = 'Quantity';
+            unitInput.value = '';
         }} else if (type === 'dump_fee') {{
-            quantityLabel.innerText = 'Fees';
+            quantityLabel.innerText = 'Fee';
             salePriceLabel.innerText = 'Fee Amount';
-            if (unitInput && !unitInput.value) unitInput.value = 'fee';
+            unitInput.value = '';
+            if (unitCostWrap) unitCostWrap.style.display = 'none';
+            if (unitCostInput) unitCostInput.value = '0';
             if (quantityInput) {{
                 quantityInput.value = '1';
                 quantityInput.readOnly = true;
             }}
-            if (unitCostWrap) unitCostWrap.style.display = 'none';
-            if (unitCostInput) unitCostInput.value = '0';
-        }} else {{
+        }} else if (type === 'fertilizer') {{
             quantityLabel.innerText = 'Quantity';
-            salePriceLabel.innerText = 'Sale Price';
-            costLabel.innerText = 'Unit Cost';
+            unitInput.value = '';
         }}
     }}
 
