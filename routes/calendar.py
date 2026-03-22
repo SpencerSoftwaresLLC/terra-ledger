@@ -304,14 +304,28 @@ def _job_payload(row):
     job_id = row.get("id")
     status = row.get("status") or ""
 
+    start_time = _normalize_time_value(row.get("scheduled_start_time"))
+    end_time = _normalize_time_value(row.get("scheduled_end_time"))
+
+    start_minutes = _time_to_minutes(start_time)
+    end_minutes = _time_to_minutes(end_time) if end_time else None
+
+    if start_minutes is None:
+        start_minutes = 360  # default to 6:00 AM
+
+    if end_minutes is None or end_minutes <= start_minutes:
+        end_minutes = start_minutes + 60  # default to 1 hour
+
     return {
         "id": job_id,
         "title": row.get("title") or f"Job #{job_id}",
         "status": status,
         "status_class": _status_class(status),
         "scheduled_date": _normalize_date_value(row.get("scheduled_date")),
-        "scheduled_start_time": _normalize_time_value(row.get("scheduled_start_time")),
-        "scheduled_end_time": _normalize_time_value(row.get("scheduled_end_time")),
+        "scheduled_start_time": start_time,
+        "scheduled_end_time": end_time,
+        "start_minutes": start_minutes,
+        "end_minutes": end_minutes,
         "time_label": _build_time_range(
             row.get("scheduled_start_time"),
             row.get("scheduled_end_time"),
@@ -319,6 +333,8 @@ def _job_payload(row):
         "assigned_to": row.get("assigned_to") or "",
         "label": row.get("title") or f"Job #{job_id}",
         "url": url_for("jobs.view_job", job_id=job_id),
+        "lane_index": 0,
+        "lane_count": 1,
     }
 
 
@@ -335,6 +351,8 @@ def _build_week_columns(week_start, raw_jobs):
     for offset in range(7):
         day = week_start + timedelta(days=offset)
         iso = day.isoformat()
+        laid_out_jobs = _layout_day_jobs(jobs_by_day.get(iso, []))
+
         week_days.append({
             "date": day,
             "iso": iso,
@@ -343,7 +361,7 @@ def _build_week_columns(week_start, raw_jobs):
             "day_num": day.day,
             "month_label": day.strftime("%b"),
             "is_today": day == date.today(),
-            "jobs": jobs_by_day.get(iso, []),
+            "jobs": laid_out_jobs,
         })
     return week_days
 
@@ -358,6 +376,54 @@ def _build_week_time_rows(start_hour=6, end_hour=20):
             "label": label,
         })
     return rows
+
+def _jobs_overlap(job_a, job_b):
+    return (
+        job_a["start_minutes"] < job_b["end_minutes"]
+        and job_a["end_minutes"] > job_b["start_minutes"]
+    )
+
+
+def _layout_day_jobs(day_jobs):
+    """
+    Assign each overlapping job a lane within the day column.
+    """
+    if not day_jobs:
+        return []
+
+    jobs = sorted(day_jobs, key=lambda j: (j["start_minutes"], j["end_minutes"], j["id"]))
+
+    active = []
+    groups = []
+    current_group = []
+
+    for job in jobs:
+        # Remove finished jobs from active list
+        active = [a for a in active if a["end_minutes"] > job["start_minutes"]]
+
+        if not active and current_group:
+            groups.append(current_group)
+            current_group = []
+
+        used_lanes = {a["lane_index"] for a in active}
+        lane_index = 0
+        while lane_index in used_lanes:
+            lane_index += 1
+
+        job["lane_index"] = lane_index
+        active.append(job)
+        current_group.append(job)
+
+    if current_group:
+        groups.append(current_group)
+
+    # Set lane_count for each overlap group
+    for group in groups:
+        lane_count = max(j["lane_index"] for j in group) + 1
+        for job in group:
+            job["lane_count"] = lane_count
+
+    return jobs
 
 
 @calendar_bp.route("/calendar", methods=["GET"])
@@ -1026,7 +1092,7 @@ def calendar_page():
             }
         </style>
     </head>
-    <body>
+        <body>
         <div class="wrap">
             <div class="topbar">
                 <div class="title-block">
@@ -1034,9 +1100,23 @@ def calendar_page():
                     <p>View scheduled jobs by month or week.</p>
                 </div>
 
-                <div class="view-actions">
-                    <a class="btn {% if view_mode == 'month' %}active{% endif %}" href="{{ url_for('calendar.calendar_page', view='month', year=year, month=month, date=focus_date.isoformat()) }}">Month View</a>
-                    <a class="btn {% if view_mode == 'week' %}active{% endif %}" href="{{ url_for('calendar.calendar_page', view='week', date=focus_date.isoformat()) }}">Week View</a>
+                <div class="view-actions" style="flex-direction: column; align-items: flex-end;">
+                    <div style="display:flex; gap:10px;">
+                        <a class="btn {% if view_mode == 'month' %}active{% endif %}"
+                           href="{{ url_for('calendar.calendar_page', view='month', year=year, month=month, date=focus_date.isoformat()) }}">
+                            Month View
+                        </a>
+
+                        <a class="btn {% if view_mode == 'week' %}active{% endif %}"
+                           href="{{ url_for('calendar.calendar_page', view='week', date=focus_date.isoformat()) }}">
+                            Week View
+                        </a>
+                    </div>
+
+                    <a class="btn secondary" style="margin-top:8px;"
+                       href="{{ url_for('dashboard.dashboard') }}">
+                        ← Back to Dashboard
+                    </a>
                 </div>
             </div>
 
@@ -1156,17 +1236,27 @@ def calendar_page():
                                 {% for day in week_days %}
                                     <div class="week-day-col {% if day.is_today %}today{% endif %}">
                                         {% for job in day.jobs %}
-                                            {% set start_minutes = (job.scheduled_start_time[:2]|int * 60 + job.scheduled_start_time[3:5]|int) if job.scheduled_start_time else 360 %}
-                                            {% set end_minutes = (job.scheduled_end_time[:2]|int * 60 + job.scheduled_end_time[3:5]|int) if job.scheduled_end_time else (start_minutes + 60) %}
-                                            {% set display_start = start_minutes if start_minutes >= 360 else 360 %}
-                                            {% set display_end = end_minutes if end_minutes > display_start else (display_start + 60) %}
+                                            {% set display_start = job.start_minutes if job.start_minutes >= 360 else 360 %}
+                                            {% set display_end = job.end_minutes if job.end_minutes > display_start else (display_start + 60) %}
                                             {% set top_px = ((display_start - 360) * 1.2) %}
                                             {% set height_px = ((display_end - display_start) * 1.2) %}
                                             {% if height_px < 42 %}
                                                 {% set height_px = 42 %}
                                             {% endif %}
 
-                                            <a class="week-job-link" href="{{ job.url }}" style="top: {{ top_px }}px; height: {{ height_px }}px;">
+                                            {% set lane_width = 100 / job.lane_count %}
+                                            {% set left_pct = lane_width * job.lane_index %}
+                                            {% set width_pct = lane_width %}
+
+                                            <a class="week-job-link"
+                                               href="{{ job.url }}"
+                                               style="
+                                                   top: {{ top_px }}px;
+                                                   height: {{ height_px }}px;
+                                                   left: calc({{ left_pct }}% + 4px);
+                                                   width: calc({{ width_pct }}% - 8px);
+                                                   right: auto;
+                                               ">
                                                 <div class="week-job-card {{ job.status_class }}" style="height: {{ height_px }}px;">
                                                     <div class="week-job-time">{{ job.time_label }}</div>
                                                     <div class="week-job-title">{{ job.label }}</div>
