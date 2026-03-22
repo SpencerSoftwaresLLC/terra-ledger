@@ -95,13 +95,10 @@ def create_app():
     print("APP CREATE SUCCESS", flush=True)
     return app
 
-
-# Run startup tasks once at import/startup
 app = create_app()
 
 if os.environ.get("RUN_STARTUP_TASKS", "false").lower() == "true":
     run_startup_tasks()
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
