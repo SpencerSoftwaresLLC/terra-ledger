@@ -436,6 +436,54 @@ def _insert_manual_history_entry(conn, company_id, entry_date, entry_type, categ
         pass
 
 
+def _delete_matching_manual_history_entry(conn, company_id, ledger_row):
+    try:
+        ensure_bookkeeping_history_table()
+
+        entry_type = str(ledger_row.get("entry_type") or "").strip()
+        category = str(ledger_row.get("category") or "").strip()
+        description = str(ledger_row.get("description") or "").strip()
+        notes = str(ledger_row.get("notes") or "").strip()
+        entry_date = ledger_row.get("entry_date")
+        amount = abs(_safe_float(ledger_row.get("amount")))
+
+        history_entry_type = "Income" if _normalize_text(entry_type) == "income" else "Expense"
+        money_in = amount if history_entry_type == "Income" else 0
+        money_out = amount if history_entry_type != "Income" else 0
+
+        match = conn.execute(
+            """
+            SELECT id
+            FROM bookkeeping_history
+            WHERE company_id = %s
+              AND COALESCE(entry_date, '') = COALESCE(%s, '')
+              AND COALESCE(category, '') = %s
+              AND COALESCE(entry_type, '') = %s
+              AND COALESCE(description, '') = %s
+              AND COALESCE(notes, '') = %s
+              AND COALESCE(money_in, 0) = %s
+              AND COALESCE(money_out, 0) = %s
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (
+                company_id,
+                entry_date,
+                category,
+                history_entry_type,
+                description,
+                notes,
+                money_in,
+                money_out,
+            ),
+        ).fetchone()
+
+        if match:
+            conn.execute("DELETE FROM bookkeeping_history WHERE id = %s", (match["id"],))
+    except Exception:
+        pass
+
+
 @bookkeeping_bp.route("/bookkeeping", methods=["GET", "POST"])
 @login_required
 @require_permission("can_view_bookkeeping")
@@ -494,6 +542,9 @@ def bookkeeping():
 
     select_parts = _get_ledger_select_parts(conn)
     date_col = select_parts["date_col"]
+    ledger_cols = select_parts["ledger_cols"]
+
+    notes_expr = "notes" if "notes" in ledger_cols else "''"
 
     if date_col:
         rows = conn.execute(
@@ -506,6 +557,7 @@ def bookkeeping():
                 {select_parts["category_expr"]} AS category,
                 {select_parts["source_type_expr"]} AS source_type,
                 {select_parts["reference_type_expr"]} AS reference_type,
+                {notes_expr} AS notes,
                 {date_col} AS entry_date
             FROM ledger_entries
             WHERE company_id = %s
@@ -527,6 +579,7 @@ def bookkeeping():
                 {select_parts["category_expr"]} AS category,
                 {select_parts["source_type_expr"]} AS source_type,
                 {select_parts["reference_type_expr"]} AS reference_type,
+                {notes_expr} AS notes,
                 NULL AS entry_date
             FROM ledger_entries
             WHERE company_id = %s
@@ -572,8 +625,10 @@ def bookkeeping():
                 "category": category,
                 "source_type": source_type,
                 "reference_type": reference_type,
+                "notes": str(r["notes"] or ""),
                 "raw_amount": raw_amount,
                 "signed_amount": signed_amount,
+                "is_manual": _normalize_text(source_type) == "manual" or _normalize_text(reference_type) == "manual",
             }
         )
 
@@ -600,6 +655,19 @@ def bookkeeping():
             reference_type=r["reference_type"],
         )
 
+        delete_button = ""
+        if r["is_manual"]:
+            delete_button = f"""
+                <form method="post"
+                      action="{url_for('bookkeeping.delete_bookkeeping_entry', entry_id=r['id'])}"
+                      style="display:inline;"
+                      onsubmit="return confirm('Delete this manual bookkeeping entry?');">
+                    <button class="btn danger small" type="submit">Delete</button>
+                </form>
+            """
+        else:
+            delete_button = "<span class='muted'>Auto</span>"
+
         ledger_row_html.append(
             f"""
             <tr>
@@ -609,6 +677,7 @@ def bookkeeping():
                 <td>{escape(str(r['description'] or '-'))}</td>
                 <td class="amount-cell" style="color:{amount_color};">{_fmt_money(signed_amount, show_plus=True)}</td>
                 <td class="balance-cell" style="color:{balance_color};">{_fmt_money(balance)}</td>
+                <td>{delete_button}</td>
             </tr>
             """
         )
@@ -748,10 +817,11 @@ def bookkeeping():
                         <th>Description</th>
                         <th>Amount</th>
                         <th>Running Balance</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {ledger_rows or '<tr><td colspan="6" class="muted">No bookkeeping entries yet.</td></tr>'}
+                    {ledger_rows or '<tr><td colspan="7" class="muted">No bookkeeping entries yet.</td></tr>'}
                 </tbody>
             </table>
         </div>
@@ -814,7 +884,7 @@ def bookkeeping():
 
         rows.forEach(function(row) {{
             var cells = row.querySelectorAll("td");
-            if (cells.length < 6) return;
+            if (cells.length < 7) return;
             var typeText = cells[2].innerText.trim();
             if (typeText && typeText !== "-") {{
                 found.add(typeText);
@@ -853,7 +923,7 @@ def bookkeeping():
 
         rows.forEach(function(row) {{
             var cells = row.querySelectorAll("td");
-            if (cells.length < 6) return;
+            if (cells.length < 7) return;
 
             var idText = cells[0].innerText.toLowerCase();
             var rawDateText = cells[1].innerText.trim();
@@ -916,6 +986,81 @@ def bookkeeping():
     """
 
     return render_page(content, "Bookkeeping")
+
+
+@bookkeeping_bp.route("/bookkeeping/<int:entry_id>/delete", methods=["POST"])
+@login_required
+@require_permission("can_view_bookkeeping")
+def delete_bookkeeping_entry(entry_id):
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    ledger_cols = table_columns(conn, "ledger_entries")
+    date_col = "entry_date" if "entry_date" in ledger_cols else ("date" if "date" in ledger_cols else None)
+    notes_expr = "notes" if "notes" in ledger_cols else "'' AS notes"
+    category_expr = "category" if "category" in ledger_cols else "'' AS category"
+    entry_type_expr = "entry_type" if "entry_type" in ledger_cols else "'' AS entry_type"
+    amount_expr = "amount" if "amount" in ledger_cols else "0 AS amount"
+    source_type_expr = "source_type" if "source_type" in ledger_cols else "'' AS source_type"
+    reference_type_expr = "reference_type" if "reference_type" in ledger_cols else "'' AS reference_type"
+
+    if date_col:
+        row = conn.execute(
+            f"""
+            SELECT
+                id,
+                company_id,
+                {date_col} AS entry_date,
+                {entry_type_expr} AS entry_type,
+                {category_expr} AS category,
+                {amount_expr} AS amount,
+                COALESCE(description, memo, '') AS description,
+                {notes_expr},
+                {source_type_expr} AS source_type,
+                {reference_type_expr} AS reference_type
+            FROM ledger_entries
+            WHERE id = %s AND company_id = %s
+            """,
+            (entry_id, cid),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            f"""
+            SELECT
+                id,
+                company_id,
+                NULL AS entry_date,
+                {entry_type_expr} AS entry_type,
+                {category_expr} AS category,
+                {amount_expr} AS amount,
+                COALESCE(description, memo, '') AS description,
+                {notes_expr},
+                {source_type_expr} AS source_type,
+                {reference_type_expr} AS reference_type
+            FROM ledger_entries
+            WHERE id = %s AND company_id = %s
+            """,
+            (entry_id, cid),
+        ).fetchone()
+
+    if not row:
+        conn.close()
+        flash("Entry not found.")
+        return redirect(url_for("bookkeeping.bookkeeping"))
+
+    is_manual = _normalize_text(row["source_type"]) == "manual" or _normalize_text(row["reference_type"]) == "manual"
+    if not is_manual:
+        conn.close()
+        flash("Only manual ledger entries can be deleted here.")
+        return redirect(url_for("bookkeeping.bookkeeping"))
+
+    _delete_matching_manual_history_entry(conn, cid, row)
+    conn.execute("DELETE FROM ledger_entries WHERE id = %s AND company_id = %s", (entry_id, cid))
+    conn.commit()
+    conn.close()
+
+    flash("Manual bookkeeping entry deleted.")
+    return redirect(url_for("bookkeeping.bookkeeping"))
 
 
 @bookkeeping_bp.route("/bookkeeping-history")
