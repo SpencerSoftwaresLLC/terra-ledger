@@ -1,5 +1,7 @@
 # TerraLedger/ai/knowledge.py
 
+import re
+
 TERRALEDGER_HELP_KNOWLEDGE = {
     "app_name": "TerraLedger",
     "summary": (
@@ -138,117 +140,150 @@ TERRALEDGER_HELP_KNOWLEDGE = {
     ],
 }
 
-import re
-
 DEPTH_MAP = {
     1: 0.08,
     2: 0.17,
     3: 0.25,
     4: 0.33,
     5: 0.42,
-    6: 0.50
+    6: 0.50,
 }
 
-STONE_KEYWORDS = ["stone", "gravel", "limestone", "rock", "crushed"]
-YARD_ONLY_KEYWORDS = ["mulch", "soil", "dirt", "topsoil"]
+STONE_KEYWORDS = [
+    "stone",
+    "gravel",
+    "limestone",
+    "rock",
+    "crushed",
+]
+
+YARD_ONLY_KEYWORDS = [
+    "mulch",
+    "soil",
+    "dirt",
+    "topsoil",
+]
 
 
-def extract_dimensions(text):
-    text = text.lower()
-
-    # Find all numbers
-    nums = list(map(float, re.findall(r"\d+\.?\d*", text)))
-
-    if len(nums) < 2:
-        return None, None, None
-
-    L = nums[0]
-    W = nums[1]
-
-    # Try to detect depth specifically
-    depth_match = re.search(r"(\d+\.?\d*)\s*(inches|inch|in|ft|feet|foot)?", text)
-
-    if len(nums) >= 3:
-        D_input = nums[2]
-    else:
-        return None, None, None
-
-    return L, W, D_input
+def _normalize_text(text):
+    return (text or "").strip().lower()
 
 
 def detect_material(text):
-    text = text.lower()
-    if any(k in text for k in STONE_KEYWORDS):
+    text = _normalize_text(text)
+
+    if any(keyword in text for keyword in STONE_KEYWORDS):
         return "stone"
-    if any(k in text for k in YARD_ONLY_KEYWORDS):
+
+    if any(keyword in text for keyword in YARD_ONLY_KEYWORDS):
         return "yard"
+
     return "unknown"
 
 
+def extract_dimensions(text):
+    """
+    Expects the first two numbers to be length and width,
+    and the third number to be depth.
+
+    Examples that work:
+    - 30x20 3 inches mulch
+    - 30 x 20 x 3 stone
+    - 30 by 20 at 3 inches deep for gravel
+    """
+    text = _normalize_text(text)
+    nums = list(map(float, re.findall(r"\d+\.?\d*", text)))
+
+    if len(nums) < 3:
+        return None, None, None
+
+    length = nums[0]
+    width = nums[1]
+    depth_input = nums[2]
+
+    return length, width, depth_input
+
+
 def convert_depth(depth_input, text):
-    text = text.lower()
+    """
+    Converts the user's depth entry into feet for the volume formula.
 
-    # If inches mentioned → use your depth map
-    if "inch" in text or "in" in text:
-        try:
-            depth_input = int(depth_input)
-            return DEPTH_MAP.get(depth_input, depth_input)
-        except:
-            return depth_input
+    Business rule:
+    - If user says inches / inch / in, convert using DEPTH_MAP when possible
+    - If user says feet / foot / ft, use the value directly
+    - If no unit is given, assume inches and use DEPTH_MAP
+    """
+    text = _normalize_text(text)
 
-    # If feet mentioned → use as-is
-    if "ft" in text or "feet" in text or "foot" in text:
+    if re.search(r"\b(ft|feet|foot)\b", text):
         return float(depth_input)
 
-    # Default → assume inches (your business standard)
+    if re.search(r"\b(in|inch|inches)\b", text):
+        try:
+            depth_as_int = int(float(depth_input))
+            return DEPTH_MAP.get(depth_as_int, float(depth_input))
+        except Exception:
+            return float(depth_input)
+
     try:
-        depth_input = int(depth_input)
-        return DEPTH_MAP.get(depth_input, depth_input)
-    except:
+        depth_as_int = int(float(depth_input))
+        return DEPTH_MAP.get(depth_as_int, float(depth_input))
+    except Exception:
         return float(depth_input)
 
 
 def calculate_material(text):
-    L, W, D_input = extract_dimensions(text)
+    """
+    Material formulas based on your Wrede's process:
 
-    if not L:
+    Stone:
+        yards = (L * W * D) / 27
+        tons = yards * 1.3
+
+    Mulch / soil:
+        yards = (L * W * D) / 27
+
+    Depth must be in feet for the formula, so inch inputs are converted first.
+    """
+    text = _normalize_text(text)
+
+    if not text:
         return None
 
     material = detect_material(text)
-    D = convert_depth(D_input, text)
+    if material == "unknown":
+        return None
 
-    yards = (L * W * D) / 27
+    length, width, depth_input = extract_dimensions(text)
+    if length is None or width is None or depth_input is None:
+        return None
+
+    depth_feet = convert_depth(depth_input, text)
+    yards = (length * width * depth_feet) / 27
 
     if material == "stone":
         tons = yards * 1.3
+        return (
+            "Material Estimate:\n\n"
+            f"Length: {length:g} ft\n"
+            f"Width: {width:g} ft\n"
+            f"Depth: {depth_input:g}\n\n"
+            f"Cubic Yards: {yards:.2f}\n"
+            f"Tons: {tons:.2f}\n\n"
+            "Recommended Order:\n"
+            f"• {round(yards + 0.25, 2)} yards\n"
+            f"• {round(tons + 0.25, 2)} tons"
+        )
 
-        return f"""
-Material Estimate:
-
-Length: {L} ft
-Width: {W} ft
-Depth: {D_input} inches
-
-Cubic Yards: {yards:.2f}
-Tons: {tons:.2f}
-
-Recommended Order:
-• {round(yards + 0.25, 2)} yards
-• {round(tons + 0.25, 2)} tons
-"""
-
-    elif material == "yard":
-        return f"""
-Material Estimate:
-
-Length: {L} ft
-Width: {W} ft
-Depth: {D_input} inches
-
-Cubic Yards: {yards:.2f}
-
-Recommended Order:
-• {round(yards + 0.25, 2)} yards
-"""
+    if material == "yard":
+        return (
+            "Material Estimate:\n\n"
+            f"Length: {length:g} ft\n"
+            f"Width: {width:g} ft\n"
+            f"Depth: {depth_input:g}\n\n"
+            f"Cubic Yards: {yards:.2f}\n\n"
+            "Recommended Order:\n"
+            f"• {round(yards + 0.25, 2)} yards"
+        )
 
     return None
