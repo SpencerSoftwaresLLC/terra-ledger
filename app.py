@@ -17,7 +17,6 @@ from routes.customers import customers_bp
 from routes.jobs import jobs_bp
 from routes.quotes import quotes_bp
 from routes.invoices import invoices_bp
-from routes.ledger import ledger_bp
 from routes.payroll import payroll_bp
 from routes.employees import employees_bp
 from routes.users import users_bp
@@ -78,7 +77,6 @@ def create_app():
     app.register_blueprint(jobs_bp)
     app.register_blueprint(quotes_bp)
     app.register_blueprint(invoices_bp)
-    app.register_blueprint(ledger_bp)
     app.register_blueprint(payroll_bp)
     app.register_blueprint(employees_bp)
     app.register_blueprint(users_bp)
