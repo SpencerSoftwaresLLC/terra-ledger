@@ -179,7 +179,7 @@ def _canonicalize_category(value):
         return "Licensing & Certifications"
     if v == "bank deposits":
         return "Bank Deposits"
-    if v in {"invoice payments", "invoice payment"}:
+    if v in {"invoice payment"}:
         return "Invoice Payments"
     if v == "income":
         return "Income"

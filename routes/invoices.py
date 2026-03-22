@@ -389,95 +389,10 @@ def _sync_invoice_status_and_bookkeeping(invoice_id):
                     invoice["company_id"],
                 ),
             )
-
-        ledger_cols = _table_columns(conn, "ledger_entries") if "ledger_entries" in {
-            row[0] if not hasattr(row, "keys") else row["table_name"]
-            for row in conn.execute(
-                """
-                SELECT table_name
-                FROM information_schema.tables
-                WHERE table_schema = 'public'
-                """
-            ).fetchall()
-        } else set()
-
-        if not ledger_cols:
-            conn.commit()
-            return
-
-        existing_ledger = None
-        if "invoice_id" in ledger_cols:
-            existing_ledger = conn.execute(
-                """
-                SELECT id
-                FROM ledger_entries
-                WHERE invoice_id = %s
-                ORDER BY id DESC
-                LIMIT 1
-                """,
-                (invoice_id,),
-            ).fetchone()
-
-        if paid_total <= 0:
-            if existing_ledger:
-                conn.execute(
-                    "DELETE FROM ledger_entries WHERE id = %s",
-                    (existing_ledger["id"],),
-                )
-            conn.commit()
-            return
-
-        ledger_data = {}
-
-        if "company_id" in ledger_cols:
-            ledger_data["company_id"] = invoice["company_id"]
-        if "invoice_id" in ledger_cols:
-            ledger_data["invoice_id"] = invoice_id
-        if "customer_id" in ledger_cols:
-            ledger_data["customer_id"] = invoice["customer_id"]
-        if "entry_date" in ledger_cols:
-            ledger_data["entry_date"] = latest_payment_date
-        elif "date" in ledger_cols:
-            ledger_data["date"] = latest_payment_date
-        if "amount" in ledger_cols:
-            ledger_data["amount"] = paid_total
-        if "description" in ledger_cols:
-            invoice_number = invoice["invoice_number"] or invoice["id"]
-            customer_name = invoice["customer_name"] or "Customer"
-            ledger_data["description"] = f"Invoice {invoice_number} payment - {customer_name}"
-        if "type" in ledger_cols:
-            ledger_data["type"] = "income"
-        if "entry_type" in ledger_cols:
-            ledger_data["entry_type"] = "income"
-        if "category" in ledger_cols:
-            ledger_data["category"] = "Invoice Payment"
-        if "notes" in ledger_cols:
-            ledger_data["notes"] = f"Synced from invoice #{invoice['invoice_number'] or invoice['id']}"
-        if "reference" in ledger_cols:
-            ledger_data["reference"] = f"INV-{invoice['invoice_number'] or invoice['id']}"
-        if "status" in ledger_cols:
-            ledger_data["status"] = "posted"
-
-        if existing_ledger and ledger_data:
-            set_clause = ", ".join(f"{col} = %s" for col in ledger_data.keys())
-            values = list(ledger_data.values()) + [existing_ledger["id"]]
-            conn.execute(
-                f"UPDATE ledger_entries SET {set_clause} WHERE id = %s",
-                values,
-            )
-        elif ledger_data:
-            columns_sql = ", ".join(ledger_data.keys())
-            placeholders_sql = ", ".join(["%s"] * len(ledger_data))
-            conn.execute(
-                f"INSERT INTO ledger_entries ({columns_sql}) VALUES ({placeholders_sql})",
-                list(ledger_data.values()),
-            )
-
         conn.commit()
     finally:
         conn.close()
-
-
+        
 def build_invoice_pdf(invoice, items, company, profile):
     pdf_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     pdf_temp.close()
