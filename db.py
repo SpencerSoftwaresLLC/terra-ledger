@@ -1129,6 +1129,15 @@ def insert_billing_event(
     conn.commit()
     conn.close()
 
+def ensure_job_schedule_columns():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_start_time TIME")
+    cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_end_time TIME")
+    cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS assigned_to TEXT")
+    conn.commit()
+    conn.close()
+
 
 def _extract_numeric_suffix(value, fallback=1000):
     if value is None:

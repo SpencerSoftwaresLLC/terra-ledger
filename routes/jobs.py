@@ -32,6 +32,18 @@ ITEM_TYPE_LABELS = {
 }
 
 
+def ensure_job_schedule_columns():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_start_time TIME")
+        cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_end_time TIME")
+        cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS assigned_to TEXT")
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def clean_text_input(value):
     if value is None:
         return ""
@@ -53,6 +65,53 @@ def safe_float(value, default=0.0):
         return float(value or 0)
     except Exception:
         return default
+    
+def _time_to_minutes(value):
+    if not value:
+        return None
+    try:
+        parts = str(value).split(":")
+        return int(parts[0]) * 60 + int(parts[1])
+    except Exception:
+        return None
+
+
+def check_schedule_conflict(conn, company_id, scheduled_date, start_time, end_time, assigned_to, exclude_job_id=None):
+    if not scheduled_date or not start_time or not assigned_to:
+        return None
+
+    new_start = _time_to_minutes(start_time)
+    new_end = _time_to_minutes(end_time) if end_time else (new_start + 60)
+
+    rows = conn.execute(
+        """
+        SELECT id, title, scheduled_start_time, scheduled_end_time
+        FROM jobs
+        WHERE company_id = %s
+          AND scheduled_date = %s
+          AND assigned_to = %s
+          AND id != COALESCE(%s, -1)
+        """,
+        (company_id, scheduled_date, assigned_to, exclude_job_id),
+    ).fetchall()
+
+    for r in rows:
+        existing_start = _time_to_minutes(r["scheduled_start_time"])
+        existing_end = _time_to_minutes(r["scheduled_end_time"]) if r["scheduled_end_time"] else (existing_start + 60)
+
+        if existing_start is None:
+            continue
+
+        # OVERLAP CHECK
+        if new_start < existing_end and new_end > existing_start:
+            return {
+                "id": r["id"],
+                "title": r["title"],
+                "start": r["scheduled_start_time"],
+                "end": r["scheduled_end_time"],
+            }
+
+    return None
 
 
 def display_item_type(value):
@@ -92,6 +151,8 @@ def default_unit_for_item_type(item_type):
 @subscription_required
 @require_permission("can_manage_jobs")
 def jobs():
+    ensure_job_schedule_columns()
+
     conn = get_db_connection()
     cid = session["company_id"]
 
@@ -125,6 +186,9 @@ def jobs():
 
         title = clean_text_input(request.form.get("title", ""))
         scheduled_date = clean_text_input(request.form.get("scheduled_date", ""))
+        scheduled_start_time = clean_text_input(request.form.get("scheduled_start_time", ""))
+        scheduled_end_time = clean_text_input(request.form.get("scheduled_end_time", ""))
+        assigned_to = clean_text_input(request.form.get("assigned_to", ""))
         status = clean_text_input(request.form.get("status", "Scheduled")) or "Scheduled"
         address = clean_text_input(request.form.get("address", ""))
         notes = clean_text_input(request.form.get("notes", ""))
@@ -134,14 +198,53 @@ def jobs():
             flash("Job title is required.")
             return redirect(url_for("jobs.jobs"))
 
+        conflict = check_schedule_conflict(
+            conn,
+            cid,
+            scheduled_date,
+            scheduled_start_time,
+            scheduled_end_time,
+            assigned_to,
+        )
+
+        if conflict:
+            conn.close()
+            flash(
+                f"Schedule conflict: '{conflict['title']}' is already scheduled for {assigned_to} "
+                f"from {conflict['start']} to {conflict['end']}."
+            )
+            return redirect(url_for("jobs.jobs"))
+
         cur = conn.cursor()
         cur.execute(
             """
-            INSERT INTO jobs (company_id, customer_id, title, scheduled_date, status, address, notes)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO jobs (
+                company_id,
+                customer_id,
+                title,
+                scheduled_date,
+                scheduled_start_time,
+                scheduled_end_time,
+                assigned_to,
+                status,
+                address,
+                notes
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
-            (cid, customer_id, title, scheduled_date or None, status, address, notes),
+            (
+                cid,
+                customer_id,
+                title,
+                scheduled_date or None,
+                scheduled_start_time or None,
+                scheduled_end_time or None,
+                assigned_to or None,
+                status,
+                address,
+                notes,
+            ),
         )
         row = cur.fetchone()
         job_id = row["id"] if row and "id" in row else None
@@ -163,7 +266,10 @@ def jobs():
         JOIN customers c ON j.customer_id = c.id
         WHERE j.company_id = %s
           AND COALESCE(j.status, '') != 'Finished'
-        ORDER BY j.id DESC
+        ORDER BY
+            j.scheduled_date NULLS LAST,
+            j.scheduled_start_time NULLS LAST,
+            j.id DESC
         """,
         (cid,),
     ).fetchall()
@@ -176,6 +282,10 @@ def jobs():
             <td>#{r['id']}</td>
             <td>{escape(clean_text_display(r['title']))}</td>
             <td>{escape(clean_text_display(r['customer_name']))}</td>
+            <td>{escape(clean_text_display(r['scheduled_date']))}</td>
+            <td>{escape(clean_text_display(r['scheduled_start_time']))}</td>
+            <td>{escape(clean_text_display(r['scheduled_end_time']))}</td>
+            <td>{escape(clean_text_display(r['assigned_to']))}</td>
             <td>{escape(clean_text_display(r['status']))}</td>
             <td>${safe_float(r['revenue']):.2f}</td>
             <td>${safe_float(r['cost_total']):.2f}</td>
@@ -267,6 +377,21 @@ def jobs():
                 </div>
 
                 <div>
+                    <label>Start Time</label>
+                    <input type='time' name='scheduled_start_time'>
+                </div>
+
+                <div>
+                    <label>End Time</label>
+                    <input type='time' name='scheduled_end_time'>
+                </div>
+
+                <div>
+                    <label>Assigned To</label>
+                    <input name='assigned_to' placeholder='Crew / Employee'>
+                </div>
+
+                <div>
                     <label>Status</label>
                     <select name='status'>
                         <option>Scheduled</option>
@@ -297,13 +422,17 @@ def jobs():
                     <th>ID</th>
                     <th>Title</th>
                     <th>Customer</th>
+                    <th>Date</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th>Assigned To</th>
                     <th>Status</th>
                     <th>Revenue</th>
                     <th>Costs</th>
                     <th>Profit/Loss</th>
                     <th>Actions</th>
                 </tr>
-                {job_rows or '<tr><td colspan="8" class="muted">No jobs yet.</td></tr>'}
+                {job_rows or '<tr><td colspan="12" class="muted">No jobs yet.</td></tr>'}
             </table>
         </div>
     </div>
@@ -386,6 +515,8 @@ def jobs():
 @login_required
 @require_permission("can_manage_jobs")
 def export_jobs():
+    ensure_job_schedule_columns()
+
     conn = get_db_connection()
     cid = session["company_id"]
 
@@ -395,6 +526,9 @@ def export_jobs():
             j.id,
             j.title,
             j.scheduled_date,
+            j.scheduled_start_time,
+            j.scheduled_end_time,
+            j.assigned_to,
             j.status,
             j.address,
             j.notes,
@@ -420,6 +554,9 @@ def export_jobs():
         "Customer",
         "Customer Email",
         "Scheduled Date",
+        "Start Time",
+        "End Time",
+        "Assigned To",
         "Status",
         "Address",
         "Revenue",
@@ -435,6 +572,9 @@ def export_jobs():
             clean_text_input(r["customer_name"]),
             clean_text_input(r["customer_email"]),
             clean_text_input(r["scheduled_date"]),
+            clean_text_input(r["scheduled_start_time"]),
+            clean_text_input(r["scheduled_end_time"]),
+            clean_text_input(r["assigned_to"]),
             clean_text_input(r["status"]),
             clean_text_input(r["address"]),
             safe_float(r["revenue"]),
@@ -460,6 +600,8 @@ def export_jobs():
 @login_required
 @require_permission("can_manage_jobs")
 def view_job(job_id):
+    ensure_job_schedule_columns()
+
     conn = get_db_connection()
     cid = session["company_id"]
 
@@ -598,11 +740,27 @@ def view_job(job_id):
         for i in items
     )
 
+    schedule_bits = []
+    if clean_text_input(job["scheduled_date"]):
+        schedule_bits.append(f"<strong>Date:</strong> {escape(clean_text_display(job['scheduled_date']))}")
+    if clean_text_input(job["scheduled_start_time"]):
+        if clean_text_input(job["scheduled_end_time"]):
+            schedule_bits.append(
+                f"<strong>Time:</strong> {escape(clean_text_display(job['scheduled_start_time']))} - {escape(clean_text_display(job['scheduled_end_time']))}"
+            )
+        else:
+            schedule_bits.append(f"<strong>Start:</strong> {escape(clean_text_display(job['scheduled_start_time']))}")
+    if clean_text_input(job["assigned_to"]):
+        schedule_bits.append(f"<strong>Assigned To:</strong> {escape(clean_text_display(job['assigned_to']))}")
+
+    schedule_html = "<br>".join(schedule_bits) if schedule_bits else "<strong>Schedule:</strong> -"
+
     content = f"""
         <div class='card'>
             <h1>Job #{job['id']} - {escape(clean_text_display(job['title']))}</h1>
             <p>
                 <strong>Customer:</strong> {escape(clean_text_display(job['customer_name']))}<br>
+                {schedule_html}<br>
                 <strong>Status:</strong> {escape(clean_text_display(job['status']))}<br>
                 <strong>Revenue:</strong> ${safe_float(job['revenue']):.2f}
                 |
@@ -784,10 +942,13 @@ def view_job(job_id):
         """
     return render_page(content, f"Job #{job_id}")
 
+
 @jobs_bp.route("/jobs/<int:job_id>/edit", methods=["GET", "POST"])
 @login_required
 @require_permission("can_manage_jobs")
 def edit_job(job_id):
+    ensure_job_schedule_columns()
+
     conn = get_db_connection()
     cid = session["company_id"]
 
@@ -814,6 +975,9 @@ def edit_job(job_id):
         customer_id = request.form.get("customer_id", type=int)
         title = clean_text_input(request.form.get("title", ""))
         scheduled_date = clean_text_input(request.form.get("scheduled_date", ""))
+        scheduled_start_time = clean_text_input(request.form.get("scheduled_start_time", ""))
+        scheduled_end_time = clean_text_input(request.form.get("scheduled_end_time", ""))
+        assigned_to = clean_text_input(request.form.get("assigned_to", ""))
         status = clean_text_input(request.form.get("status", ""))
         address = clean_text_input(request.form.get("address", ""))
         notes = clean_text_input(request.form.get("notes", ""))
@@ -823,13 +987,51 @@ def edit_job(job_id):
             flash("Customer and title are required.")
             return redirect(url_for("jobs.edit_job", job_id=job_id))
 
+        conflict = check_schedule_conflict(
+            conn,
+            cid,
+            scheduled_date,
+            scheduled_start_time,
+            scheduled_end_time,
+            assigned_to,
+            exclude_job_id=job_id,
+        )
+
+        if conflict:
+            conn.close()
+            flash(
+                f"Schedule conflict: '{conflict['title']}' already scheduled for {assigned_to} "
+                f"from {conflict['start']} to {conflict['end']}."
+            )
+            return redirect(url_for("jobs.edit_job", job_id=job_id))
+
         conn.execute(
             """
             UPDATE jobs
-            SET customer_id = %s, title = %s, scheduled_date = %s, status = %s, address = %s, notes = %s
+            SET customer_id = %s,
+                title = %s,
+                scheduled_date = %s,
+                scheduled_start_time = %s,
+                scheduled_end_time = %s,
+                assigned_to = %s,
+                status = %s,
+                address = %s,
+                notes = %s
             WHERE id = %s AND company_id = %s
             """,
-            (customer_id, title, scheduled_date or None, status, address, notes, job_id, cid),
+            (
+                customer_id,
+                title,
+                scheduled_date or None,
+                scheduled_start_time or None,
+                scheduled_end_time or None,
+                assigned_to or None,
+                status,
+                address,
+                notes,
+                job_id,
+                cid,
+            ),
         )
         conn.commit()
         conn.close()
@@ -861,6 +1063,18 @@ def edit_job(job_id):
                 <div>
                     <label>Scheduled Date</label>
                     <input type='date' name='scheduled_date' value="{escape(clean_text_input(job['scheduled_date']))}">
+                </div>
+                <div>
+                    <label>Start Time</label>
+                    <input type='time' name='scheduled_start_time' value="{escape(clean_text_input(job['scheduled_start_time']))}">
+                </div>
+                <div>
+                    <label>End Time</label>
+                    <input type='time' name='scheduled_end_time' value="{escape(clean_text_input(job['scheduled_end_time']))}">
+                </div>
+                <div>
+                    <label>Assigned To</label>
+                    <input name='assigned_to' value="{escape(clean_text_input(job['assigned_to']))}">
                 </div>
                 <div>
                     <label>Status</label>
@@ -1377,6 +1591,8 @@ def delete_job(job_id):
 @login_required
 @require_permission("can_manage_jobs")
 def finished_jobs():
+    ensure_job_schedule_columns()
+
     conn = get_db_connection()
     cid = session["company_id"]
 
@@ -1387,7 +1603,10 @@ def finished_jobs():
         JOIN customers c ON j.customer_id = c.id
         WHERE j.company_id = %s
           AND j.status = 'Finished'
-        ORDER BY j.id DESC
+        ORDER BY
+            j.scheduled_date NULLS LAST,
+            j.scheduled_start_time NULLS LAST,
+            j.id DESC
         """,
         (cid,),
     ).fetchall()
@@ -1400,6 +1619,10 @@ def finished_jobs():
             <td>#{r['id']}</td>
             <td>{escape(clean_text_display(r['title']))}</td>
             <td>{escape(clean_text_display(r['customer_name']))}</td>
+            <td>{escape(clean_text_display(r['scheduled_date']))}</td>
+            <td>{escape(clean_text_display(r['scheduled_start_time']))}</td>
+            <td>{escape(clean_text_display(r['scheduled_end_time']))}</td>
+            <td>{escape(clean_text_display(r['assigned_to']))}</td>
             <td>{escape(clean_text_display(r['status']))}</td>
             <td>${safe_float(r['revenue']):.2f}</td>
             <td>${safe_float(r['cost_total']):.2f}</td>
@@ -1435,13 +1658,17 @@ def finished_jobs():
                     <th>ID</th>
                     <th>Title</th>
                     <th>Customer</th>
+                    <th>Date</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th>Assigned To</th>
                     <th>Status</th>
                     <th>Revenue</th>
                     <th>Costs</th>
                     <th>Profit/Loss</th>
                     <th>Actions</th>
                 </tr>
-                {job_rows or '<tr><td colspan="8" class="muted">No finished jobs yet.</td></tr>'}
+                {job_rows or '<tr><td colspan="12" class="muted">No finished jobs yet.</td></tr>'}
             </table>
         </div>
     </div>
