@@ -784,6 +784,109 @@ def view_job(job_id):
         """
     return render_page(content, f"Job #{job_id}")
 
+@jobs_bp.route("/jobs/<int:job_id>/edit", methods=["GET", "POST"])
+@login_required
+@require_permission("can_manage_jobs")
+def edit_job(job_id):
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    job = conn.execute(
+        """
+        SELECT *
+        FROM jobs
+        WHERE id = %s AND company_id = %s
+        """,
+        (job_id, cid),
+    ).fetchone()
+
+    if not job:
+        conn.close()
+        flash("Job not found.")
+        return redirect(url_for("jobs.jobs"))
+
+    customers = conn.execute(
+        "SELECT id, name FROM customers WHERE company_id = %s ORDER BY name",
+        (cid,),
+    ).fetchall()
+
+    if request.method == "POST":
+        customer_id = request.form.get("customer_id", type=int)
+        title = clean_text_input(request.form.get("title", ""))
+        scheduled_date = clean_text_input(request.form.get("scheduled_date", ""))
+        status = clean_text_input(request.form.get("status", ""))
+        address = clean_text_input(request.form.get("address", ""))
+        notes = clean_text_input(request.form.get("notes", ""))
+
+        if not customer_id or not title:
+            conn.close()
+            flash("Customer and title are required.")
+            return redirect(url_for("jobs.edit_job", job_id=job_id))
+
+        conn.execute(
+            """
+            UPDATE jobs
+            SET customer_id = %s, title = %s, scheduled_date = %s, status = %s, address = %s, notes = %s
+            WHERE id = %s AND company_id = %s
+            """,
+            (customer_id, title, scheduled_date or None, status, address, notes, job_id, cid),
+        )
+        conn.commit()
+        conn.close()
+
+        flash("Job updated.")
+        return redirect(url_for("jobs.view_job", job_id=job_id))
+
+    customer_opts = "".join(
+        f"<option value='{c['id']}' {'selected' if c['id'] == job['customer_id'] else ''}>{escape(clean_text_display(c['name'], 'Customer #' + str(c['id'])))}</option>"
+        for c in customers
+    )
+
+    content = f"""
+    <div class='card'>
+        <h1>Edit Job #{job['id']}</h1>
+        <form method='post'>
+            <div class='grid'>
+                <div>
+                    <label>Customer</label>
+                    <select name='customer_id' required>
+                        <option value=''>Select customer</option>
+                        {customer_opts}
+                    </select>
+                </div>
+                <div>
+                    <label>Title</label>
+                    <input name='title' value="{escape(clean_text_input(job['title']))}" required>
+                </div>
+                <div>
+                    <label>Scheduled Date</label>
+                    <input type='date' name='scheduled_date' value="{escape(clean_text_input(job['scheduled_date']))}">
+                </div>
+                <div>
+                    <label>Status</label>
+                    <select name='status'>
+                        <option {'selected' if job['status'] == 'Scheduled' else ''}>Scheduled</option>
+                        <option {'selected' if job['status'] == 'In Progress' else ''}>In Progress</option>
+                        <option {'selected' if job['status'] == 'Completed' else ''}>Completed</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Address</label>
+                    <input name='address' value="{escape(clean_text_input(job['address']))}">
+                </div>
+            </div>
+            <br>
+            <label>Notes</label>
+            <textarea name='notes'>{escape(clean_text_input(job['notes']))}</textarea>
+            <br>
+            <button class='btn'>Save Changes</button>
+            <a class='btn secondary' href='{url_for("jobs.view_job", job_id=job_id)}'>Cancel</a>
+        </form>
+    </div>
+    """
+    conn.close()
+    return render_page(content, f"Edit Job #{job['id']}")
+
 
 @jobs_bp.route("/jobs/<int:job_id>/items/<int:item_id>/edit", methods=["GET", "POST"])
 @login_required
