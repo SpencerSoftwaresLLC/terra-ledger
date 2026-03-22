@@ -137,3 +137,118 @@ TERRALEDGER_HELP_KNOWLEDGE = {
         "For payroll, accounting, tax, and legal topics, explain software workflow but do not pretend to be a CPA or attorney.",
     ],
 }
+
+import re
+
+DEPTH_MAP = {
+    1: 0.08,
+    2: 0.17,
+    3: 0.25,
+    4: 0.33,
+    5: 0.42,
+    6: 0.50
+}
+
+STONE_KEYWORDS = ["stone", "gravel", "limestone", "rock", "crushed"]
+YARD_ONLY_KEYWORDS = ["mulch", "soil", "dirt", "topsoil"]
+
+
+def extract_dimensions(text):
+    text = text.lower()
+
+    # Find all numbers
+    nums = list(map(float, re.findall(r"\d+\.?\d*", text)))
+
+    if len(nums) < 2:
+        return None, None, None
+
+    L = nums[0]
+    W = nums[1]
+
+    # Try to detect depth specifically
+    depth_match = re.search(r"(\d+\.?\d*)\s*(inches|inch|in|ft|feet|foot)?", text)
+
+    if len(nums) >= 3:
+        D_input = nums[2]
+    else:
+        return None, None, None
+
+    return L, W, D_input
+
+
+def detect_material(text):
+    text = text.lower()
+    if any(k in text for k in STONE_KEYWORDS):
+        return "stone"
+    if any(k in text for k in YARD_ONLY_KEYWORDS):
+        return "yard"
+    return "unknown"
+
+
+def convert_depth(depth_input, text):
+    text = text.lower()
+
+    # If inches mentioned → use your depth map
+    if "inch" in text or "in" in text:
+        try:
+            depth_input = int(depth_input)
+            return DEPTH_MAP.get(depth_input, depth_input)
+        except:
+            return depth_input
+
+    # If feet mentioned → use as-is
+    if "ft" in text or "feet" in text or "foot" in text:
+        return float(depth_input)
+
+    # Default → assume inches (your business standard)
+    try:
+        depth_input = int(depth_input)
+        return DEPTH_MAP.get(depth_input, depth_input)
+    except:
+        return float(depth_input)
+
+
+def calculate_material(text):
+    L, W, D_input = extract_dimensions(text)
+
+    if not L:
+        return None
+
+    material = detect_material(text)
+    D = convert_depth(D_input, text)
+
+    yards = (L * W * D) / 27
+
+    if material == "stone":
+        tons = yards * 1.3
+
+        return f"""
+Material Estimate:
+
+Length: {L} ft
+Width: {W} ft
+Depth: {D_input} inches
+
+Cubic Yards: {yards:.2f}
+Tons: {tons:.2f}
+
+Recommended Order:
+• {round(yards + 0.25, 2)} yards
+• {round(tons + 0.25, 2)} tons
+"""
+
+    elif material == "yard":
+        return f"""
+Material Estimate:
+
+Length: {L} ft
+Width: {W} ft
+Depth: {D_input} inches
+
+Cubic Yards: {yards:.2f}
+
+Recommended Order:
+• {round(yards + 0.25, 2)} yards
+"""
+
+    return None

@@ -3,6 +3,7 @@
 from flask import Blueprint, request, jsonify, session
 from decorators import login_required
 from ai.client import ask_terraledger_help
+from ai.knowledge import calculate_material
 
 help_assistant_bp = Blueprint("help_assistant", __name__)
 
@@ -36,15 +37,21 @@ def help_assistant_api():
 
         history = _get_chat_history()
 
-        answer = ask_terraledger_help(
-            user_question=user_question,
-            page_name=page_title,
-            route=route,
-            user_role=session.get("role", "") or session.get("user_role", ""),
-            company_name=session.get("company_name", ""),
-            user_name=session.get("user_name", ""),
-            prior_messages=history,
-        )
+        # First, check whether this is a material calculator question.
+        calc_result = calculate_material(user_question)
+
+        if calc_result:
+            answer = calc_result
+        else:
+            answer = ask_terraledger_help(
+                user_question=user_question,
+                page_name=page_title,
+                route=route,
+                user_role=session.get("role", "") or session.get("user_role", ""),
+                company_name=session.get("company_name", ""),
+                user_name=session.get("user_name", ""),
+                prior_messages=history,
+            )
 
         history.append({"role": "user", "content": user_question})
         history.append({"role": "assistant", "content": answer})
