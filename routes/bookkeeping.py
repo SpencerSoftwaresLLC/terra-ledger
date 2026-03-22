@@ -1,5 +1,6 @@
-from flask import Blueprint, session, url_for, request
+from flask import Blueprint, session, url_for, request, redirect, flash
 from html import escape
+from datetime import date
 
 from db import get_db_connection, ensure_bookkeeping_history_table, table_columns
 from decorators import login_required, require_permission
@@ -15,6 +16,16 @@ EXPENSE_TYPES = {
     "job cost",
     "material",
     "materials",
+    "mulch",
+    "stone",
+    "dump fee",
+    "dump_fee",
+    "plants",
+    "trees",
+    "soil",
+    "fertilizer",
+    "hardscape material",
+    "hardscape_material",
     "labor",
     "labour",
     "fuel",
@@ -27,6 +38,16 @@ EXPENSE_TYPES = {
 JOB_COST_CATEGORY_MAP = {
     "material": "Material",
     "materials": "Material",
+    "mulch": "Mulch",
+    "stone": "Stone",
+    "dump fee": "Dump Fee",
+    "dump_fee": "Dump Fee",
+    "plants": "Plants",
+    "trees": "Trees",
+    "soil": "Soil",
+    "fertilizer": "Fertilizer",
+    "hardscape material": "Hardscape Material",
+    "hardscape_material": "Hardscape Material",
     "labor": "Labor",
     "labour": "Labor",
     "fuel": "Fuel",
@@ -57,6 +78,47 @@ def _normalize_text(value):
     return str(value or "").strip().lower()
 
 
+def _canonicalize_category(value):
+    v = _normalize_text(value)
+    if v in {"dump_fee", "dump fee"}:
+        return "Dump Fee"
+    if v in {"hardscape_material", "hardscape material"}:
+        return "Hardscape Material"
+    if v == "mulch":
+        return "Mulch"
+    if v == "stone":
+        return "Stone"
+    if v == "plants":
+        return "Plants"
+    if v == "trees":
+        return "Trees"
+    if v == "soil":
+        return "Soil"
+    if v == "fertilizer":
+        return "Fertilizer"
+    if v in {"labor", "labour"}:
+        return "Labor"
+    if v == "fuel":
+        return "Fuel"
+    if v == "equipment":
+        return "Equipment"
+    if v == "delivery":
+        return "Delivery"
+    if v == "misc":
+        return "Misc"
+    if v == "payroll":
+        return "Payroll"
+    if v in {"invoice payments", "invoice payment"}:
+        return "Invoice Payments"
+    if v == "income":
+        return "Income"
+    if v in {"material", "materials"}:
+        return "Material"
+    if not v:
+        return ""
+    return v.replace("_", " ").title()
+
+
 def _is_expense_entry(entry_type, description="", category="", source_type="", reference_type=""):
     et = _normalize_text(entry_type)
     desc = _normalize_text(description)
@@ -79,6 +141,13 @@ def _is_expense_entry(entry_type, description="", category="", source_type="", r
         "labour",
         "mulch",
         "stone",
+        "dump fee",
+        "dump_fee",
+        "plants",
+        "trees",
+        "soil",
+        "fertilizer",
+        "hardscape",
         "fuel",
         "equipment",
         "delivery",
@@ -157,6 +226,22 @@ def _guess_job_cost_category(entry_type="", description="", category="", source_
             return label
 
     if src == "job_item" or ref == "job_item":
+        if "dump fee" in desc or "dump_fee" in desc:
+            return "Dump Fee"
+        if "mulch" in desc:
+            return "Mulch"
+        if "stone" in desc:
+            return "Stone"
+        if "plant" in desc:
+            return "Plants"
+        if "tree" in desc:
+            return "Trees"
+        if "soil" in desc:
+            return "Soil"
+        if "fertilizer" in desc:
+            return "Fertilizer"
+        if "hardscape" in desc:
+            return "Hardscape Material"
         if "labor" in desc or "labour" in desc or "hour" in desc or "hours" in desc or "hr" in desc or "hrs" in desc:
             return "Labor"
         if "fuel" in desc:
@@ -211,19 +296,144 @@ def _get_pl_bucket(entry_type="", description="", category="", source_type="", r
     normalized_entry_type = _normalize_text(entry_type)
 
     if normalized_category:
-        return normalized_category.title()
+        return _canonicalize_category(normalized_category)
     if normalized_entry_type:
-        return normalized_entry_type.title()
+        return _canonicalize_category(normalized_entry_type)
 
     return "Expense"
 
 
-@bookkeeping_bp.route("/bookkeeping")
+def _insert_manual_ledger_entry(conn, company_id, entry_date, entry_type, category, description, amount, notes):
+    ledger_cols = table_columns(conn, "ledger_entries")
+
+    values = {}
+
+    if "company_id" in ledger_cols:
+        values["company_id"] = company_id
+    if "entry_date" in ledger_cols:
+        values["entry_date"] = entry_date
+    elif "date" in ledger_cols:
+        values["date"] = entry_date
+    if "entry_type" in ledger_cols:
+        values["entry_type"] = entry_type
+    if "category" in ledger_cols:
+        values["category"] = category
+    if "description" in ledger_cols:
+        values["description"] = description
+    elif "memo" in ledger_cols:
+        values["memo"] = description
+    if "amount" in ledger_cols:
+        values["amount"] = amount
+    if "notes" in ledger_cols:
+        values["notes"] = notes
+    if "source_type" in ledger_cols:
+        values["source_type"] = "manual"
+    if "reference_type" in ledger_cols:
+        values["reference_type"] = "manual"
+    if "status" in ledger_cols:
+        values["status"] = "posted"
+
+    if not values:
+        return
+
+    cols_sql = ", ".join(values.keys())
+    placeholders = ", ".join(["%s"] * len(values))
+    conn.execute(
+        f"INSERT INTO ledger_entries ({cols_sql}) VALUES ({placeholders})",
+        tuple(values.values()),
+    )
+
+
+def _insert_manual_history_entry(conn, company_id, entry_date, entry_type, category, description, amount, notes):
+    try:
+        ensure_bookkeeping_history_table()
+        money_in = amount if _normalize_text(entry_type) == "income" else 0
+        money_out = amount if _normalize_text(entry_type) != "income" else 0
+
+        conn.execute(
+            """
+            INSERT INTO bookkeeping_history (
+                company_id,
+                entry_date,
+                category,
+                entry_type,
+                description,
+                money_in,
+                money_out,
+                notes
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                company_id,
+                entry_date,
+                category,
+                entry_type,
+                description,
+                money_in,
+                money_out,
+                notes,
+            ),
+        )
+    except Exception:
+        pass
+
+
+@bookkeeping_bp.route("/bookkeeping", methods=["GET", "POST"])
 @login_required
 @require_permission("can_view_bookkeeping")
 def bookkeeping():
     conn = get_db_connection()
     cid = session["company_id"]
+
+    if request.method == "POST":
+        entry_date = (request.form.get("entry_date") or "").strip() or date.today().isoformat()
+        entry_type = (request.form.get("entry_type") or "expense").strip().lower()
+        category = _canonicalize_category(request.form.get("category") or "")
+        description = (request.form.get("description") or "").strip()
+        amount = _safe_float(request.form.get("amount"))
+        notes = (request.form.get("notes") or "").strip()
+
+        if amount <= 0:
+            conn.close()
+            flash("Amount must be greater than 0.")
+            return redirect(url_for("bookkeeping.bookkeeping"))
+
+        if not description:
+            conn.close()
+            flash("Description is required.")
+            return redirect(url_for("bookkeeping.bookkeeping"))
+
+        if not category:
+            category = "Income" if entry_type == "income" else "Expense"
+
+        _insert_manual_ledger_entry(
+            conn=conn,
+            company_id=cid,
+            entry_date=entry_date,
+            entry_type=entry_type,
+            category=category,
+            description=description,
+            amount=amount,
+            notes=notes,
+        )
+
+        _insert_manual_history_entry(
+            conn=conn,
+            company_id=cid,
+            entry_date=entry_date,
+            entry_type=entry_type.title(),
+            category=category,
+            description=description,
+            amount=amount,
+            notes=notes,
+        )
+
+        conn.commit()
+        conn.close()
+
+        flash("Manual bookkeeping entry added.")
+        return redirect(url_for("bookkeeping.bookkeeping"))
 
     select_parts = _get_ledger_select_parts(conn)
     date_col = select_parts["date_col"]
@@ -267,29 +477,6 @@ def bookkeeping():
             """,
             (cid,),
         ).fetchall()
-
-    ensure_bookkeeping_history_table()
-
-    history_rows = conn.execute(
-        """
-        SELECT
-            id,
-            entry_date,
-            category,
-            entry_type,
-            description,
-            money_in,
-            money_out,
-            notes
-        FROM bookkeeping_history
-        WHERE company_id = %s
-        ORDER BY
-            CASE WHEN entry_date IS NULL THEN 1 ELSE 0 END,
-            entry_date DESC,
-            id DESC
-        """,
-        (cid,),
-    ).fetchall()
 
     conn.close()
 
@@ -348,12 +535,20 @@ def bookkeeping():
         amount_color = "#16a34a" if signed_amount >= 0 else "#dc2626"
         balance_color = "#16a34a" if balance >= 0 else "#dc2626"
 
+        display_type = _get_pl_bucket(
+            entry_type=r["entry_type"],
+            description=r["description"],
+            category=r["category"],
+            source_type=r["source_type"],
+            reference_type=r["reference_type"],
+        )
+
         ledger_row_html.append(
             f"""
             <tr>
                 <td>#{r['id']}</td>
                 <td>{escape(str(r['entry_date'] or '-'))}</td>
-                <td>{escape(str(r['entry_type'] or '-'))}</td>
+                <td>{escape(display_type)}</td>
                 <td>{escape(str(r['description'] or '-'))}</td>
                 <td class="amount-cell" style="color:{amount_color};">{_fmt_money(signed_amount, show_plus=True)}</td>
                 <td class="balance-cell" style="color:{balance_color};">{_fmt_money(balance)}</td>
@@ -362,40 +557,16 @@ def bookkeeping():
         )
     ledger_rows = "".join(ledger_row_html)
 
-    history_total_in = sum(_safe_float(r["money_in"]) for r in history_rows)
-    history_total_out = sum(_safe_float(r["money_out"]) for r in history_rows)
-    history_net = history_total_in - history_total_out
-
-    history_row_html = []
-    for r in history_rows:
-        history_row_html.append(
-            f"""
-            <tr>
-                <td>#{r['id']}</td>
-                <td>{escape(str(r['entry_date'] or '-'))}</td>
-                <td>{escape(str(r['category'] or '-'))}</td>
-                <td>{escape(str(r['entry_type'] or '-'))}</td>
-                <td>{escape(str(r['description'] or '-'))}</td>
-                <td style="color:#16a34a;">{_fmt_money(r['money_in'])}</td>
-                <td style="color:#dc2626;">-{abs(_safe_float(r['money_out'])):,.2f}</td>
-                <td>{escape(str(r['notes'] or ''))}</td>
-            </tr>
-            """
-        )
-    history_table_rows = "".join(history_row_html)
-
     net_color = "#16a34a" if net_profit >= 0 else "#dc2626"
-    history_net_color = "#16a34a" if history_net >= 0 else "#dc2626"
     net_profit_text = _fmt_money(net_profit, show_plus=True)
-    history_net_text = _fmt_money(history_net, show_plus=True)
 
     content = f"""
     <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
             <h1 style="margin:0;">Bookkeeping</h1>
             <div class="row-actions">
-                <a href="{url_for('bookkeeping.bookkeeping_history')}" class="btn secondary">History</a>
                 <a href="{url_for('bookkeeping.bookkeeping_pnl')}" class="btn success">P&amp;L</a>
+                <a href="{url_for('bookkeeping.bookkeeping_history')}" class="btn secondary">History</a>
             </div>
         </div>
 
@@ -415,6 +586,64 @@ def bookkeeping():
                 <div class="stat-value" style="color:{net_color};">{net_profit_text}</div>
             </div>
         </div>
+    </div>
+
+    <div class="card">
+        <h2>Manual Bookkeeping Entry</h2>
+        <form method="post">
+            <div class="grid">
+                <div>
+                    <label>Date</label>
+                    <input type="date" name="entry_date" value="{date.today().isoformat()}">
+                </div>
+                <div>
+                    <label>Entry Type</label>
+                    <select name="entry_type" id="manual_entry_type" onchange="toggleManualCategories()">
+                        <option value="expense">Expense</option>
+                        <option value="income">Income</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Category</label>
+                    <select name="category" id="manual_category">
+                        <option value="Mulch">Mulch</option>
+                        <option value="Stone">Stone</option>
+                        <option value="Dump Fee">Dump Fee</option>
+                        <option value="Plants">Plants</option>
+                        <option value="Trees">Trees</option>
+                        <option value="Soil">Soil</option>
+                        <option value="Fertilizer">Fertilizer</option>
+                        <option value="Hardscape Material">Hardscape Material</option>
+                        <option value="Labor">Labor</option>
+                        <option value="Fuel">Fuel</option>
+                        <option value="Equipment">Equipment</option>
+                        <option value="Delivery">Delivery</option>
+                        <option value="Misc">Misc</option>
+                        <option value="Payroll">Payroll</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Amount</label>
+                    <input type="number" step="0.01" min="0.01" name="amount" placeholder="0.00" required>
+                </div>
+                <div style="grid-column:1 / -1;">
+                    <label>Description</label>
+                    <input type="text" name="description" placeholder="Enter description..." required>
+                </div>
+                <div style="grid-column:1 / -1;">
+                    <label>Notes</label>
+                    <textarea name="notes" placeholder="Optional notes..."></textarea>
+                </div>
+            </div>
+
+            <div class="row-actions" style="margin-top:14px;">
+                <button class="btn success" type="submit">Add Entry</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>Ledger</h2>
 
         <div class="grid" style="margin-top:18px;">
             <div>
@@ -461,51 +690,45 @@ def bookkeeping():
         </div>
     </div>
 
-    <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-            <h2 style="margin:0;">Bookkeeping History Summary</h2>
-            <a href="{url_for('bookkeeping.bookkeeping_history')}" class="btn secondary">Open Full History</a>
-        </div>
-
-        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:18px;margin-bottom:18px;">
-            <div class="card stat-card" style="flex:1;min-width:220px;">
-                <div class="stat-label">Total Money In</div>
-                <div class="stat-value" style="color:#16a34a;">{_fmt_money(history_total_in)}</div>
-            </div>
-
-            <div class="card stat-card" style="flex:1;min-width:220px;">
-                <div class="stat-label">Total Money Out</div>
-                <div class="stat-value" style="color:#dc2626;">-{abs(history_total_out):,.2f}</div>
-            </div>
-
-            <div class="card stat-card" style="flex:1;min-width:220px;">
-                <div class="stat-label">Net</div>
-                <div class="stat-value" style="color:{history_net_color};">{history_net_text}</div>
-            </div>
-        </div>
-
-        <div class="table-wrap">
-            <table style="width:100%;border-collapse:collapse;">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Date</th>
-                        <th>Category</th>
-                        <th>Type</th>
-                        <th>Description</th>
-                        <th>Money In</th>
-                        <th>Money Out</th>
-                        <th>Notes</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {history_table_rows or '<tr><td colspan="8" class="muted">No bookkeeping history yet.</td></tr>'}
-                </tbody>
-            </table>
-        </div>
-    </div>
-
     <script>
+    function toggleManualCategories() {{
+        var typeEl = document.getElementById("manual_entry_type");
+        var categoryEl = document.getElementById("manual_category");
+        if (!typeEl || !categoryEl) return;
+
+        var expenseOptions = [
+            "Mulch",
+            "Stone",
+            "Dump Fee",
+            "Plants",
+            "Trees",
+            "Soil",
+            "Fertilizer",
+            "Hardscape Material",
+            "Labor",
+            "Fuel",
+            "Equipment",
+            "Delivery",
+            "Misc",
+            "Payroll"
+        ];
+
+        var incomeOptions = [
+            "Income",
+            "Invoice Payments"
+        ];
+
+        var selected = typeEl.value === "income" ? incomeOptions : expenseOptions;
+        categoryEl.innerHTML = "";
+
+        selected.forEach(function(opt) {{
+            var el = document.createElement("option");
+            el.value = opt;
+            el.textContent = opt;
+            categoryEl.appendChild(el);
+        }});
+    }}
+
     function populateLedgerTypes() {{
         var rows = document.querySelectorAll("#ledgerTable tbody tr");
         var typeSelect = document.getElementById("ledgerTypeFilter");
@@ -602,6 +825,7 @@ def bookkeeping():
     }}
 
     document.addEventListener("DOMContentLoaded", function() {{
+        toggleManualCategories();
         populateLedgerTypes();
         filterLedgerRows();
 
