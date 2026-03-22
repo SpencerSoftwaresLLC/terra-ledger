@@ -910,11 +910,11 @@ def view_quote(quote_id):
                     if (unitPriceLabel) unitPriceLabel.textContent = "Fee Amount";
                     setFieldValue("quote_unit", "fee", true);
                     if (quantityInput) {{
-                        quantityInput.value = "0.00";
+                        quantityInput.value = "none";
                         quantityInput.readOnly = true;
                     }}
                     if (unitCostWrap) unitCostWrap.style.display = "none";
-                    if (unitCostInput) unitCostInput.value = "0.00";
+                    if (unitCostInput) unitCostInput.value = "none";
                 }} else {{
                     if (quantityLabel) quantityLabel.textContent = "Quantity";
                     if (unitPriceLabel) unitPriceLabel.textContent = "Sale Price";

@@ -657,12 +657,12 @@ def view_job(job_id):
 
                     <div id='sale_price_wrap'>
                         <label id='sale_price_label'>Sale Price</label>
-                        <input type='number' step='0.01' name='sale_price' id='sale_price' value='0'>
+                        <input type='number' step='0.01' name='sale_price' id='sale_price' value='none' required>
                     </div>
 
                     <div id='unit_cost_wrap'>
                         <label id='cost_label'>Unit Cost</label>
-                        <input type='number' step='0.01' name='unit_cost' id='unit_cost' value='0'>
+                        <input type='number' step='0.01' name='unit_cost' id='unit_cost' value='none'>
                     </div>
 
                     <div>
@@ -749,7 +749,7 @@ def view_job(job_id):
                     quantityInput.readOnly = true;
                 }}
                 if (unitCostWrap) unitCostWrap.style.display = 'none';
-                if (unitCostInput) unitCostInput.value = '0';
+                if (unitCostInput) unitCostInput.value = 'none';
             }} else {{
                 quantityLabel.innerText = 'Quantity';
                 salePriceLabel.innerText = 'Sale Price';
