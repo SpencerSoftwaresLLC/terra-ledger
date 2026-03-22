@@ -1435,63 +1435,74 @@ def delete_bookkeeping_entry(entry_id):
     conn = get_db_connection()
     cid = session["company_id"]
 
-    select_parts = _get_ledger_select_parts(conn)
-    date_col = select_parts["date_col"]
+    ledger_cols = table_columns(conn, "ledger_entries")
 
-    if date_col:
-        row = conn.execute(
-            f"""
-            SELECT
-                id,
-                company_id,
-                {date_col} AS entry_date,
-                {select_parts["entry_type_expr"]} AS entry_type,
-                {select_parts["category_expr"]} AS category,
-                {select_parts["amount_expr"]} AS amount,
-                {select_parts["desc_sql"]} AS description,
-                {select_parts["notes_expr"]} AS notes,
-                {select_parts["source_type_expr"]} AS source_type,
-                {select_parts["reference_type_expr"]} AS reference_type,
-                {select_parts["source_id_expr"]} AS source_id
-            FROM ledger_entries
-            WHERE id = %s AND company_id = %s
-            """,
-            (entry_id, cid),
-        ).fetchone()
+    date_select = "entry_date"
+    if "entry_date" in ledger_cols:
+        date_select = "entry_date"
+    elif "date" in ledger_cols:
+        date_select = "date"
     else:
-        row = conn.execute(
-            f"""
-            SELECT
-                id,
-                company_id,
-                NULL AS entry_date,
-                {select_parts["entry_type_expr"]} AS entry_type,
-                {select_parts["category_expr"]} AS category,
-                {select_parts["amount_expr"]} AS amount,
-                {select_parts["desc_sql"]} AS description,
-                {select_parts["notes_expr"]} AS notes,
-                {select_parts["source_type_expr"]} AS source_type,
-                {select_parts["reference_type_expr"]} AS reference_type,
-                {select_parts["source_id_expr"]} AS source_id
-            FROM ledger_entries
-            WHERE id = %s AND company_id = %s
-            """,
-            (entry_id, cid),
-        ).fetchone()
+        date_select = "NULL"
+
+    entry_type_select = "entry_type" if "entry_type" in ledger_cols else "''"
+    category_select = "category" if "category" in ledger_cols else "''"
+    amount_select = "amount" if "amount" in ledger_cols else "0"
+
+    if "description" in ledger_cols and "memo" in ledger_cols:
+        description_select = "COALESCE(description, memo, '')"
+    elif "description" in ledger_cols:
+        description_select = "COALESCE(description, '')"
+    elif "memo" in ledger_cols:
+        description_select = "COALESCE(memo, '')"
+    else:
+        description_select = "''"
+
+    notes_select = "notes" if "notes" in ledger_cols else "''"
+    source_type_select = "source_type" if "source_type" in ledger_cols else "''"
+    reference_type_select = "reference_type" if "reference_type" in ledger_cols else "''"
+    source_id_select = "source_id" if "source_id" in ledger_cols else "NULL"
+
+    row = conn.execute(
+        f"""
+        SELECT
+            id,
+            company_id,
+            {date_select} AS entry_date,
+            {entry_type_select} AS entry_type,
+            {category_select} AS category,
+            {amount_select} AS amount,
+            {description_select} AS description,
+            {notes_select} AS notes,
+            {source_type_select} AS source_type,
+            {reference_type_select} AS reference_type,
+            {source_id_select} AS source_id
+        FROM ledger_entries
+        WHERE id = %s AND company_id = %s
+        """,
+        (entry_id, cid),
+    ).fetchone()
 
     if not row:
         conn.close()
         flash("Bookkeeping entry not found.")
         return redirect(url_for("bookkeeping.bookkeeping"))
 
-    is_manual = _normalize_text(_safe_get(row, "source_type", "")) == "manual" or _normalize_text(_safe_get(row, "reference_type", "")) == "manual"
+    is_manual = (
+        _normalize_text(_safe_get(row, "source_type", "")) == "manual"
+        or _normalize_text(_safe_get(row, "reference_type", "")) == "manual"
+    )
+
     if not is_manual:
         conn.close()
         flash("Only manual bookkeeping entries can be deleted here.")
         return redirect(url_for("bookkeeping.bookkeeping"))
 
     _delete_matching_manual_history_entry(conn, cid, row)
-    conn.execute("DELETE FROM ledger_entries WHERE id = %s AND company_id = %s", (entry_id, cid))
+    conn.execute(
+        "DELETE FROM ledger_entries WHERE id = %s AND company_id = %s",
+        (entry_id, cid),
+    )
     conn.commit()
     conn.close()
 
