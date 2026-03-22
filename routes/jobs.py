@@ -7,11 +7,29 @@ import csv
 
 from db import get_db_connection, ensure_job_cost_ledger
 from decorators import login_required, require_permission, subscription_required
-from page_helpers import *
+from page_helpers import render_page
 from helpers import *
 from calculations import recalc_job, recalc_invoice
 
 jobs_bp = Blueprint("jobs", __name__)
+
+
+ITEM_TYPE_LABELS = {
+    "mulch": "Mulch",
+    "stone": "Stone",
+    "dump_fee": "Dump Fee",
+    "plants": "Plants",
+    "trees": "Trees",
+    "soil": "Soil",
+    "fertilizer": "Fertilizer",
+    "hardscape_material": "Hardscape Material",
+    "labor": "Labor",
+    "equipment": "Equipment",
+    "delivery": "Delivery",
+    "fuel": "Fuel",
+    "misc": "Misc",
+    "material": "Material",
+}
 
 
 def clean_text_input(value):
@@ -35,6 +53,38 @@ def safe_float(value, default=0.0):
         return float(value or 0)
     except Exception:
         return default
+
+
+def display_item_type(value):
+    key = clean_text_input(value).lower()
+    if key in ITEM_TYPE_LABELS:
+        return ITEM_TYPE_LABELS[key]
+    return key.replace("_", " ").title() if key else "Material"
+
+
+def default_unit_for_item_type(item_type):
+    key = clean_text_input(item_type).lower()
+
+    if key == "mulch":
+        return "Yards"
+    if key == "stone":
+        return "Tons"
+    if key == "soil":
+        return "Yards"
+    if key == "fertilizer":
+        return "Bags"
+    if key == "hardscape_material":
+        return "Tons"
+    if key == "plants":
+        return "EA"
+    if key == "trees":
+        return "EA"
+    if key == "labor":
+        return "hr"
+    if key == "dump_fee":
+        return "fee"
+
+    return ""
 
 
 @jobs_bp.route("/jobs", methods=["GET", "POST"])
@@ -93,7 +143,6 @@ def jobs():
             """,
             (cid, customer_id, title, scheduled_date or None, status, address, notes),
         )
-
         row = cur.fetchone()
         job_id = row["id"] if row and "id" in row else None
 
@@ -434,7 +483,7 @@ def view_job(job_id):
         qty = safe_float(request.form.get("quantity"))
         unit = clean_text_input(request.form.get("unit", ""))
         sale_price = safe_float(request.form.get("sale_price"))
-        unit_cost = safe_float(request.form.get("cost_amount"))
+        unit_cost = safe_float(request.form.get("unit_cost"))
         billable = 1 if request.form.get("billable") == "1" else 0
 
         if not description:
@@ -442,14 +491,31 @@ def view_job(job_id):
             flash("Description is required.")
             return redirect(url_for("jobs.view_job", job_id=job_id))
 
-        if item_type == "labor":
-            if not unit:
-                unit = "hrs"
-            sale_price = unit_cost
-            line_total = qty * unit_cost
-        else:
-            line_total = qty * sale_price
+        if item_type == "mulch" and not unit:
+            unit = "Yards"
+        elif item_type == "stone" and not unit:
+            unit = "Tons"
+        elif item_type == "soil" and not unit:
+            unit = "Yards"
+        elif item_type == "fertilizer" and not unit:
+            unit = "Bags"
+        elif item_type == "hardscape_material" and not unit:
+            unit = "Tons"
+        elif item_type == "plants" and not unit:
+            unit = "EA"
+        elif item_type == "trees" and not unit:
+            unit = "EA"
+        elif item_type == "labor" and not unit:
+            unit = "hr"
+        elif item_type == "dump_fee" and not unit:
+            unit = "fee"
 
+        if item_type == "dump_fee":
+            if qty <= 0:
+                qty = 1
+            unit_cost = 0.0
+
+        line_total = qty * sale_price
         cost_amount = qty * unit_cost
 
         cur = conn.cursor()
@@ -457,9 +523,9 @@ def view_job(job_id):
             """
             INSERT INTO job_items (
                 job_id, item_type, description, quantity, unit,
-                unit_price, sale_price, cost_amount, line_total, billable
+                unit_cost, unit_price, sale_price, cost_amount, line_total, billable
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -468,6 +534,7 @@ def view_job(job_id):
                 description,
                 qty,
                 unit,
+                unit_cost,
                 sale_price,
                 sale_price,
                 cost_amount,
@@ -475,7 +542,14 @@ def view_job(job_id):
                 billable,
             ),
         )
-        job_item_id = cur.fetchone()[0]
+        row = cur.fetchone()
+        job_item_id = row["id"] if row and "id" in row else None
+
+        if not job_item_id:
+            conn.rollback()
+            conn.close()
+            flash("Could not add job item.")
+            return redirect(url_for("jobs.view_job", job_id=job_id))
 
         ensure_job_cost_ledger(conn, job_item_id)
         recalc_job(conn, job_id)
@@ -495,12 +569,12 @@ def view_job(job_id):
     item_rows = "".join(
         f"""
         <tr>
-            <td>{escape(clean_text_display(i['item_type']))}</td>
+            <td>{escape(display_item_type(i['item_type']))}</td>
             <td>{escape(clean_text_display(i['description']))}</td>
             <td>{safe_float(i['quantity']):g}</td>
             <td>{escape(clean_text_display(i['unit']))}</td>
-            <td>{'-' if clean_text_input(i['item_type']).lower() == 'labor' else f"${safe_float(i['sale_price']):.2f}"}</td>
-            <td>${((safe_float(i['cost_amount']) / safe_float(i['quantity'])) if safe_float(i['quantity']) else 0):.2f}</td>
+            <td>${safe_float(i['sale_price']):.2f}</td>
+            <td>{"-" if clean_text_input(i['item_type']).lower() == 'dump_fee' else f"${((safe_float(i['cost_amount']) / safe_float(i['quantity'])) if safe_float(i['quantity']) else 0):.2f}"}</td>
             <td>${safe_float(i['cost_amount']):.2f}</td>
             <td>{'Yes' if i['billable'] else 'No'}</td>
             <td>${safe_float(i['line_total']):.2f}</td>
@@ -549,13 +623,20 @@ def view_job(job_id):
 
                     <div>
                         <label>Type</label>
-                        <select name='item_type' id='item_type' onchange='toggleLaborMode()'>
-                            <option value='material'>material</option>
-                            <option value='labor'>labor</option>
-                            <option value='fuel'>fuel</option>
-                            <option value='equipment'>equipment</option>
-                            <option value='delivery'>delivery</option>
-                            <option value='misc'>misc</option>
+                        <select name='item_type' id='item_type' onchange='toggleJobItemMode()'>
+                            <option value='mulch'>Mulch</option>
+                            <option value='stone'>Stone</option>
+                            <option value='dump_fee'>Dump Fee</option>
+                            <option value='plants'>Plants</option>
+                            <option value='trees'>Trees</option>
+                            <option value='soil'>Soil</option>
+                            <option value='fertilizer'>Fertilizer</option>
+                            <option value='hardscape_material'>Hardscape Material</option>
+                            <option value='labor'>Labor</option>
+                            <option value='equipment'>Equipment</option>
+                            <option value='delivery'>Delivery</option>
+                            <option value='fuel'>Fuel</option>
+                            <option value='misc'>Misc</option>
                         </select>
                     </div>
 
@@ -571,17 +652,17 @@ def view_job(job_id):
 
                     <div>
                         <label>Unit</label>
-                        <input name='unit' id='unit' placeholder='yards, hrs, ea'>
+                        <input name='unit' id='unit' placeholder='Unit'>
                     </div>
 
                     <div id='sale_price_wrap'>
-                        <label>Sale Price</label>
+                        <label id='sale_price_label'>Sale Price</label>
                         <input type='number' step='0.01' name='sale_price' id='sale_price' value='0'>
                     </div>
 
-                    <div>
+                    <div id='unit_cost_wrap'>
                         <label id='cost_label'>Unit Cost</label>
-                        <input type='number' step='0.01' name='cost_amount' id='cost_amount' value='0'>
+                        <input type='number' step='0.01' name='unit_cost' id='unit_cost' value='0'>
                     </div>
 
                     <div>
@@ -600,33 +681,84 @@ def view_job(job_id):
         </div>
 
         <script>
-        function toggleLaborMode() {{
+        function toggleJobItemMode() {{
             const type = document.getElementById('item_type').value;
 
             const quantityLabel = document.getElementById('quantity_label');
             const costLabel = document.getElementById('cost_label');
+            const salePriceLabel = document.getElementById('sale_price_label');
             const salePriceWrap = document.getElementById('sale_price_wrap');
+            const unitCostWrap = document.getElementById('unit_cost_wrap');
             const unitInput = document.getElementById('unit');
+            const quantityInput = document.getElementById('quantity');
+            const unitCostInput = document.getElementById('unit_cost');
 
-            if (type === 'labor') {{
-                quantityLabel.innerText = 'Billable Hours';
-                costLabel.innerText = 'Hourly Rate';
-                salePriceWrap.style.display = 'none';
-                if (unitInput && !unitInput.value) {{
-                    unitInput.value = 'hrs';
+            if (salePriceWrap) salePriceWrap.style.display = 'block';
+            if (unitCostWrap) unitCostWrap.style.display = 'block';
+            if (quantityInput) {{
+                quantityInput.readOnly = false;
+                quantityInput.step = '0.01';
+            }}
+
+            if (type === 'mulch') {{
+                quantityLabel.innerText = 'Amount';
+                salePriceLabel.innerText = 'Sale Price';
+                costLabel.innerText = 'Unit Cost';
+                if (unitInput && !unitInput.value) unitInput.value = 'Yards';
+            }} else if (type === 'stone') {{
+                quantityLabel.innerText = 'Amount';
+                salePriceLabel.innerText = 'Sale Price';
+                costLabel.innerText = 'Unit Cost';
+                if (unitInput && !unitInput.value) unitInput.value = 'Tons';
+            }} else if (type === 'soil') {{
+                quantityLabel.innerText = 'Amount';
+                salePriceLabel.innerText = 'Sale Price';
+                costLabel.innerText = 'Unit Cost';
+                if (unitInput && !unitInput.value) unitInput.value = 'Yards';
+            }} else if (type === 'fertilizer') {{
+                quantityLabel.innerText = 'Amount';
+                salePriceLabel.innerText = 'Sale Price';
+                costLabel.innerText = 'Unit Cost';
+                if (unitInput && !unitInput.value) unitInput.value = 'Bags';
+            }} else if (type === 'hardscape_material') {{
+                quantityLabel.innerText = 'Amount';
+                salePriceLabel.innerText = 'Sale Price';
+                costLabel.innerText = 'Unit Cost';
+                if (unitInput && !unitInput.value) unitInput.value = 'Tons';
+            }} else if (type === 'plants') {{
+                quantityLabel.innerText = 'Quantity';
+                salePriceLabel.innerText = 'Sale Price';
+                costLabel.innerText = 'Unit Cost';
+                if (unitInput && !unitInput.value) unitInput.value = 'EA';
+            }} else if (type === 'trees') {{
+                quantityLabel.innerText = 'Quantity';
+                salePriceLabel.innerText = 'Sale Price';
+                costLabel.innerText = 'Unit Cost';
+                if (unitInput && !unitInput.value) unitInput.value = 'EA';
+            }} else if (type === 'labor') {{
+                quantityLabel.innerText = 'Hours';
+                salePriceLabel.innerText = 'Sale Rate / Hr';
+                costLabel.innerText = 'Unit Cost / Hr';
+                if (unitInput && !unitInput.value) unitInput.value = 'hr';
+            }} else if (type === 'dump_fee') {{
+                quantityLabel.innerText = 'Fees';
+                salePriceLabel.innerText = 'Fee Amount';
+                if (unitInput && !unitInput.value) unitInput.value = 'fee';
+                if (quantityInput) {{
+                    quantityInput.value = '1';
+                    quantityInput.readOnly = true;
                 }}
+                if (unitCostWrap) unitCostWrap.style.display = 'none';
+                if (unitCostInput) unitCostInput.value = '0';
             }} else {{
                 quantityLabel.innerText = 'Quantity';
+                salePriceLabel.innerText = 'Sale Price';
                 costLabel.innerText = 'Unit Cost';
-                salePriceWrap.style.display = 'block';
-                if (unitInput && unitInput.value === 'hrs') {{
-                    unitInput.value = '';
-                }}
             }}
         }}
 
         document.addEventListener('DOMContentLoaded', function() {{
-            toggleLaborMode();
+            toggleJobItemMode();
         }});
         </script>
 
@@ -800,7 +932,7 @@ def edit_job_item(job_id, item_id):
         unit = clean_text_input(request.form.get("unit", ""))
         qty = safe_float(request.form.get("quantity"))
         sale_price = safe_float(request.form.get("sale_price"))
-        unit_cost = safe_float(request.form.get("cost_amount"))
+        unit_cost = safe_float(request.form.get("unit_cost"))
         billable = 1 if request.form.get("billable") == "1" else 0
 
         if not description:
@@ -808,14 +940,31 @@ def edit_job_item(job_id, item_id):
             flash("Description is required.")
             return redirect(url_for("jobs.edit_job_item", job_id=job_id, item_id=item_id))
 
-        if item_type == "labor":
-            if not unit:
-                unit = "hrs"
-            sale_price = unit_cost
-            line_total = qty * unit_cost
-        else:
-            line_total = qty * sale_price
+        if item_type == "mulch" and not unit:
+            unit = "Yards"
+        elif item_type == "stone" and not unit:
+            unit = "Tons"
+        elif item_type == "soil" and not unit:
+            unit = "Yards"
+        elif item_type == "fertilizer" and not unit:
+            unit = "Bags"
+        elif item_type == "hardscape_material" and not unit:
+            unit = "Tons"
+        elif item_type == "plants" and not unit:
+            unit = "EA"
+        elif item_type == "trees" and not unit:
+            unit = "EA"
+        elif item_type == "labor" and not unit:
+            unit = "hr"
+        elif item_type == "dump_fee" and not unit:
+            unit = "fee"
 
+        if item_type == "dump_fee":
+            if qty <= 0:
+                qty = 1
+            unit_cost = 0.0
+
+        line_total = qty * sale_price
         cost_amount = qty * unit_cost
 
         conn.execute(
@@ -825,6 +974,7 @@ def edit_job_item(job_id, item_id):
                 description = %s,
                 quantity = %s,
                 unit = %s,
+                unit_cost = %s,
                 unit_price = %s,
                 sale_price = %s,
                 cost_amount = %s,
@@ -837,6 +987,7 @@ def edit_job_item(job_id, item_id):
                 description,
                 qty,
                 unit,
+                unit_cost,
                 sale_price,
                 sale_price,
                 cost_amount,
@@ -859,7 +1010,7 @@ def edit_job_item(job_id, item_id):
     qty_val = safe_float(item["quantity"])
     sale_price_val = safe_float(item["sale_price"])
     unit_cost_val = (safe_float(item["cost_amount"]) / safe_float(item["quantity"])) if safe_float(item["quantity"]) else 0
-    is_labor = item_type_val == "labor"
+    is_dump_fee = item_type_val == "dump_fee"
 
     content = f"""
     <div class='card'>
@@ -873,13 +1024,20 @@ def edit_job_item(job_id, item_id):
             <div class='grid'>
                 <div>
                     <label>Type</label>
-                    <select name='item_type' id='edit_item_type' onchange='toggleEditLaborMode()'>
-                        <option value='material' {'selected' if item_type_val == 'material' else ''}>material</option>
-                        <option value='labor' {'selected' if item_type_val == 'labor' else ''}>labor</option>
-                        <option value='fuel' {'selected' if item_type_val == 'fuel' else ''}>fuel</option>
-                        <option value='equipment' {'selected' if item_type_val == 'equipment' else ''}>equipment</option>
-                        <option value='delivery' {'selected' if item_type_val == 'delivery' else ''}>delivery</option>
-                        <option value='misc' {'selected' if item_type_val == 'misc' else ''}>misc</option>
+                    <select name='item_type' id='edit_item_type' onchange='toggleEditJobItemMode()'>
+                        <option value='mulch' {'selected' if item_type_val == 'mulch' else ''}>Mulch</option>
+                        <option value='stone' {'selected' if item_type_val == 'stone' else ''}>Stone</option>
+                        <option value='dump_fee' {'selected' if item_type_val == 'dump_fee' else ''}>Dump Fee</option>
+                        <option value='plants' {'selected' if item_type_val == 'plants' else ''}>Plants</option>
+                        <option value='trees' {'selected' if item_type_val == 'trees' else ''}>Trees</option>
+                        <option value='soil' {'selected' if item_type_val == 'soil' else ''}>Soil</option>
+                        <option value='fertilizer' {'selected' if item_type_val == 'fertilizer' else ''}>Fertilizer</option>
+                        <option value='hardscape_material' {'selected' if item_type_val == 'hardscape_material' else ''}>Hardscape Material</option>
+                        <option value='labor' {'selected' if item_type_val == 'labor' else ''}>Labor</option>
+                        <option value='equipment' {'selected' if item_type_val == 'equipment' else ''}>Equipment</option>
+                        <option value='delivery' {'selected' if item_type_val == 'delivery' else ''}>Delivery</option>
+                        <option value='fuel' {'selected' if item_type_val == 'fuel' else ''}>Fuel</option>
+                        <option value='misc' {'selected' if item_type_val == 'misc' else ''}>Misc</option>
                     </select>
                 </div>
 
@@ -889,8 +1047,8 @@ def edit_job_item(job_id, item_id):
                 </div>
 
                 <div>
-                    <label id='edit_quantity_label'>{'Billable Hours' if is_labor else 'Quantity'}</label>
-                    <input type='number' step='0.01' name='quantity' value="{qty_val:.2f}" required>
+                    <label id='edit_quantity_label'>Quantity</label>
+                    <input type='number' step='0.01' name='quantity' id='edit_quantity' value="{qty_val:.2f}" required>
                 </div>
 
                 <div>
@@ -898,14 +1056,14 @@ def edit_job_item(job_id, item_id):
                     <input name='unit' id='edit_unit' value="{escape(clean_text_input(item['unit']))}">
                 </div>
 
-                <div id='edit_sale_price_wrap' style="display:{'none' if is_labor else 'block'};">
-                    <label>Sale Price</label>
+                <div id='edit_sale_price_wrap'>
+                    <label id='edit_sale_price_label'>Sale Price</label>
                     <input type='number' step='0.01' name='sale_price' id='edit_sale_price' value="{sale_price_val:.2f}">
                 </div>
 
-                <div>
-                    <label id='edit_cost_label'>{'Hourly Rate' if is_labor else 'Unit Cost'}</label>
-                    <input type='number' step='0.01' name='cost_amount' id='edit_cost_amount' value="{unit_cost_val:.2f}">
+                <div id='edit_unit_cost_wrap' style="display:{'none' if is_dump_fee else 'block'};">
+                    <label id='edit_cost_label'>Unit Cost</label>
+                    <input type='number' step='0.01' name='unit_cost' id='edit_unit_cost' value="{unit_cost_val:.2f}">
                 </div>
 
                 <div>
@@ -924,32 +1082,83 @@ def edit_job_item(job_id, item_id):
     </div>
 
     <script>
-    function toggleEditLaborMode() {{
+    function toggleEditJobItemMode() {{
         const type = document.getElementById('edit_item_type').value;
         const quantityLabel = document.getElementById('edit_quantity_label');
         const costLabel = document.getElementById('edit_cost_label');
+        const salePriceLabel = document.getElementById('edit_sale_price_label');
         const salePriceWrap = document.getElementById('edit_sale_price_wrap');
+        const unitCostWrap = document.getElementById('edit_unit_cost_wrap');
         const unitInput = document.getElementById('edit_unit');
+        const quantityInput = document.getElementById('edit_quantity');
+        const unitCostInput = document.getElementById('edit_unit_cost');
 
-        if (type === 'labor') {{
-            quantityLabel.innerText = 'Billable Hours';
-            costLabel.innerText = 'Hourly Rate';
-            salePriceWrap.style.display = 'none';
-            if (unitInput && !unitInput.value) {{
-                unitInput.value = 'hrs';
+        if (salePriceWrap) salePriceWrap.style.display = 'block';
+        if (unitCostWrap) unitCostWrap.style.display = 'block';
+        if (quantityInput) {{
+            quantityInput.readOnly = false;
+            quantityInput.step = '0.01';
+        }}
+
+        if (type === 'mulch') {{
+            quantityLabel.innerText = 'Amount';
+            salePriceLabel.innerText = 'Sale Price';
+            costLabel.innerText = 'Unit Cost';
+            if (unitInput && !unitInput.value) unitInput.value = 'Yards';
+        }} else if (type === 'stone') {{
+            quantityLabel.innerText = 'Amount';
+            salePriceLabel.innerText = 'Sale Price';
+            costLabel.innerText = 'Unit Cost';
+            if (unitInput && !unitInput.value) unitInput.value = 'Tons';
+        }} else if (type === 'soil') {{
+            quantityLabel.innerText = 'Amount';
+            salePriceLabel.innerText = 'Sale Price';
+            costLabel.innerText = 'Unit Cost';
+            if (unitInput && !unitInput.value) unitInput.value = 'Yards';
+        }} else if (type === 'fertilizer') {{
+            quantityLabel.innerText = 'Amount';
+            salePriceLabel.innerText = 'Sale Price';
+            costLabel.innerText = 'Unit Cost';
+            if (unitInput && !unitInput.value) unitInput.value = 'Bags';
+        }} else if (type === 'hardscape_material') {{
+            quantityLabel.innerText = 'Amount';
+            salePriceLabel.innerText = 'Sale Price';
+            costLabel.innerText = 'Unit Cost';
+            if (unitInput && !unitInput.value) unitInput.value = 'Tons';
+        }} else if (type === 'plants') {{
+            quantityLabel.innerText = 'Quantity';
+            salePriceLabel.innerText = 'Sale Price';
+            costLabel.innerText = 'Unit Cost';
+            if (unitInput && !unitInput.value) unitInput.value = 'EA';
+        }} else if (type === 'trees') {{
+            quantityLabel.innerText = 'Quantity';
+            salePriceLabel.innerText = 'Sale Price';
+            costLabel.innerText = 'Unit Cost';
+            if (unitInput && !unitInput.value) unitInput.value = 'EA';
+        }} else if (type === 'labor') {{
+            quantityLabel.innerText = 'Hours';
+            salePriceLabel.innerText = 'Sale Rate / Hr';
+            costLabel.innerText = 'Unit Cost / Hr';
+            if (unitInput && !unitInput.value) unitInput.value = 'hr';
+        }} else if (type === 'dump_fee') {{
+            quantityLabel.innerText = 'Fees';
+            salePriceLabel.innerText = 'Fee Amount';
+            if (unitInput && !unitInput.value) unitInput.value = 'fee';
+            if (quantityInput) {{
+                quantityInput.value = '1';
+                quantityInput.readOnly = true;
             }}
+            if (unitCostWrap) unitCostWrap.style.display = 'none';
+            if (unitCostInput) unitCostInput.value = '0';
         }} else {{
             quantityLabel.innerText = 'Quantity';
+            salePriceLabel.innerText = 'Sale Price';
             costLabel.innerText = 'Unit Cost';
-            salePriceWrap.style.display = 'block';
-            if (unitInput && unitInput.value === 'hrs') {{
-                unitInput.value = '';
-            }}
         }}
     }}
 
     document.addEventListener('DOMContentLoaded', function() {{
-        toggleEditLaborMode();
+        toggleEditJobItemMode();
     }});
     </script>
     """
@@ -978,7 +1187,7 @@ def delete_job_item(job_id, item_id):
         conn.close()
         abort(404)
 
-    if item["ledger_entry_id"]:
+    if "ledger_entry_id" in item.keys() and item["ledger_entry_id"]:
         conn.execute("DELETE FROM ledger_entries WHERE id = %s", (item["ledger_entry_id"],))
 
     conn.execute("DELETE FROM job_items WHERE id = %s", (item_id,))
@@ -1041,8 +1250,6 @@ def convert_job_to_invoice(job_id):
         invoice_date = date.today().isoformat()
         due_date = invoice_date
         notes = clean_text_input(job["notes"]) if "notes" in job.keys() and job["notes"] else ""
-
-        # safer temporary invoice number format
         invoice_number = f"INV-{int(datetime.now().timestamp())}"
 
         cur = conn.cursor()
