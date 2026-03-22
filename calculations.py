@@ -10,7 +10,7 @@ def recalc_quote(conn, quote_id):
         """
         SELECT COALESCE(SUM(line_total), 0) AS subtotal
         FROM quote_items
-        WHERE quote_id = ?
+        WHERE quote_id = %s
         """,
         (quote_id,),
     ).fetchone()
@@ -21,8 +21,8 @@ def recalc_quote(conn, quote_id):
     conn.execute(
         """
         UPDATE quotes
-        SET subtotal = ?, total = ?
-        WHERE id = ?
+        SET subtotal = %s, total = %s
+        WHERE id = %s
         """,
         (total, total, quote_id),
     )
@@ -33,7 +33,7 @@ def recalc_invoice(conn, invoice_id):
         """
         SELECT COALESCE(SUM(line_total), 0) AS subtotal
         FROM invoice_items
-        WHERE invoice_id = ?
+        WHERE invoice_id = %s
         """,
         (invoice_id,),
     ).fetchone()
@@ -46,7 +46,7 @@ def recalc_invoice(conn, invoice_id):
         """
         SELECT amount_paid
         FROM invoices
-        WHERE id = ?
+        WHERE id = %s
         """,
         (invoice_id,),
     ).fetchone()
@@ -70,8 +70,8 @@ def recalc_invoice(conn, invoice_id):
     conn.execute(
         """
         UPDATE invoices
-        SET subtotal = ?, total = ?, balance_due = ?, status = ?
-        WHERE id = ?
+        SET subtotal = %s, total = %s, balance_due = %s, status = %s
+        WHERE id = %s
         """,
         (total, total, balance_due, status, invoice_id),
     )
@@ -84,7 +84,7 @@ def recalc_job(conn, job_id):
             COALESCE(SUM(line_total), 0) AS revenue,
             COALESCE(SUM(cost_amount), 0) AS cost_total
         FROM job_items
-        WHERE job_id = ?
+        WHERE job_id = %s
         """,
         (job_id,),
     ).fetchone()
@@ -96,8 +96,8 @@ def recalc_job(conn, job_id):
     conn.execute(
         """
         UPDATE jobs
-        SET revenue = ?, cost_total = ?, profit = ?
-        WHERE id = ?
+        SET revenue = %s, cost_total = %s, profit = %s
+        WHERE id = %s
         """,
         (revenue, cost_total, profit, job_id),
     )
@@ -276,7 +276,7 @@ def get_company_tax_rates(company_id, conn):
             county,
             city
         FROM company_profile
-        WHERE company_id = ?
+        WHERE company_id = %s
         """,
         (company_id,),
     ).fetchone()
