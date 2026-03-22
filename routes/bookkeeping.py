@@ -83,11 +83,11 @@ JOB_COST_CATEGORY_MAP = {
 }
 
 
-def _safe_float(value):
+def _safe_float(value, default=0.0):
     try:
         return float(value or 0)
     except (TypeError, ValueError):
-        return 0.0
+        return default
 
 
 def _fmt_money(value, show_plus=False):
@@ -748,7 +748,7 @@ def _normalize_ledger_rows(ledger_rows):
 
     for r in ledger_rows:
         source_type = (_safe_get(r, "source_type", "manual") or "manual").strip()
-        raw_amount = _safe_float(_safe_get(r, "amount", 0), 0)
+        raw_amount = _safe_float(_safe_get(r, "amount", 0))
 
         if source_type in ("invoice_payment", "invoice_paid", "invoice_mark_paid"):
             continue
@@ -792,7 +792,7 @@ def _normalize_payroll_rows(payroll_rows):
             "description": f"Payroll - {employee_name}" + (
                 f" ({_safe_get(r, 'notes', '')})" if _safe_get(r, "notes") else ""
             ),
-            "amount": abs(_safe_float(_safe_get(r, "gross_pay", 0), 0)),
+            "amount": abs(_safe_float(_safe_get(r, "gross_pay", 0))),
             "source_type": "payroll",
             "reference_type": "payroll",
             "source_id": _safe_get(r, "id"),
@@ -827,7 +827,7 @@ def _normalize_invoice_payment_rows(payment_rows):
                     "description": f"Invoice #{_safe_get(r, 'invoice_number') or _safe_get(r, 'invoice_id')} paid in full" + (
                         f" ({_safe_get(r, 'customer_name')})" if _safe_get(r, "customer_name") else ""
                     ),
-                    "amount": abs(_safe_float(_safe_get(r, "invoice_total", 0), 0)),
+                    "amount": abs(_safe_float(_safe_get(r, "invoice_total", 0))),
                     "source_type": "invoice_payment",
                     "reference_type": "invoice_payment",
                     "source_id": _safe_get(r, "invoice_id"),
@@ -850,7 +850,7 @@ def _normalize_invoice_payment_rows(payment_rows):
                 "description": f"Partial payment for Invoice #{_safe_get(r, 'invoice_number') or _safe_get(r, 'invoice_id')}" + (
                     f" ({_safe_get(r, 'customer_name')})" if _safe_get(r, "customer_name") else ""
                 ),
-                "amount": abs(_safe_float(_safe_get(r, "amount", 0), 0)),
+                "amount": abs(_safe_float(_safe_get(r, "amount", 0))),
                 "source_type": "invoice_payment",
                 "reference_type": "invoice_payment",
                 "source_id": _safe_get(r, "id"),
@@ -894,7 +894,7 @@ def _normalize_job_item_rows(job_item_rows, existing_ledger_rows):
             continue
 
         entry_date = _safe_get(r, "entry_date", "") or date.today().isoformat()
-        amount = abs(_safe_float(_safe_get(r, "amount", 0), 0))
+        amount = abs(_safe_float(_safe_get(r, "amount", 0)))
 
         if amount == 0:
             continue
@@ -1062,7 +1062,7 @@ def _render_bookkeeping_page(conn, cid):
         if cat not in category_totals:
             category_totals[cat] = {"Income": 0.0, "Expense": 0.0}
 
-        category_totals[cat][r["entry_type"]] += abs(_safe_float(r["amount"], 0))
+        category_totals[cat][r["entry_type"]] += abs(_safe_float(r["amount"]))
 
     category_rows = "".join(
         f"""
@@ -1128,7 +1128,7 @@ def _render_bookkeeping_page(conn, cid):
                 <td>{escape(str(r.get('category') or '-'))}</td>
                 <td>{escape(str(r.get('description') or '-'))}</td>
                 <td style="color:{'#16a34a' if r.get('entry_type') == 'Income' else '#dc2626'}; font-weight:600;">
-                    {'+' if r.get('entry_type') == 'Income' else '-'}${abs(_safe_float(r.get('amount'), 0)):.2f}
+                    {'+' if r.get('entry_type') == 'Income' else '-'}${abs(_safe_float(r.get('amount'))):.2f}
                 </td>
                 <td>{source_html}</td>
                 <td>{actions_html}</td>
@@ -1404,7 +1404,7 @@ def export_bookkeeping_csv():
     ])
 
     for r in rows:
-        signed_amount = abs(_safe_float(r.get("amount"), 0))
+        signed_amount = abs(_safe_float(r.get("amount")))
         if r.get("entry_type") == "Expense":
             signed_amount = -signed_amount
 
