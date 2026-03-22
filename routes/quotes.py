@@ -805,7 +805,7 @@ def view_quote(quote_id):
                     </div>
                     <div id='unit_cost_wrap'>
                         <label id='unit_cost_label'>Unit Cost (Internal)</label>
-                        <input name='unit_cost' id='quote_unit_cost' type='number' step='0.01' min='0' value='0.00' required>
+                        <input name='unit_cost' id='quote_unit_cost' type='number' step='0.01' min='0' value='none' required>
                     </div>
                 </div>
                 <br>
