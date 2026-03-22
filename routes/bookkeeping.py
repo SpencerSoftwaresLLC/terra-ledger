@@ -33,6 +33,17 @@ EXPENSE_TYPES = {
     "delivery",
     "misc",
     "payroll",
+    "hand tools",
+    "office supplies",
+    "maintenance",
+    "power equipment",
+    "vehicles",
+    "insurance",
+    "marketing",
+    "office and admin",
+    "safety gear",
+    "licensing & certifications",
+    "licensing and certifications",
 }
 
 JOB_COST_CATEGORY_MAP = {
@@ -55,6 +66,17 @@ JOB_COST_CATEGORY_MAP = {
     "delivery": "Delivery",
     "misc": "Misc",
     "payroll": "Payroll",
+    "hand tools": "Hand Tools",
+    "office supplies": "Office Supplies",
+    "maintenance": "Maintenance",
+    "power equipment": "Power Equipment",
+    "vehicles": "Vehicles",
+    "insurance": "Insurance",
+    "marketing": "Marketing",
+    "office and admin": "Office and Admin",
+    "safety gear": "Safety Gear",
+    "licensing & certifications": "Licensing & Certifications",
+    "licensing and certifications": "Licensing & Certifications",
 }
 
 
@@ -108,6 +130,28 @@ def _canonicalize_category(value):
         return "Misc"
     if v == "payroll":
         return "Payroll"
+    if v == "hand tools":
+        return "Hand Tools"
+    if v == "office supplies":
+        return "Office Supplies"
+    if v == "maintenance":
+        return "Maintenance"
+    if v == "power equipment":
+        return "Power Equipment"
+    if v == "vehicles":
+        return "Vehicles"
+    if v == "insurance":
+        return "Insurance"
+    if v == "marketing":
+        return "Marketing"
+    if v == "office and admin":
+        return "Office and Admin"
+    if v == "safety gear":
+        return "Safety Gear"
+    if v in {"licensing & certifications", "licensing and certifications"}:
+        return "Licensing & Certifications"
+    if v == "bank deposits":
+        return "Bank Deposits"
     if v in {"invoice payments", "invoice payment"}:
         return "Invoice Payments"
     if v == "income":
@@ -154,6 +198,17 @@ def _is_expense_entry(entry_type, description="", category="", source_type="", r
         "payroll",
         "material",
         "materials",
+        "hand tools",
+        "office supplies",
+        "maintenance",
+        "power equipment",
+        "vehicles",
+        "insurance",
+        "marketing",
+        "office and admin",
+        "safety gear",
+        "licensing",
+        "certifications",
     }
     for keyword in desc_keywords:
         if keyword in desc:
@@ -276,6 +331,8 @@ def _get_pl_bucket(entry_type="", description="", category="", source_type="", r
 
         if "invoice payment" in normalized_category or "invoice payment" in normalized_entry_type:
             return "Invoice Payments"
+        if "bank deposit" in normalized_category or "bank deposit" in normalized_entry_type:
+            return "Bank Deposits"
         if "income" in normalized_category:
             return "Income"
         if "invoice" in normalized_desc and "payment" in normalized_desc:
@@ -620,6 +677,16 @@ def bookkeeping():
                         <option value="Delivery">Delivery</option>
                         <option value="Misc">Misc</option>
                         <option value="Payroll">Payroll</option>
+                        <option value="Hand Tools">Hand Tools</option>
+                        <option value="Office Supplies">Office Supplies</option>
+                        <option value="Maintenance">Maintenance</option>
+                        <option value="Power Equipment">Power Equipment</option>
+                        <option value="Vehicles">Vehicles</option>
+                        <option value="Insurance">Insurance</option>
+                        <option value="Marketing">Marketing</option>
+                        <option value="Office and Admin">Office and Admin</option>
+                        <option value="Safety Gear">Safety Gear</option>
+                        <option value="Licensing &amp; Certifications">Licensing &amp; Certifications</option>
                     </select>
                 </div>
                 <div>
@@ -710,12 +777,23 @@ def bookkeeping():
             "Equipment",
             "Delivery",
             "Misc",
-            "Payroll"
+            "Payroll",
+            "Hand Tools",
+            "Office Supplies",
+            "Maintenance",
+            "Power Equipment",
+            "Vehicles",
+            "Insurance",
+            "Marketing",
+            "Office and Admin",
+            "Safety Gear",
+            "Licensing & Certifications"
         ];
 
         var incomeOptions = [
             "Income",
-            "Invoice Payments"
+            "Invoice Payments",
+            "Bank Deposits"
         ];
 
         var selected = typeEl.value === "income" ? incomeOptions : expenseOptions;
