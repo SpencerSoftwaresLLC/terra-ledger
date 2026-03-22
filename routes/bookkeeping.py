@@ -179,7 +179,7 @@ def _canonicalize_category(value):
         return "Licensing & Certifications"
     if v == "bank deposits":
         return "Bank Deposits"
-    if v in {"invoice payment"}:
+    if "invoice payment" in v:
         return "Invoice Payments"
     if v == "income":
         return "Income"
@@ -663,10 +663,22 @@ def _normalize_ledger_rows(ledger_rows):
     normalized = []
 
     for r in ledger_rows:
-        source_type = (_safe_get(r, "source_type", "manual") or "manual").strip()
+        source_type = (_safe_get(r, "source_type", "manual") or "manual").strip().lower()
+        reference_type = (_safe_get(r, "reference_type", "") or "").strip().lower()
+        entry_type_raw = (_safe_get(r, "entry_type", "") or "").strip().lower()
+        category_raw = (_safe_get(r, "category", "") or "").strip().lower()
+        description_raw = (_safe_get(r, "description", "") or "").strip().lower()
+
         raw_amount = _safe_float(_safe_get(r, "amount", 0))
 
-        if source_type in ("invoice_payment", "invoice_paid", "invoice_mark_paid"):
+        # 🚫 HARD BLOCK: skip ALL invoice payment duplicates from ledger
+        if (
+            source_type in {"invoice_payment", "invoice_paid", "invoice_mark_paid", "payment"}
+            or reference_type in {"invoice_payment", "invoice_paid", "invoice_mark_paid", "payment"}
+            or "invoice payment" in entry_type_raw
+            or "invoice payment" in category_raw
+            or ("invoice" in description_raw and "payment" in description_raw)
+        ):
             continue
 
         entry_type = _normalize_ledger_type(
@@ -683,13 +695,13 @@ def _normalize_ledger_rows(ledger_rows):
             "description": _safe_get(r, "description", "") or "",
             "amount": abs(raw_amount),
             "source_type": source_type,
-            "reference_type": _safe_get(r, "reference_type", "") or "",
+            "reference_type": reference_type,
             "source_id": _safe_get(r, "source_id"),
             "customer_id": _safe_get(r, "customer_id"),
             "invoice_id": _safe_get(r, "invoice_id"),
             "job_id": _safe_get(r, "job_id"),
             "notes": _safe_get(r, "notes", "") or "",
-            "can_delete": _normalize_text(source_type) == "manual" or _normalize_text(_safe_get(r, "reference_type", "")) == "manual",
+            "can_delete": _normalize_text(source_type) == "manual" or _normalize_text(reference_type) == "manual",
         })
 
     return normalized
