@@ -1425,10 +1425,12 @@ def bookkeeping_pnl():
     date_from = (request.args.get("date_from") or "").strip()
     date_to = (request.args.get("date_to") or "").strip()
 
+    today = date.today()
+
     if not date_from:
-        date_from = "1900-01-01"
+        date_from = f"{today.year}-01-01"
     if not date_to:
-        date_to = date.today().isoformat()
+        date_to = today.isoformat()
 
     try:
         rows = _build_combined_rows(conn, cid, date_from, date_to)

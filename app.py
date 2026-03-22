@@ -88,14 +88,19 @@ def create_app():
     app.register_blueprint(help_assistant_bp)
     app.register_blueprint(mobile_bp)
 
+    @app.get("/healthz")
+    def healthz():
+        return "ok", 200
+
     print("APP CREATE SUCCESS", flush=True)
     return app
 
 
 # Run startup tasks once at import/startup
-run_startup_tasks()
-
 app = create_app()
+
+if os.environ.get("RUN_STARTUP_TASKS", "false").lower() == "true":
+    run_startup_tasks()
 
 
 if __name__ == "__main__":
