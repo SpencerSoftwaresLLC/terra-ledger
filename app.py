@@ -88,10 +88,16 @@ def create_app():
     app.register_blueprint(help_assistant_bp)
     app.register_blueprint(mobile_bp)
 
+    @app.route("/")
+    def home():
+        return "TerraLedger is running"
+
     print("APP CREATE SUCCESS", flush=True)
     return app
 
 
+app = create_app()
+
+
 if __name__ == "__main__":
-    app = create_app()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
