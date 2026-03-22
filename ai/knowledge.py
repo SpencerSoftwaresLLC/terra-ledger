@@ -149,20 +149,8 @@ DEPTH_MAP = {
     6: 0.50,
 }
 
-STONE_KEYWORDS = [
-    "stone",
-    "gravel",
-    "limestone",
-    "rock",
-    "crushed",
-]
-
-YARD_ONLY_KEYWORDS = [
-    "mulch",
-    "soil",
-    "dirt",
-    "topsoil",
-]
+STONE_KEYWORDS = ["stone", "gravel", "limestone", "rock", "crushed"]
+YARD_ONLY_KEYWORDS = ["mulch", "soil", "dirt", "topsoil"]
 
 
 def _normalize_text(text):
@@ -181,70 +169,87 @@ def detect_material(text):
     return "unknown"
 
 
-def extract_dimensions(text):
-    """
-    Expects the first two numbers to be length and width,
-    and the third number to be depth.
-
-    Examples that work:
-    - 30x20 3 inches mulch
-    - 30 x 20 x 3 stone
-    - 30 by 20 at 3 inches deep for gravel
-    """
+def extract_depth(text):
     text = _normalize_text(text)
+
+    # Prefer a depth reference near "deep" or "depth"
+    depth_patterns = [
+        r"(\d+\.?\d*)\s*(inches|inch|in|feet|foot|ft)\s*deep",
+        r"depth\s*(?:of)?\s*(\d+\.?\d*)\s*(inches|inch|in|feet|foot|ft)?",
+        r"at\s*(\d+\.?\d*)\s*(inches|inch|in|feet|foot|ft)\s*deep",
+        r"(\d+\.?\d*)\s*(inches|inch|in|feet|foot|ft)",
+    ]
+
+    for pattern in depth_patterns:
+        match = re.search(pattern, text)
+        if match:
+            depth_value = float(match.group(1))
+            depth_unit = match.group(2).lower() if match.group(2) else None
+            return depth_value, depth_unit
+
+    # Fallback: third number, assume inches if no explicit unit
     nums = list(map(float, re.findall(r"\d+\.?\d*", text)))
+    if len(nums) >= 3:
+        return nums[2], None
 
-    if len(nums) < 3:
-        return None, None, None
-
-    length = nums[0]
-    width = nums[1]
-    depth_input = nums[2]
-
-    return length, width, depth_input
+    return None, None
 
 
-def convert_depth(depth_input, text):
-    """
-    Converts the user's depth entry into feet for the volume formula.
+def convert_depth_to_feet(depth_input, depth_unit=None):
+    if depth_input is None:
+        return None
 
-    Business rule:
-    - If user says inches / inch / in, convert using DEPTH_MAP when possible
-    - If user says feet / foot / ft, use the value directly
-    - If no unit is given, assume inches and use DEPTH_MAP
-    """
-    text = _normalize_text(text)
-
-    if re.search(r"\b(ft|feet|foot)\b", text):
+    if depth_unit in {"feet", "foot", "ft"}:
         return float(depth_input)
 
-    if re.search(r"\b(in|inch|inches)\b", text):
+    if depth_unit in {"inches", "inch", "in"}:
         try:
             depth_as_int = int(float(depth_input))
-            return DEPTH_MAP.get(depth_as_int, float(depth_input))
+            return DEPTH_MAP.get(depth_as_int, float(depth_input) / 12.0)
         except Exception:
-            return float(depth_input)
+            return float(depth_input) / 12.0
 
+    # Default business rule: assume inches when omitted
     try:
         depth_as_int = int(float(depth_input))
-        return DEPTH_MAP.get(depth_as_int, float(depth_input))
+        return DEPTH_MAP.get(depth_as_int, float(depth_input) / 12.0)
     except Exception:
         return float(depth_input)
 
 
+def extract_square_feet(text):
+    text = _normalize_text(text)
+
+    patterns = [
+        r"(\d+\.?\d*)\s*(?:square feet|sq feet|sq foot|square foot|sq ft|ft²|sf)\b",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return float(match.group(1))
+
+    return None
+
+
+def extract_length_width(text):
+    text = _normalize_text(text)
+
+    # 30x20 or 30 x 20 or 30 by 20
+    match = re.search(r"(\d+\.?\d*)\s*(?:x|by)\s*(\d+\.?\d*)", text)
+    if match:
+        return float(match.group(1)), float(match.group(2))
+
+    # Fallback: if at least 3 numbers and no square-feet phrase, assume first two are L/W
+    if extract_square_feet(text) is None:
+        nums = list(map(float, re.findall(r"\d+\.?\d*", text)))
+        if len(nums) >= 3:
+            return nums[0], nums[1]
+
+    return None, None
+
+
 def calculate_material(text):
-    """
-    Material formulas based on your Wrede's process:
-
-    Stone:
-        yards = (L * W * D) / 27
-        tons = yards * 1.3
-
-    Mulch / soil:
-        yards = (L * W * D) / 27
-
-    Depth must be in feet for the formula, so inch inputs are converted first.
-    """
     text = _normalize_text(text)
 
     if not text:
@@ -254,22 +259,41 @@ def calculate_material(text):
     if material == "unknown":
         return None
 
-    length, width, depth_input = extract_dimensions(text)
-    if length is None or width is None or depth_input is None:
+    depth_input, depth_unit = extract_depth(text)
+    if depth_input is None:
         return None
 
-    depth_feet = convert_depth(depth_input, text)
-    yards = (length * width * depth_feet) / 27
+    depth_feet = convert_depth_to_feet(depth_input, depth_unit)
+    if depth_feet is None:
+        return None
+
+    square_feet = extract_square_feet(text)
+    length, width = extract_length_width(text)
+
+    if square_feet is None:
+        if length is None or width is None:
+            return None
+        square_feet = length * width
+
+    cubic_feet = square_feet * depth_feet
+    yards = cubic_feet / 27.0
+
+    depth_label = f"{depth_input:g} {depth_unit}" if depth_unit else f"{depth_input:g} inches"
 
     if material == "stone":
         tons = yards * 1.3
         return (
             "Material Estimate:\n\n"
-            f"Length: {length:g} ft\n"
-            f"Width: {width:g} ft\n"
-            f"Depth: {depth_input:g}\n\n"
+            f"Area: {square_feet:.2f} sq ft\n"
+            f"Depth: {depth_label}\n"
+            f"Depth in Feet: {depth_feet:.3f}\n"
+            f"Cubic Feet: {cubic_feet:.2f}\n"
             f"Cubic Yards: {yards:.2f}\n"
             f"Tons: {tons:.2f}\n\n"
+            "Breakdown:\n"
+            f"• {square_feet:.2f} × {depth_feet:.3f} = {cubic_feet:.2f} cubic feet\n"
+            f"• {cubic_feet:.2f} ÷ 27 = {yards:.2f} cubic yards\n"
+            f"• {yards:.2f} × 1.3 = {tons:.2f} tons\n\n"
             "Recommended Order:\n"
             f"• {round(yards + 0.25, 2)} yards\n"
             f"• {round(tons + 0.25, 2)} tons"
@@ -278,10 +302,14 @@ def calculate_material(text):
     if material == "yard":
         return (
             "Material Estimate:\n\n"
-            f"Length: {length:g} ft\n"
-            f"Width: {width:g} ft\n"
-            f"Depth: {depth_input:g}\n\n"
+            f"Area: {square_feet:.2f} sq ft\n"
+            f"Depth: {depth_label}\n"
+            f"Depth in Feet: {depth_feet:.3f}\n"
+            f"Cubic Feet: {cubic_feet:.2f}\n"
             f"Cubic Yards: {yards:.2f}\n\n"
+            "Breakdown:\n"
+            f"• {square_feet:.2f} × {depth_feet:.3f} = {cubic_feet:.2f} cubic feet\n"
+            f"• {cubic_feet:.2f} ÷ 27 = {yards:.2f} cubic yards\n\n"
             "Recommended Order:\n"
             f"• {round(yards + 0.25, 2)} yards"
         )
