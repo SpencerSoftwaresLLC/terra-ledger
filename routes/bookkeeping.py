@@ -1143,7 +1143,6 @@ def _render_bookkeeping_page(conn, cid):
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
             <h1 style='margin:0;'>Bookkeeping / P&amp;L</h1>
             <div class='row-actions'>
-                <a href="{url_for('bookkeeping.bookkeeping_history')}" class="btn secondary">History</a>
                 <a href="{url_for('bookkeeping.bookkeeping_pnl')}" class="btn success">P&amp;L Page</a>
             </div>
         </div>
