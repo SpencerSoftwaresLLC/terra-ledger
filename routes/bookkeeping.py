@@ -4,7 +4,7 @@ from datetime import date, datetime
 import csv
 import io
 
-from db import get_db_connection, ensure_bookkeeping_history_table, table_columns
+from db import get_db_connection, table_columns
 from decorators import login_required, require_permission, subscription_required
 from page_helpers import render_page
 from helpers import get_period_range
@@ -574,90 +574,6 @@ def _insert_manual_ledger_entry(conn, company_id, entry_date, entry_type, catego
         tuple(values.values()),
     )
 
-
-def _insert_manual_history_entry(conn, company_id, entry_date, entry_type, category, description, amount, notes):
-    try:
-        ensure_bookkeeping_history_table()
-        money_in = amount if _normalize_text(entry_type) == "income" else 0
-        money_out = amount if _normalize_text(entry_type) != "income" else 0
-
-        conn.execute(
-            """
-            INSERT INTO bookkeeping_history (
-                company_id,
-                entry_date,
-                category,
-                entry_type,
-                description,
-                money_in,
-                money_out,
-                notes
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                company_id,
-                entry_date,
-                category,
-                entry_type,
-                description,
-                money_in,
-                money_out,
-                notes,
-            ),
-        )
-    except Exception:
-        pass
-
-
-def _delete_matching_manual_history_entry(conn, company_id, ledger_row):
-    try:
-        ensure_bookkeeping_history_table()
-
-        entry_type = str(_safe_get(ledger_row, "entry_type", "") or "").strip()
-        category = str(_safe_get(ledger_row, "category", "") or "").strip()
-        description = str(_safe_get(ledger_row, "description", "") or "").strip()
-        notes = str(_safe_get(ledger_row, "notes", "") or "").strip()
-        entry_date = _safe_get(ledger_row, "entry_date")
-        amount = abs(_safe_float(_safe_get(ledger_row, "amount", 0)))
-
-        history_entry_type = "Income" if _normalize_text(entry_type) == "income" else "Expense"
-        money_in = amount if history_entry_type == "Income" else 0
-        money_out = amount if history_entry_type != "Income" else 0
-
-        match = conn.execute(
-            """
-            SELECT id
-            FROM bookkeeping_history
-            WHERE company_id = %s
-              AND COALESCE(entry_date, '') = COALESCE(%s, '')
-              AND COALESCE(category, '') = %s
-              AND COALESCE(entry_type, '') = %s
-              AND COALESCE(description, '') = %s
-              AND COALESCE(notes, '') = %s
-              AND COALESCE(money_in, 0) = %s
-              AND COALESCE(money_out, 0) = %s
-            ORDER BY id DESC
-            LIMIT 1
-            """,
-            (
-                company_id,
-                entry_date,
-                category,
-                history_entry_type,
-                description,
-                notes,
-                money_in,
-                money_out,
-            ),
-        ).fetchone()
-
-        if match:
-            conn.execute("DELETE FROM bookkeeping_history WHERE id = %s", (match["id"],))
-    except Exception:
-        pass
-
-
 def _fetch_ledger_rows(conn, cid, start_date, end_date):
     select_parts = _get_ledger_select_parts(conn)
     date_col = select_parts["date_col"]
@@ -957,17 +873,6 @@ def _render_bookkeeping_page(conn, cid):
             category = "Income" if entry_type == "income" else "Expense"
 
         _insert_manual_ledger_entry(
-            conn=conn,
-            company_id=cid,
-            entry_date=entry_date,
-            entry_type=entry_type.title(),
-            category=category,
-            description=description,
-            amount=amount,
-            notes=notes,
-        )
-
-        _insert_manual_history_entry(
             conn=conn,
             company_id=cid,
             entry_date=entry_date,
@@ -1496,17 +1401,6 @@ def delete_bookkeeping_entry(entry_id):
         conn.close()
         flash("Only manual bookkeeping entries can be deleted here.")
         return redirect(url_for("bookkeeping.bookkeeping"))
-
-    _delete_matching_manual_history_entry(conn, cid, row)
-    conn.execute(
-        "DELETE FROM ledger_entries WHERE id = %s AND company_id = %s",
-        (entry_id, cid),
-    )
-    conn.commit()
-    conn.close()
-
-    flash("Manual bookkeeping entry deleted.")
-    return redirect(url_for("bookkeeping.bookkeeping"))
 
 
 @bookkeeping_bp.route("/bookkeeping/pnl")
