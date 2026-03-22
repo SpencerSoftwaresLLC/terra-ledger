@@ -902,8 +902,7 @@ def view_quote(quote_id):
                     setFieldValue("quote_unit", "EA", true);
                 }} else if (type === "labor") {{
                     if (quantityLabel) quantityLabel.textContent = "Hours";
-                    if (unitPriceLabel) unitPriceLabel.textContent = "Sale Rate / Hr";
-                    if (unitCostLabel) unitCostLabel.textContent = "Unit Cost / Hr (Internal)";
+                    if (unitPriceLabel) unitPriceLabel.textContent = "Billable Hours";
                     setFieldValue("quote_unit", "hr", true);
                 }} else if (type === "dump_fee") {{
                     if (quantityLabel) quantityLabel.textContent = "Fees";

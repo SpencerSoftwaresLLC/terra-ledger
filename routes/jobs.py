@@ -737,8 +737,7 @@ def view_job(job_id):
                 if (unitInput && !unitInput.value) unitInput.value = 'EA';
             }} else if (type === 'labor') {{
                 quantityLabel.innerText = 'Hours';
-                salePriceLabel.innerText = 'Sale Rate / Hr';
-                costLabel.innerText = 'Unit Cost / Hr';
+                salePriceLabel.innerText = 'Billable Hours';
                 if (unitInput && !unitInput.value) unitInput.value = 'hr';
             }} else if (type === 'dump_fee') {{
                 quantityLabel.innerText = 'Fees';
@@ -1137,8 +1136,7 @@ def edit_job_item(job_id, item_id):
             if (unitInput && !unitInput.value) unitInput.value = 'EA';
         }} else if (type === 'labor') {{
             quantityLabel.innerText = 'Hours';
-            salePriceLabel.innerText = 'Sale Rate / Hr';
-            costLabel.innerText = 'Unit Cost / Hr';
+            salePriceLabel.innerText = 'Billable Hours';
             if (unitInput && !unitInput.value) unitInput.value = 'hr';
         }} else if (type === 'dump_fee') {{
             quantityLabel.innerText = 'Fees';
