@@ -27,6 +27,18 @@ from routes.help_assistant import help_assistant_bp
 from routes.mobile import mobile_bp
 
 
+def run_startup_tasks():
+    print("STARTING DB INIT", flush=True)
+    init_db()
+    print("INIT_DB SUCCESS", flush=True)
+
+    ensure_company_profile_location_columns()
+    print("ensure_company_profile_location_columns SUCCESS", flush=True)
+
+    ensure_company_profile_email_columns()
+    print("ensure_company_profile_email_columns SUCCESS", flush=True)
+
+
 def create_app():
     app = Flask(__name__)
 
@@ -61,16 +73,6 @@ def create_app():
 
     mail.init_app(app)
 
-    print("STARTING DB INIT", flush=True)
-    init_db()
-    print("INIT_DB SUCCESS", flush=True)
-
-    ensure_company_profile_location_columns()
-    print("ensure_company_profile_location_columns SUCCESS", flush=True)
-
-    ensure_company_profile_email_columns()
-    print("ensure_company_profile_email_columns SUCCESS", flush=True)
-
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(customers_bp)
@@ -90,8 +92,11 @@ def create_app():
     return app
 
 
+# Run startup tasks once at import/startup
+run_startup_tasks()
+
 app = create_app()
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
