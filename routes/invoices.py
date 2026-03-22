@@ -392,7 +392,7 @@ def _sync_invoice_status_and_bookkeeping(invoice_id):
         conn.commit()
     finally:
         conn.close()
-        
+
 def build_invoice_pdf(invoice, items, company, profile):
     pdf_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     pdf_temp.close()
@@ -658,6 +658,7 @@ def invoices():
         FROM invoices i
         LEFT JOIN customers c ON i.customer_id = c.id
         WHERE i.company_id = %s
+          AND COALESCE(i.status, '') != 'Paid'
         ORDER BY i.id DESC
         """,
         (cid,),
@@ -687,7 +688,7 @@ def invoices():
     if not invoice_rows_html:
         invoice_rows_html = """
         <tr>
-            <td colspan="8" class="muted">No invoices found.</td>
+            <td colspan="8" class="muted">No active invoices found.</td>
         </tr>
         """
 
@@ -696,9 +697,10 @@ def invoices():
         <div style='display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap;'>
             <div>
                 <h1>Invoices</h1>
-                <p class='muted'>Track invoice totals, payments, balances, and status.</p>
+                <p class='muted'>Track active invoice totals, payments, balances, and status.</p>
             </div>
-            <div>
+            <div class='row-actions'>
+                <a class='btn secondary' href='{url_for("invoices.paid_invoices")}'>Paid Invoices</a>
                 <a class='btn success' href='{url_for("invoices.new_invoice")}'>New Invoice</a>
             </div>
         </div>
@@ -725,6 +727,91 @@ def invoices():
     </div>
     """
     return render_page(content, "Invoices")
+
+@invoices_bp.route("/invoices/paid")
+@login_required
+@require_permission("can_manage_invoices")
+def paid_invoices():
+    ensure_document_number_columns()
+    ensure_invoice_payment_table()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    rows = conn.execute(
+        """
+        SELECT i.*, c.name AS customer_name
+        FROM invoices i
+        LEFT JOIN customers c ON i.customer_id = c.id
+        WHERE i.company_id = %s
+          AND i.status = 'Paid'
+        ORDER BY i.id DESC
+        """,
+        (cid,),
+    ).fetchall()
+
+    conn.close()
+
+    invoice_rows_html = ""
+    for inv in rows:
+        status = _clean_display(inv["status"])
+        invoice_number = _clean_display(inv["invoice_number"] or inv["id"])
+        invoice_rows_html += f"""
+        <tr>
+            <td>#{escape(str(invoice_number))}</td>
+            <td>{escape(_clean_display(inv["customer_name"]))}</td>
+            <td>{escape(str(inv["invoice_date"] or "-"))}</td>
+            <td>${_safe_float(inv["total"]):,.2f}</td>
+            <td>${_safe_float(inv["amount_paid"]):,.2f}</td>
+            <td>${_safe_float(inv["balance_due"]):,.2f}</td>
+            <td>{escape(status)}</td>
+            <td>
+                <a class='btn small' href='{url_for("invoices.view_invoice", invoice_id=inv["id"])}'>Open</a>
+            </td>
+        </tr>
+        """
+
+    if not invoice_rows_html:
+        invoice_rows_html = """
+        <tr>
+            <td colspan="8" class="muted">No paid invoices found.</td>
+        </tr>
+        """
+
+    content = f"""
+    <div class='card'>
+        <div style='display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap;'>
+            <div>
+                <h1>Paid Invoices</h1>
+                <p class='muted'>Invoices that have been paid in full.</p>
+            </div>
+            <div class='row-actions'>
+                <a class='btn secondary' href='{url_for("invoices.invoices")}'>Back to Invoices</a>
+            </div>
+        </div>
+    </div>
+
+    <div class='card'>
+        <table class='table'>
+            <thead>
+                <tr>
+                    <th>Invoice</th>
+                    <th>Customer</th>
+                    <th>Date</th>
+                    <th>Total</th>
+                    <th>Paid</th>
+                    <th>Balance</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {invoice_rows_html}
+            </tbody>
+        </table>
+    </div>
+    """
+    return render_page(content, "Paid Invoices")
 
 
 @invoices_bp.route("/invoices/new", methods=["GET", "POST"])
