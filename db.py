@@ -53,34 +53,44 @@ def _get_database_url():
     return os.environ.get("DATABASE_URL", "").strip()
 
 
+from urllib.parse import urlparse, parse_qs
+
 def _validate_database_url(database_url: str):
     if not database_url:
         raise RuntimeError(
-            "DATABASE_URL is not set. Make sure your .env file exists and contains a full PostgreSQL connection string."
+            "DATABASE_URL is not set. Make sure your environment contains a full PostgreSQL connection string."
         )
 
     parsed = urlparse(database_url)
 
     if parsed.scheme not in {"postgres", "postgresql"}:
         raise RuntimeError(
-            "DATABASE_URL must start with postgres:// or postgresql://"
+            f"DATABASE_URL must start with postgres:// or postgresql://. Got: {parsed.scheme or 'missing scheme'}"
         )
 
     if not parsed.hostname:
-        raise RuntimeError(
-            "DATABASE_URL is missing a hostname."
-        )
+        raise RuntimeError("DATABASE_URL is missing a hostname.")
 
     if "." not in parsed.hostname:
         raise RuntimeError(
-            f'DATABASE_URL host looks incomplete: "{parsed.hostname}". '
-            "Use the full Render hostname, not just the dpg- prefix."
+            f'DATABASE_URL host looks incomplete: "{parsed.hostname}". Use the full Render hostname.'
         )
 
     if not parsed.path or parsed.path == "/":
-        raise RuntimeError(
-            "DATABASE_URL is missing the database name."
-        )
+        raise RuntimeError("DATABASE_URL is missing the database name.")
+
+    if not parsed.username:
+        raise RuntimeError("DATABASE_URL is missing the database username.")
+
+    if parsed.port is None:
+        raise RuntimeError("DATABASE_URL is missing the port.")
+
+    qs = parse_qs(parsed.query)
+    sslmode = (qs.get("sslmode") or [""])[0].strip().lower()
+    if sslmode != "require":
+        raise RuntimeError("DATABASE_URL must include ?sslmode=require on Render.")
+
+    print("DATABASE_URL validated successfully", flush=True)
 
 
 _LOADED_ENV_FILE = _load_environment()
