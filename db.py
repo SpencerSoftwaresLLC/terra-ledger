@@ -89,7 +89,10 @@ def _validate_database_url(database_url: str):
     sslmode = (qs.get("sslmode") or [""])[0].strip().lower()
     if sslmode != "require":
         raise RuntimeError("DATABASE_URL must include ?sslmode=require on Render.")
-
+    
+    print("RAW DATABASE_URL FROM ENV:", repr(database_url), flush=True)
+    parsed = urlparse(database_url)
+    print("PARSED HOSTNAME:", repr(parsed.hostname), flush=True)
     print("DATABASE_URL validated successfully", flush=True)
 
 
