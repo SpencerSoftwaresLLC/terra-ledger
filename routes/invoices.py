@@ -6,6 +6,7 @@ import re
 import os
 import tempfile
 import io
+import stripe 
 
 from urllib.parse import urlparse
 from urllib.request import urlopen
@@ -636,6 +637,61 @@ def build_invoice_pdf(invoice, items, company, profile):
     finally:
         if os.path.exists(pdf_temp.name):
             os.remove(pdf_temp.name)
+
+def get_stripe_settings_for_company(company_id):
+    conn = get_db_connection()
+    row = conn.execute(
+        """
+        SELECT *
+        FROM company_payment_settings
+        WHERE company_id = %s
+        """,
+        (company_id,),
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def create_invoice_checkout_session(invoice, company_id):
+    stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+
+    settings = get_stripe_settings_for_company(company_id)
+
+    if not settings or not settings["stripe_account_id"]:
+        return None
+
+    if not settings["payments_enabled"]:
+        return None
+
+    amount = int(float(invoice["balance_due"]) * 100)
+
+    if amount <= 0:
+        return None
+
+    session = stripe.checkout.Session.create(
+        payment_method_types=["card"],
+        mode="payment",
+        line_items=[
+            {
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {
+                        "name": f"Invoice #{invoice['invoice_number'] or invoice['id']}",
+                    },
+                    "unit_amount": amount,
+                },
+                "quantity": 1,
+            }
+        ],
+        metadata={
+            "invoice_id": str(invoice["id"]),
+            "company_id": str(company_id),
+        },
+        success_url=f"{os.environ.get('APP_BASE_URL')}/payment-success",
+        cancel_url=f"{os.environ.get('APP_BASE_URL')}/payment-cancel",
+    )
+
+    return session.url
 
 
 # =========================================================
@@ -1575,6 +1631,14 @@ def send_invoice_email(invoice_id):
     try:
         pdf_data = build_invoice_pdf(invoice, items, company, profile)
 
+        payment_url = create_invoice_checkout_session(invoice, cid)
+
+        payment_section = ""
+        if payment_url:
+            payment_section = (
+                f"\n\nPay your invoice securely online:\n{payment_url}\n"
+            )
+
         send_company_email(
             company_id=cid,
             to_email=recipient,
@@ -1583,7 +1647,8 @@ def send_invoice_email(invoice_id):
                 f"Hello {invoice['customer_name']},\n\n"
                 f"Please find attached Invoice #{invoice_number}.\n\n"
                 f"Total: ${_safe_float(invoice['total']):.2f}\n"
-                f"Balance Due: ${_safe_float(invoice['balance_due']):.2f}\n\n"
+                f"Balance Due: ${_safe_float(invoice['balance_due']):.2f}"
+                f"{payment_section}\n"
                 f"Thank you."
             ),
             attachment_bytes=pdf_data,
@@ -1953,3 +2018,50 @@ def mark_invoice_unpaid(invoice_id):
 
     flash("Invoice marked unpaid and payment history cleared.")
     return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
+
+@invoices_bp.route("/stripe/webhook", methods=["POST"])
+def stripe_webhook():
+    payload = request.data
+    sig_header = request.headers.get("Stripe-Signature")
+    endpoint_secret = os.environ.get("STRIPE_WEBHOOK_SECRET")
+
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, endpoint_secret
+        )
+    except Exception:
+        return "Invalid", 400
+
+    if event["type"] == "checkout.session.completed":
+        session_data = event["data"]["object"]
+
+        invoice_id = int(session_data["metadata"]["invoice_id"])
+        company_id = int(session_data["metadata"]["company_id"])
+
+        amount_paid = session_data["amount_total"] / 100
+
+        conn = get_db_connection()
+
+        conn.execute(
+            """
+            INSERT INTO invoice_payments
+            (company_id, invoice_id, payment_date, amount, payment_method, reference, notes)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                company_id,
+                invoice_id,
+                date.today().isoformat(),
+                amount_paid,
+                "Stripe",
+                session_data.get("payment_intent"),
+                "Online payment",
+            ),
+        )
+
+        conn.commit()
+        conn.close()
+
+        _sync_invoice_status_and_bookkeeping(invoice_id)
+
+    return "OK", 200

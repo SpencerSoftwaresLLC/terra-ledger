@@ -1,14 +1,93 @@
 import os
 import re
+import sys
+from pathlib import Path
+from urllib.parse import urlparse
 from datetime import date, datetime
 
 import psycopg2
 import psycopg2.extras
+from dotenv import load_dotenv
 
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+def _safe_database_url_preview(value: str) -> str:
+    if not value:
+        return "missing"
+    return re.sub(r"://([^:]+):([^@]+)@", r"://\1:****@", value)
 
-print("USING DATABASE_URL:", "set" if DATABASE_URL else "missing")
+
+def _load_environment():
+    possible_env_files = []
+
+    current_file_dir = Path(__file__).resolve().parent
+    cwd_dir = Path.cwd()
+
+    possible_env_files.append(current_file_dir / ".env")
+    possible_env_files.append(current_file_dir.parent / ".env")
+    possible_env_files.append(cwd_dir / ".env")
+
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        possible_env_files.append(exe_dir / ".env")
+        possible_env_files.append(exe_dir / "resources" / ".env")
+        possible_env_files.append(exe_dir.parent / ".env")
+
+    seen = set()
+    for env_file in possible_env_files:
+        env_str = str(env_file)
+        if env_str in seen:
+            continue
+        seen.add(env_str)
+
+        if env_file.exists():
+            load_dotenv(env_file, override=True)
+            print(f"Loaded .env from: {env_file}", flush=True)
+            return str(env_file)
+
+    load_dotenv(override=True)
+    print("No explicit .env file found; used default load_dotenv()", flush=True)
+    return None
+
+
+def _get_database_url():
+    return os.environ.get("DATABASE_URL", "").strip()
+
+
+def _validate_database_url(database_url: str):
+    if not database_url:
+        raise RuntimeError(
+            "DATABASE_URL is not set. Make sure your .env file exists and contains a full PostgreSQL connection string."
+        )
+
+    parsed = urlparse(database_url)
+
+    if parsed.scheme not in {"postgres", "postgresql"}:
+        raise RuntimeError(
+            "DATABASE_URL must start with postgres:// or postgresql://"
+        )
+
+    if not parsed.hostname:
+        raise RuntimeError(
+            "DATABASE_URL is missing a hostname."
+        )
+
+    if "." not in parsed.hostname:
+        raise RuntimeError(
+            f'DATABASE_URL host looks incomplete: "{parsed.hostname}". '
+            "Use the full Render hostname, not just the dpg- prefix."
+        )
+
+    if not parsed.path or parsed.path == "/":
+        raise RuntimeError(
+            "DATABASE_URL is missing the database name."
+        )
+
+
+_LOADED_ENV_FILE = _load_environment()
+DATABASE_URL = _get_database_url()
+
+print("USING DATABASE_URL:", "set" if DATABASE_URL else "missing", flush=True)
+print("DATABASE_URL preview:", _safe_database_url_preview(DATABASE_URL), flush=True)
 
 
 def _convert_qmarks_to_percent_s(sql: str) -> str:
@@ -113,12 +192,18 @@ class DBConnection:
 
 
 def get_db_connection():
-    if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL is not set.")
+    database_url = _get_database_url()
+    _validate_database_url(database_url)
 
-    raw_conn = psycopg2.connect(DATABASE_URL)
-    raw_conn.autocommit = False
-    return DBConnection(raw_conn)
+    try:
+        raw_conn = psycopg2.connect(database_url, connect_timeout=10)
+        raw_conn.autocommit = False
+        return DBConnection(raw_conn)
+    except psycopg2.OperationalError as e:
+        raise RuntimeError(
+            "PostgreSQL connection failed. "
+            "Double-check that DATABASE_URL in your .env uses the full Render external hostname."
+        ) from e
 
 
 def table_exists(conn, table_name):
@@ -1129,6 +1214,7 @@ def insert_billing_event(
     conn.commit()
     conn.close()
 
+
 def ensure_job_schedule_columns():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -1226,6 +1312,7 @@ def get_next_quote_number(company_id):
     conn.close()
     return str(next_number)
 
+
 def get_billing_history(company_id, limit=20):
     conn = get_db_connection()
     rows = conn.execute("""
@@ -1237,6 +1324,7 @@ def get_billing_history(company_id, limit=20):
     """, (company_id, limit)).fetchall()
     conn.close()
     return rows
+
 
 def create_owner_user(company_id, name, email, password_hash):
     ensure_user_permission_columns()
@@ -1301,6 +1389,7 @@ def get_employee_columns():
     cols = table_columns(conn, "employees")
     conn.close()
     return cols
+
 
 def add_bookkeeping_history_entry(
     company_id,
@@ -1804,7 +1893,7 @@ def create_payroll_ledger_entry(conn, payroll_entry_id):
         SELECT pe.*, e.first_name, e.last_name
         FROM payroll_entries pe
         JOIN employees e ON pe.employee_id = e.id
-        WHERE pe.id=?
+        WHERE pe.id = ?
         """,
         (payroll_entry_id,),
     ).fetchone()
@@ -1835,6 +1924,6 @@ def create_payroll_ledger_entry(conn, payroll_entry_id):
     ledger_id = cur.lastrowid
 
     conn.execute(
-        "UPDATE payroll_entries SET ledger_entry_id=? WHERE id=?",
+        "UPDATE payroll_entries SET ledger_entry_id = ? WHERE id = ?",
         (ledger_id, payroll_entry_id),
     )

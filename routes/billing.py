@@ -27,7 +27,7 @@ except Exception:
 def get_stripe_config():
     stripe_secret_key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
     stripe_publishable_key = os.environ.get("STRIPE_PUBLISHABLE_KEY", "").strip()
-    stripe_webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
+    stripe_billing_webhook_secret = os.environ.get("STRIPE_BILLING_WEBHOOK_SECRET", "").strip()
     app_base_url = os.environ.get("APP_BASE_URL", "http://127.0.0.1:5000").strip().rstrip("/")
 
     stripe_price_monthly = os.environ.get("STRIPE_PRICE_MONTHLY", "").strip()
@@ -45,7 +45,7 @@ def get_stripe_config():
     return {
         "secret_key": stripe_secret_key,
         "publishable_key": stripe_publishable_key,
-        "webhook_secret": stripe_webhook_secret,
+        "webhook_secret": stripe_billing_webhook_secret,
         "app_base_url": app_base_url,
         "price_monthly": stripe_price_monthly,
         "price_yearly": stripe_price_yearly,
