@@ -27,6 +27,7 @@ from routes.payment_setup import payment_setup_bp
 from routes.bookkeeping import bookkeeping_bp
 from routes.help_assistant import help_assistant_bp
 from routes.mobile import mobile_bp
+from routes.legal import legal_bp
 
 
 def run_startup_tasks():
@@ -91,6 +92,7 @@ def create_app():
     app.register_blueprint(help_assistant_bp)
     app.register_blueprint(mobile_bp)
     app.register_blueprint(calendar_bp)
+    app.register_blueprint(legal_bp)
 
     @app.get("/healthz")
     def healthz():
