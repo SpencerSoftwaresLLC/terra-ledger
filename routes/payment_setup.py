@@ -406,11 +406,11 @@ def payment_setup():
             .payment-title {
                 font-size: 2rem;
                 font-weight: 800;
-                color: #f7f3ea;
+                color: #111827;
                 margin: 0;
             }
             .payment-subtitle {
-                color: #d1d5db;
+                color: #374151;
                 margin-top: 6px;
                 font-size: 0.98rem;
             }
