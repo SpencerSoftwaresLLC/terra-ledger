@@ -10,6 +10,7 @@ from decorators import login_required, require_permission, subscription_required
 from page_helpers import render_page
 from helpers import *
 from calculations import recalc_job, recalc_invoice
+from utils.emailing import send_company_email
 
 jobs_bp = Blueprint("jobs", __name__)
 
@@ -65,7 +66,8 @@ def safe_float(value, default=0.0):
         return float(value or 0)
     except Exception:
         return default
-    
+
+
 def _time_to_minutes(value):
     if not value:
         return None
@@ -102,7 +104,6 @@ def check_schedule_conflict(conn, company_id, scheduled_date, start_time, end_ti
         if existing_start is None:
             continue
 
-        # OVERLAP CHECK
         if new_start < existing_end and new_end > existing_start:
             return {
                 "id": r["id"],
@@ -144,6 +145,126 @@ def default_unit_for_item_type(item_type):
         return "fee"
 
     return ""
+
+
+def build_job_update_email(job, update_type):
+    company_name = clean_text_input(session.get("company_name")) or "TerraLedger"
+    customer_name = clean_text_input(job.get("customer_name")) or "Customer"
+    job_title = clean_text_input(job.get("title")) or "your scheduled job"
+    scheduled_date = clean_text_input(job.get("scheduled_date"))
+    start_time = clean_text_input(job.get("scheduled_start_time"))
+    end_time = clean_text_input(job.get("scheduled_end_time"))
+    address = clean_text_input(job.get("address"))
+    assigned_to = clean_text_input(job.get("assigned_to"))
+
+    schedule_line = ""
+    if scheduled_date and start_time and end_time:
+        schedule_line = f"{scheduled_date} from {start_time} to {end_time}"
+    elif scheduled_date and start_time:
+        schedule_line = f"{scheduled_date} at {start_time}"
+    elif scheduled_date:
+        schedule_line = scheduled_date
+
+    if update_type == "on_the_way":
+        subject = f"{company_name}: We are on the way"
+        intro = f"Hello {customer_name},<br><br>We are on the way for <strong>{escape(job_title)}</strong>."
+    elif update_type == "job_started":
+        subject = f"{company_name}: Job started"
+        intro = f"Hello {customer_name},<br><br>We have started <strong>{escape(job_title)}</strong>."
+    elif update_type == "job_completed":
+        subject = f"{company_name}: Job completed"
+        intro = f"Hello {customer_name},<br><br>Your job <strong>{escape(job_title)}</strong> has been completed."
+    else:
+        subject = f"{company_name}: Job update"
+        intro = f"Hello {customer_name},<br><br>Here is an update for <strong>{escape(job_title)}</strong>."
+
+    details = []
+    if schedule_line:
+        details.append(f"<strong>Scheduled:</strong> {escape(schedule_line)}")
+    if address:
+        details.append(f"<strong>Address:</strong> {escape(address)}")
+    if assigned_to:
+        details.append(f"<strong>Assigned To:</strong> {escape(assigned_to)}")
+
+    details_html = "<br>".join(details)
+
+    html_body = f"""
+    <div style="font-family: Arial, sans-serif; color: #1f2933; line-height: 1.5;">
+        {intro}
+        {'<br><br>' + details_html if details_html else ''}
+        <br><br>
+        Thank you,<br>
+        {escape(company_name)}
+    </div>
+    """
+
+    text_parts = [
+        f"Hello {customer_name},",
+        "",
+    ]
+
+    if update_type == "on_the_way":
+        text_parts.append(f"We are on the way for {job_title}.")
+    elif update_type == "job_started":
+        text_parts.append(f"We have started {job_title}.")
+    elif update_type == "job_completed":
+        text_parts.append(f"Your job {job_title} has been completed.")
+    else:
+        text_parts.append(f"Here is an update for {job_title}.")
+
+    if schedule_line:
+        text_parts.append(f"Scheduled: {schedule_line}")
+    if address:
+        text_parts.append(f"Address: {address}")
+    if assigned_to:
+        text_parts.append(f"Assigned To: {assigned_to}")
+
+    text_parts.extend([
+        "",
+        f"Thank you,",
+        company_name,
+    ])
+
+    text_body = "\n".join(text_parts)
+
+    return subject, html_body, text_body
+
+
+def send_job_update_email(company_id, customer_email, job, update_type):
+    subject, html_body, text_body = build_job_update_email(job, update_type)
+
+    try:
+        send_company_email(
+            company_id=company_id,
+            to_email=customer_email,
+            subject=subject,
+            html_body=html_body,
+            text_body=text_body,
+        )
+        return True, None
+    except TypeError:
+        try:
+            send_company_email(
+                to_email=customer_email,
+                subject=subject,
+                html_body=html_body,
+                text_body=text_body,
+            )
+            return True, None
+        except TypeError:
+            try:
+                send_company_email(
+                    customer_email,
+                    subject,
+                    text_body,
+                )
+                return True, None
+            except Exception as e:
+                return False, str(e)
+        except Exception as e:
+            return False, str(e)
+    except Exception as e:
+        return False, str(e)
 
 
 @jobs_bp.route("/jobs", methods=["GET", "POST"])
@@ -607,7 +728,10 @@ def view_job(job_id):
 
     job = conn.execute(
         """
-        SELECT j.*, c.name AS customer_name
+        SELECT
+            j.*,
+            c.name AS customer_name,
+            c.email AS customer_email
         FROM jobs j
         JOIN customers c ON j.customer_id = c.id
         WHERE j.id = %s AND j.company_id = %s
@@ -755,11 +879,32 @@ def view_job(job_id):
 
     schedule_html = "<br>".join(schedule_bits) if schedule_bits else "<strong>Schedule:</strong> -"
 
+    customer_email = clean_text_input(job["customer_email"])
+    email_buttons = ""
+    if customer_email:
+        email_buttons = f"""
+        <form method='post' action='{url_for("jobs.send_update_email", job_id=job_id)}' style='display:inline;'>
+            <input type='hidden' name='update_type' value='on_the_way'>
+            <button class='btn secondary' type='submit'>Send On The Way Email</button>
+        </form>
+        <form method='post' action='{url_for("jobs.send_update_email", job_id=job_id)}' style='display:inline;'>
+            <input type='hidden' name='update_type' value='job_started'>
+            <button class='btn warning' type='submit'>Send Job Started Email</button>
+        </form>
+        <form method='post' action='{url_for("jobs.send_update_email", job_id=job_id)}' style='display:inline;'>
+            <input type='hidden' name='update_type' value='job_completed'>
+            <button class='btn success' type='submit'>Send Job Completed Email</button>
+        </form>
+        """
+    else:
+        email_buttons = "<div class='muted small'>Add a customer email address to send job update emails.</div>"
+
     content = f"""
         <div class='card'>
             <h1>Job #{job['id']} - {escape(clean_text_display(job['title']))}</h1>
             <p>
                 <strong>Customer:</strong> {escape(clean_text_display(job['customer_name']))}<br>
+                <strong>Email:</strong> {escape(clean_text_display(job['customer_email']))}<br>
                 {schedule_html}<br>
                 <strong>Status:</strong> {escape(clean_text_display(job['status']))}<br>
                 <strong>Revenue:</strong> ${safe_float(job['revenue']):.2f}
@@ -773,6 +918,10 @@ def view_job(job_id):
                 <a class='btn secondary' href='{url_for("jobs.jobs")}'>Done Editing</a>
                 <a class='btn warning' href='{url_for("jobs.edit_job", job_id=job_id)}'>Edit Job</a>
                 <a class='btn success' href='{url_for("jobs.convert_job_to_invoice", job_id=job_id)}'>Convert to Invoice</a>
+            </div>
+
+            <div class="row-actions" style="margin-top:12px;">
+                {email_buttons}
             </div>
         </div>
 
@@ -941,6 +1090,65 @@ def view_job(job_id):
         </div>
         """
     return render_page(content, f"Job #{job_id}")
+
+
+@jobs_bp.route("/jobs/<int:job_id>/send_update_email", methods=["POST"])
+@login_required
+@require_permission("can_manage_jobs")
+def send_update_email(job_id):
+    ensure_job_schedule_columns()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    job = conn.execute(
+        """
+        SELECT
+            j.*,
+            c.name AS customer_name,
+            c.email AS customer_email
+        FROM jobs j
+        JOIN customers c ON j.customer_id = c.id
+        WHERE j.id = %s AND j.company_id = %s
+        """,
+        (job_id, cid),
+    ).fetchone()
+
+    conn.close()
+
+    if not job:
+        abort(404)
+
+    customer_email = clean_text_input(job["customer_email"])
+    if not customer_email:
+        flash("This customer does not have an email address.")
+        return redirect(url_for("jobs.view_job", job_id=job_id))
+
+    update_type = clean_text_input(request.form.get("update_type", ""))
+    if update_type not in {"on_the_way", "job_started", "job_completed"}:
+        flash("Invalid email update type.")
+        return redirect(url_for("jobs.view_job", job_id=job_id))
+
+    success, error_message = send_job_update_email(
+        company_id=cid,
+        customer_email=customer_email,
+        job=job,
+        update_type=update_type,
+    )
+
+    if success:
+        if update_type == "on_the_way":
+            flash("On the way email sent.")
+        elif update_type == "job_started":
+            flash("Job started email sent.")
+        elif update_type == "job_completed":
+            flash("Job completed email sent.")
+        else:
+            flash("Job update email sent.")
+    else:
+        flash(f"Could not send email: {error_message}")
+
+    return redirect(url_for("jobs.view_job", job_id=job_id))
 
 
 @jobs_bp.route("/jobs/<int:job_id>/edit", methods=["GET", "POST"])

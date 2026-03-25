@@ -1,7 +1,6 @@
 import os
 
 from flask import Blueprint, request, redirect, url_for, flash, session, render_template_string
-from twilio.rest import Client
 
 from db import get_db_connection
 from decorators import login_required, require_permission
@@ -194,47 +193,7 @@ def insert_message_log(
 
 
 def send_text_message(to_number, message_body, settings_row=None):
-    try:
-        to_number = (to_number or "").strip()
-        message_body = (message_body or "").strip()
-
-        if not to_number:
-            return False, None, "Phone number is required."
-
-        if not message_body:
-            return False, None, "Message body is required."
-
-        if not settings_row:
-            return False, None, "Messaging settings were not found for this company."
-
-        messaging_enabled = int(settings_row["messaging_enabled"] or 0)
-        send_manual_messages = int(settings_row["send_manual_messages"] or 0)
-
-        if not messaging_enabled:
-            return False, None, "Messaging is disabled for this company."
-
-        if not send_manual_messages:
-            return False, None, "Manual messaging is disabled for this company."
-
-        account_sid = (os.environ.get("TWILIO_ACCOUNT_SID") or "").strip()
-        auth_token = (os.environ.get("TWILIO_AUTH_TOKEN") or "").strip()
-        from_number = (os.environ.get("TWILIO_FROM_NUMBER") or "").strip()
-
-        if not account_sid or not auth_token or not from_number:
-            return False, None, "Platform messaging is not configured. Add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_NUMBER to your environment."
-
-        client = Client(account_sid, auth_token)
-
-        msg = client.messages.create(
-            body=message_body,
-            from_=from_number,
-            to=to_number,
-        )
-
-        return True, msg.sid, None
-
-    except Exception as e:
-        return False, None, str(e)
+    return False, None, "SMS sending is temporarily disabled."
 
 
 @messages_bp.route("/messages")
