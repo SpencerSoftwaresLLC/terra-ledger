@@ -235,11 +235,31 @@ def upsert_payment_settings(
     conn.close()
 
 
+def _normalize_external_base_url(raw_url):
+    """
+    Makes sure APP_BASE_URL / request.url_root becomes a valid absolute URL.
+    Examples:
+    - terraledger.net -> https://terraledger.net
+    - http://127.0.0.1:5000 -> http://127.0.0.1:5000
+    - https://www.terraledger.net/ -> https://www.terraledger.net
+    """
+    base_url = (raw_url or "").strip()
+
+    if not base_url:
+        raise ValueError("A base URL could not be determined.")
+
+    if not base_url.startswith(("http://", "https://")):
+        base_url = f"https://{base_url}"
+
+    return base_url.rstrip("/")
+
+
 def get_base_external_url():
-    configured = (os.environ.get("APP_BASE_URL") or "").strip().rstrip("/")
+    configured = (os.environ.get("APP_BASE_URL") or "").strip()
     if configured:
-        return configured
-    return request.url_root.rstrip("/")
+        return _normalize_external_base_url(configured)
+
+    return _normalize_external_base_url(request.url_root)
 
 
 def get_connect_return_url():
