@@ -1,77 +1,74 @@
-from flask import render_template
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title or "TerraLedger" }}</title>
 
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(180deg, #f8fafc, #eef2f7);
+            color: #0f172a;
+        }
 
-def _build_wrapped_content(content):
-    return f"""
-    <div class="page-content-wrap">
-        <div class="page-content-inner">
-            {content}
+        .topbar {
+            background: #0f172a;
+            color: white;
+            padding: 18px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .brand {
+            font-size: 22px;
+            font-weight: 800;
+        }
+
+        .nav a {
+            color: #e2e8f0;
+            margin-left: 12px;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .nav a:hover {
+            text-decoration: underline;
+        }
+
+        .flash {
+            background: #fff7ed;
+            border: 1px solid #fed7aa;
+            padding: 12px;
+            margin: 20px auto;
+            max-width: 500px;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="topbar">
+        <div class="brand">TerraLedger</div>
+
+        <div class="nav">
+            <a href="{{ url_for('auth.login') }}">Login</a>
+            <a href="{{ url_for('auth.register') }}">Register</a>
         </div>
     </div>
-    """
 
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            {% for message in messages %}
+                <div class="flash">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
 
-def _scroll_script():
-    return """
-    <script>
-    (function () {
-        const SCROLL_KEY = "terraledger_scroll_" + window.location.href;
+    {{ content|safe }}
 
-        function saveScroll() {
-            sessionStorage.setItem(SCROLL_KEY, String(window.scrollY || window.pageYOffset || 0));
-        }
-
-        function restoreScroll() {
-            const saved = sessionStorage.getItem(SCROLL_KEY);
-            if (saved !== null) {
-                const y = parseInt(saved, 10);
-                if (!Number.isNaN(y)) {
-                    window.scrollTo(0, y);
-                }
-                sessionStorage.removeItem(SCROLL_KEY);
-            }
-        }
-
-        document.addEventListener("submit", function () {
-            saveScroll();
-        }, true);
-
-        document.addEventListener("click", function (e) {
-            const a = e.target.closest("a");
-            if (!a) return;
-
-            const href = a.getAttribute("href") || "";
-            if (!href) return;
-            if (href.startsWith("#")) return;
-            if (a.hasAttribute("download")) return;
-            if (a.target && a.target !== "_self") return;
-
-            saveScroll();
-        }, true);
-
-        window.addEventListener("load", restoreScroll);
-    })();
-    </script>
-    """
-
-
-def render_page(content, title="TerraLedger"):
-    wrapped_content = _build_wrapped_content(content)
-
-    return render_template(
-        "BASE_HTML.html",
-        content=wrapped_content + _scroll_script(),
-        title=title,
-        page_title=title,
-    )
-
-
-def render_public_page(content, title="TerraLedger"):
-    wrapped_content = _build_wrapped_content(content)
-
-    return render_template(
-        "PUBLIC_BASE_HTML.html",
-        content=wrapped_content + _scroll_script(),
-        title=title,
-        page_title=title,
-    )
+</body>
+</html>
