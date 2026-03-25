@@ -11,7 +11,7 @@ def get_current_user():
 
     conn = get_db_connection()
     user = conn.execute(
-        "SELECT * FROM users WHERE id = ?",
+        "SELECT * FROM users WHERE id = %s",
         (user_id,)
     ).fetchone()
     conn.close()
@@ -63,14 +63,13 @@ def subscription_required(view):
             return redirect(url_for("auth.login"))
 
         owner_email = (os.environ.get("STRIPE_OWNER_EMAIL") or "").strip().lower()
-
         session_email = (session.get("user_email") or "").strip().lower()
 
         db_email = ""
         if not session_email:
             user = get_current_user()
-            if user and user.get("email"):
-                db_email = (user.get("email") or "").strip().lower()
+            if user and user["email"]:
+                db_email = (user["email"] or "").strip().lower()
 
         effective_email = session_email or db_email
 
