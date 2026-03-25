@@ -6,7 +6,7 @@ import re
 import os
 import tempfile
 import io
-import stripe 
+import stripe
 
 from urllib.parse import urlparse
 from urllib.request import urlopen
@@ -70,6 +70,27 @@ def _table_columns(conn, table_name):
         else:
             cols.add(row[0])
     return cols
+
+
+def _get_public_base_url():
+    """
+    Returns a production-safe absolute base URL for Stripe redirects.
+
+    Examples:
+    - https://terraledger.net
+    - https://www.terraledger.net
+
+    If APP_BASE_URL is missing a scheme, https:// will be added automatically.
+    """
+    base_url = (os.environ.get("APP_BASE_URL") or "").strip()
+
+    if not base_url:
+        raise ValueError("APP_BASE_URL is not set")
+
+    if not base_url.startswith(("http://", "https://")):
+        base_url = f"https://{base_url}"
+
+    return base_url.rstrip("/")
 
 
 def ensure_document_number_columns():
@@ -394,6 +415,7 @@ def _sync_invoice_status_and_bookkeeping(invoice_id):
     finally:
         conn.close()
 
+
 def build_invoice_pdf(invoice, items, company, profile):
     pdf_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     pdf_temp.close()
@@ -638,6 +660,7 @@ def build_invoice_pdf(invoice, items, company, profile):
         if os.path.exists(pdf_temp.name):
             os.remove(pdf_temp.name)
 
+
 def get_stripe_settings_for_company(company_id):
     conn = get_db_connection()
     row = conn.execute(
@@ -655,6 +678,9 @@ def get_stripe_settings_for_company(company_id):
 def create_invoice_checkout_session(invoice, company_id):
     stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
+    if not stripe.api_key:
+        raise ValueError("STRIPE_SECRET_KEY is not set")
+
     settings = get_stripe_settings_for_company(company_id)
 
     if not settings or not settings["stripe_account_id"]:
@@ -663,15 +689,17 @@ def create_invoice_checkout_session(invoice, company_id):
     if not settings["payments_enabled"]:
         return None
 
-    amount = int(float(invoice["balance_due"]) * 100)
+    amount = int(round(_safe_float(invoice["balance_due"]) * 100))
 
     if amount <= 0:
         return None
 
-    session = stripe.checkout.Session.create(
-        payment_method_types=["card"],
-        mode="payment",
-        line_items=[
+    base_url = _get_public_base_url()
+
+    session_kwargs = {
+        "payment_method_types": ["card"],
+        "mode": "payment",
+        "line_items": [
             {
                 "price_data": {
                     "currency": "usd",
@@ -683,15 +711,26 @@ def create_invoice_checkout_session(invoice, company_id):
                 "quantity": 1,
             }
         ],
-        metadata={
+        "metadata": {
             "invoice_id": str(invoice["id"]),
             "company_id": str(company_id),
         },
-        success_url=f"{os.environ.get('APP_BASE_URL')}/payment-success",
-        cancel_url=f"{os.environ.get('APP_BASE_URL')}/payment-cancel",
-    )
+        "success_url": f"{base_url}/payment-success",
+        "cancel_url": f"{base_url}/payment-cancel",
+    }
 
-    return session.url
+    # If you are using Stripe Connect and want the charge created on the connected account,
+    # this is the correct way to scope the Checkout Session request.
+    stripe_account_id = (settings["stripe_account_id"] or "").strip()
+    if stripe_account_id:
+        checkout_session = stripe.checkout.Session.create(
+            **session_kwargs,
+            stripe_account=stripe_account_id,
+        )
+    else:
+        checkout_session = stripe.checkout.Session.create(**session_kwargs)
+
+    return checkout_session.url
 
 
 # =========================================================
@@ -783,6 +822,7 @@ def invoices():
     </div>
     """
     return render_page(content, "Invoices")
+
 
 @invoices_bp.route("/invoices/paid")
 @login_required
@@ -2018,6 +2058,7 @@ def mark_invoice_unpaid(invoice_id):
 
     flash("Invoice marked unpaid and payment history cleared.")
     return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
+
 
 @invoices_bp.route("/stripe/webhook", methods=["POST"])
 def stripe_webhook():
