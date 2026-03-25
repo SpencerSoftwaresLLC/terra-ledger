@@ -3,11 +3,7 @@ from flask import render_template
 
 def _build_wrapped_content(content):
     return f"""
-    <div class="page-content-wrap">
-        <div class="page-content-inner">
-            {content}
-        </div>
-    </div>
+    {content}
     """
 
 
@@ -18,7 +14,10 @@ def _scroll_script():
         const SCROLL_KEY = "terraledger_scroll_" + window.location.href;
 
         function saveScroll() {
-            sessionStorage.setItem(SCROLL_KEY, String(window.scrollY || window.pageYOffset || 0));
+            sessionStorage.setItem(
+                SCROLL_KEY,
+                String(window.scrollY || window.pageYOffset || 0)
+            );
         }
 
         function restoreScroll() {
