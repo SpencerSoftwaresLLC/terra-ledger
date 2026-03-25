@@ -57,7 +57,6 @@ def _auth_styles():
         font-size:22px;
         font-weight:800;
         color:#2f4f1f;
-        line-height:1.1;
     }
 
     .auth-panel h1{
@@ -113,6 +112,33 @@ def _auth_styles():
     .auth-actions .btn{
         min-width:140px;
         justify-content:center;
+    }
+
+    .btn{
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        background:#4f7f2b;
+        color:#ffffff;
+        border:none;
+        padding:12px 16px;
+        border-radius:12px;
+        font-weight:800;
+        cursor:pointer;
+        box-shadow: 0 4px 10px rgba(79,127,43,0.18);
+    }
+
+    .btn:hover{
+        background:#2f4f1f;
+    }
+
+    .btn.secondary{
+        background:#6b4f2a;
+        color:#ffffff;
+    }
+
+    .btn.secondary:hover{
+        background:#4a3720;
     }
 
     .btn.secondary{
@@ -212,7 +238,7 @@ def register():
         flash("Account created.")
         return redirect(url_for("dashboard.dashboard"))
 
-    logo_src = url_for("static", filename="images/logo.png")
+    logo_src = "/static/images/logo.png"
 
     content = f"""
     <div class="auth-panel">
