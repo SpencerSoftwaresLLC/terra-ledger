@@ -7,13 +7,30 @@
 
     <style>
         :root {
-            --bg: #0f1720;
-            --bg-deep: #0a1118;
-            --text: #f7f3ea;
-            --text-soft: #d6c2a8;
-            --green: #6bbf72;
-            --green-soft: #8fd59a;
+            --bg: #f7f7f5;
+            --bg-soft: #eef3ea;
+            --panel: #ffffff;
+            --panel-soft: #e8f2e4;
+            --border: #d8e2d0;
+
+            --text: #1f2933;
+            --text-soft: #5b6470;
+
+            --green-dark: #2f4f1f;
+            --green: #4f7f2b;
+            --green-light: #7fbf3f;
+
+            --brown: #6b4f2a;
+            --brown-dark: #4a3720;
+
             --orange: #f08c4a;
+            --orange-soft: #ffb06b;
+
+            --danger: #b42318;
+            --warning: #b7791f;
+            --success: #3f6b24;
+
+            --shadow: 0 12px 34px rgba(47, 79, 31, 0.10);
         }
 
         * {
@@ -28,9 +45,9 @@
         body {
             font-family: Arial, sans-serif;
             background:
-                radial-gradient(circle at bottom left, rgba(107, 191, 114, 0.28), transparent 28%),
-                radial-gradient(circle at top right, rgba(90, 162, 214, 0.18), transparent 30%),
-                linear-gradient(180deg, var(--bg), var(--bg-deep));
+                radial-gradient(circle at top left, rgba(127, 191, 63, 0.18), transparent 35%),
+                radial-gradient(circle at bottom right, rgba(240, 140, 74, 0.16), transparent 30%),
+                linear-gradient(135deg, #eef3ea 0%, #f7f7f5 45%, #f3ece4 100%);
             color: var(--text);
             min-height: 100vh;
         }
@@ -40,9 +57,9 @@
             display: flex;
             align-items: center;
             padding: 0 28px;
-            border-bottom: 1px solid rgba(255,255,255,0.08);
-            background: rgba(10, 17, 24, 0.35);
-            backdrop-filter: blur(4px);
+            border-bottom: 1px solid rgba(47, 79, 31, 0.10);
+            background: rgba(255,255,255,0.72);
+            backdrop-filter: blur(6px);
         }
 
         .public-brand {
@@ -51,17 +68,18 @@
             gap: 10px;
             font-size: 24px;
             font-weight: 800;
-            color: var(--text);
+            color: var(--green-dark);
             letter-spacing: 0.2px;
         }
 
         .public-brand img {
-            width: 36px;
-            height: 36px;
+            width: 38px;
+            height: 38px;
             object-fit: contain;
             border-radius: 8px;
-            background: rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.85);
             padding: 3px;
+            border: 1px solid rgba(47,79,31,0.08);
         }
 
         .flash-wrap {
@@ -72,13 +90,12 @@
         }
 
         .flash {
-            background: rgba(107,191,114,0.16);
-            border: 1px solid rgba(107,191,114,0.35);
-            color: var(--text);
-            border-radius: 14px;
+            background: #edf6e8;
+            border: 1px solid #cfe2c1;
+            color: var(--green-dark);
+            border-radius: 12px;
             padding: 12px 14px;
             margin-bottom: 12px;
-            backdrop-filter: blur(2px);
             font-weight: 600;
         }
 
@@ -105,8 +122,8 @@
             }
 
             .public-brand img {
-                width: 32px;
-                height: 32px;
+                width: 34px;
+                height: 34px;
             }
 
             .page-content-wrap {
@@ -120,7 +137,7 @@
     <header class="public-header">
         <div class="public-brand">
             <img src="{{ url_for('static', filename='images/logo.png') }}" alt="TerraLedger Logo">
-            <span>TerraLedger<sup style="font-size: 11px;">™</sup></span>
+            <span>TerraLedger<sup style="font-size:11px;">™</sup></span>
         </div>
     </header>
 

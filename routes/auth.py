@@ -12,8 +12,27 @@ def _auth_styles():
     <style>
     .auth-panel{
         width:100%;
-        max-width:520px;
+        max-width:560px;
         margin:0 auto;
+    }
+
+    .auth-card{
+        width:100%;
+        background: rgba(255,255,255,0.96);
+        border:1px solid #d8e2d0;
+        border-radius:18px;
+        box-shadow: 0 16px 42px rgba(47, 79, 31, 0.12);
+        padding:28px;
+        position:relative;
+        overflow:hidden;
+    }
+
+    .auth-card::before{
+        content:"";
+        position:absolute;
+        inset:0 0 auto 0;
+        height:6px;
+        background: linear-gradient(90deg, #2f4f1f, #4f7f2b, #f08c4a);
     }
 
     .auth-logo-wrap{
@@ -24,32 +43,33 @@ def _auth_styles():
     }
 
     .auth-logo{
-        width:48px;
-        height:48px;
+        width:52px;
+        height:52px;
         object-fit:contain;
         border-radius:12px;
-        background: rgba(255,255,255,0.10);
+        background: rgba(255,255,255,0.85);
         padding:4px;
+        border:1px solid rgba(47,79,31,0.08);
         flex:0 0 auto;
     }
 
     .auth-logo-text{
         font-size:22px;
         font-weight:800;
-        color:#f7f3ea;
+        color:#2f4f1f;
         line-height:1.1;
     }
 
     .auth-panel h1{
         margin:0 0 8px 0;
         font-size:34px;
-        color:#f7f3ea;
+        color:#2f4f1f;
         line-height:1.1;
     }
 
     .auth-subtext{
         margin:0 0 24px 0;
-        color:#d6c2a8;
+        color:#5b6470;
         line-height:1.6;
     }
 
@@ -62,16 +82,16 @@ def _auth_styles():
         display:block;
         font-size:14px;
         font-weight:700;
-        color:#f7f3ea;
+        color:#2f4f1f;
         margin-bottom:6px;
     }
 
     .auth-grid input{
         width:100%;
         box-sizing:border-box;
-        border:1px solid #314756;
-        background:#182833;
-        color:#f7f3ea;
+        border:1px solid #c9d5c0;
+        background:#ffffff;
+        color:#1f2933;
         border-radius:12px;
         padding:12px 14px;
         font-size:15px;
@@ -79,8 +99,8 @@ def _auth_styles():
 
     .auth-grid input:focus{
         outline:none;
-        border-color:#6bbf72;
-        box-shadow:0 0 0 3px rgba(107,191,114,0.20);
+        border-color:#4f7f2b;
+        box-shadow:0 0 0 3px rgba(79,127,43,0.15);
     }
 
     .auth-actions{
@@ -95,17 +115,26 @@ def _auth_styles():
         justify-content:center;
     }
 
-    .auth-actions .btn.secondary{
-        background:#223746;
-        color:#f7f3ea;
-        border:1px solid #314756;
+    .btn.secondary{
+        background:#6b4f2a;
+        color:#ffffff;
+        border:1px solid #6b4f2a;
     }
 
-    .auth-actions .btn.secondary:hover{
-        background:#2a4253;
+    .btn.secondary:hover{
+        background:#4a3720;
+        border-color:#4a3720;
     }
 
     @media (max-width: 640px){
+        .auth-card{
+            padding:22px;
+        }
+
+        .auth-logo-wrap{
+            align-items:flex-start;
+        }
+
         .auth-actions{
             flex-direction:column;
         }
@@ -113,6 +142,10 @@ def _auth_styles():
         .auth-actions .btn,
         .auth-actions .btn.secondary{
             width:100%;
+        }
+
+        .auth-panel h1{
+            font-size:30px;
         }
     }
     </style>
@@ -183,41 +216,43 @@ def register():
 
     content = f"""
     <div class="auth-panel">
-        <div class="auth-logo-wrap">
-            <img src="{logo_src}" class="auth-logo" alt="TerraLedger Logo">
-            <div class="auth-logo-text">TerraLedger<sup style="font-size:10px;">™</sup></div>
+        <div class="auth-card">
+            <div class="auth-logo-wrap">
+                <img src="{logo_src}" class="auth-logo" alt="TerraLedger Logo">
+                <div class="auth-logo-text">TerraLedger<sup style="font-size:10px;">™</sup></div>
+            </div>
+
+            <h1>Create Account</h1>
+            <p class="auth-subtext">
+                Create your company account to start using TerraLedger.
+            </p>
+
+            <form method="post">
+                <div class="auth-grid">
+                    <div>
+                        <label>Company Name</label>
+                        <input name="company_name" required>
+                    </div>
+                    <div>
+                        <label>Your Name</label>
+                        <input name="user_name" required>
+                    </div>
+                    <div>
+                        <label>Email</label>
+                        <input type="email" name="email" required>
+                    </div>
+                    <div>
+                        <label>Password</label>
+                        <input type="password" name="password" required>
+                    </div>
+                </div>
+
+                <div class="auth-actions">
+                    <button class="btn" type="submit">Create Account</button>
+                    <a class="btn secondary" href="/login">Login</a>
+                </div>
+            </form>
         </div>
-
-        <h1>Create Account</h1>
-        <p class="auth-subtext">
-            Create your company account to start using TerraLedger.
-        </p>
-
-        <form method="post">
-            <div class="auth-grid">
-                <div>
-                    <label>Company Name</label>
-                    <input name="company_name" required>
-                </div>
-                <div>
-                    <label>Your Name</label>
-                    <input name="user_name" required>
-                </div>
-                <div>
-                    <label>Email</label>
-                    <input type="email" name="email" required>
-                </div>
-                <div>
-                    <label>Password</label>
-                    <input type="password" name="password" required>
-                </div>
-            </div>
-
-            <div class="auth-actions">
-                <button class="btn" type="submit">Create Account</button>
-                <a class="btn secondary" href="/login">Login</a>
-            </div>
-        </form>
     </div>
 
     {_auth_styles()}
@@ -268,33 +303,35 @@ def login():
 
     content = f"""
     <div class="auth-panel">
-        <div class="auth-logo-wrap">
-            <img src="{logo_src}" class="auth-logo" alt="TerraLedger Logo">
-            <div class="auth-logo-text">TerraLedger<sup style="font-size:10px;">™</sup></div>
+        <div class="auth-card">
+            <div class="auth-logo-wrap">
+                <img src="{logo_src}" class="auth-logo" alt="TerraLedger Logo">
+                <div class="auth-logo-text">TerraLedger<sup style="font-size:10px;">™</sup></div>
+            </div>
+
+            <h1>Login</h1>
+            <p class="auth-subtext">
+                Sign in to access your TerraLedger workspace.
+            </p>
+
+            <form method="post">
+                <div class="auth-grid">
+                    <div>
+                        <label>Email</label>
+                        <input type="email" name="email" required>
+                    </div>
+                    <div>
+                        <label>Password</label>
+                        <input type="password" name="password" required>
+                    </div>
+                </div>
+
+                <div class="auth-actions">
+                    <button class="btn" type="submit">Login</button>
+                    <a class="btn secondary" href="/register">Create Account</a>
+                </div>
+            </form>
         </div>
-
-        <h1>Login</h1>
-        <p class="auth-subtext">
-            Sign in to access your TerraLedger workspace.
-        </p>
-
-        <form method="post">
-            <div class="auth-grid">
-                <div>
-                    <label>Email</label>
-                    <input type="email" name="email" required>
-                </div>
-                <div>
-                    <label>Password</label>
-                    <input type="password" name="password" required>
-                </div>
-            </div>
-
-            <div class="auth-actions">
-                <button class="btn" type="submit">Login</button>
-                <a class="btn secondary" href="/register">Create Account</a>
-            </div>
-        </form>
     </div>
 
     {_auth_styles()}
