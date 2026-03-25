@@ -6,45 +6,162 @@
     <title>{{ title or "TerraLedger" }}</title>
 
     <style>
+        :root {
+            --bg: #0d1720;
+            --panel: #1b2c38;
+            --panel-soft: #223746;
+            --border: #314756;
+            --text: #f7f3ea;
+            --muted: #d6c2a8;
+
+            --orange: #f08c4a;
+            --orange-soft: #ffb06b;
+            --green: #6bbf72;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
         body {
             margin: 0;
             font-family: Arial, sans-serif;
-            background: linear-gradient(180deg, #f8fafc, #eef2f7);
-            color: #0f172a;
+            background: linear-gradient(180deg, var(--bg), #081017);
+            color: var(--text);
         }
 
+        /* TOP BAR */
         .topbar {
-            background: #0f172a;
-            color: white;
-            padding: 18px 20px;
+            padding: 18px 24px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            border-bottom: 1px solid var(--border);
         }
 
         .brand {
-            font-size: 22px;
+            font-size: 24px;
             font-weight: 800;
+            letter-spacing: 0.5px;
         }
 
         .nav a {
-            color: #e2e8f0;
-            margin-left: 12px;
+            color: var(--muted);
+            margin-left: 14px;
             text-decoration: none;
             font-weight: 600;
+            padding: 6px 10px;
+            border-radius: 8px;
         }
 
         .nav a:hover {
-            text-decoration: underline;
+            background: rgba(255,255,255,0.05);
         }
 
+        /* CENTER CONTENT */
+        .page-content-wrap {
+            min-height: calc(100vh - 70px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 30px 16px;
+        }
+
+        .page-content-inner {
+            width: 100%;
+            max-width: 480px;
+        }
+
+        /* LOGIN CARD */
+        .card {
+            background: linear-gradient(180deg, var(--panel), var(--panel-soft));
+            border: 1px solid var(--border);
+            border-radius: 22px;
+            padding: 28px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+        }
+
+        .card h1 {
+            margin: 0 0 10px;
+            font-size: 32px;
+        }
+
+        .muted {
+            color: var(--muted);
+        }
+
+        /* INPUTS */
+        input {
+            width: 100%;
+            border: 1px solid var(--border);
+            background: #182833;
+            color: var(--text);
+            border-radius: 12px;
+            padding: 12px 14px;
+            font-size: 15px;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--orange);
+            box-shadow: 0 0 0 3px rgba(240,140,74,0.2);
+        }
+
+        label {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            display: block;
+        }
+
+        .grid {
+            display: grid;
+            gap: 16px;
+        }
+
+        /* BUTTONS */
+        .btn {
+            background: linear-gradient(135deg, var(--orange), var(--orange-soft));
+            color: #0d1720;
+            border: none;
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .btn:hover {
+            opacity: 0.9;
+        }
+
+        .btn.secondary {
+            background: transparent;
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn.secondary:hover {
+            background: rgba(255,255,255,0.05);
+        }
+
+        /* FLASH */
         .flash {
-            background: #fff7ed;
-            border: 1px solid #fed7aa;
+            background: rgba(240,140,74,0.15);
+            border: 1px solid rgba(240,140,74,0.3);
             padding: 12px;
-            margin: 20px auto;
-            max-width: 500px;
-            border-radius: 10px;
+            border-radius: 12px;
+            margin-bottom: 16px;
+            color: var(--text);
+        }
+
+        /* SUBTLE GLOW */
+        .card::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: 22px;
+            pointer-events: none;
+            box-shadow: 0 0 60px rgba(240,140,74,0.08);
         }
     </style>
 </head>
@@ -52,7 +169,7 @@
 <body>
 
     <div class="topbar">
-        <div class="brand">TerraLedger</div>
+        <div class="brand">TerraLedger™</div>
 
         <div class="nav">
             <a href="{{ url_for('auth.login') }}">Login</a>
@@ -62,9 +179,11 @@
 
     {% with messages = get_flashed_messages() %}
         {% if messages %}
-            {% for message in messages %}
-                <div class="flash">{{ message }}</div>
-            {% endfor %}
+            <div style="max-width:480px; margin:20px auto;">
+                {% for message in messages %}
+                    <div class="flash">{{ message }}</div>
+                {% endfor %}
+            </div>
         {% endif %}
     {% endwith %}
 
