@@ -880,24 +880,170 @@ def view_job(job_id):
     schedule_html = "<br>".join(schedule_bits) if schedule_bits else "<strong>Schedule:</strong> -"
 
     customer_email = clean_text_input(job["customer_email"])
-    email_buttons = ""
+
     if customer_email:
         email_buttons = f"""
-        <form method='post' action='{url_for("jobs.send_update_email", job_id=job_id)}' style='display:inline;'>
-            <input type='hidden' name='update_type' value='on_the_way'>
-            <button class='btn secondary' type='submit'>Send On The Way Email</button>
-        </form>
-        <form method='post' action='{url_for("jobs.send_update_email", job_id=job_id)}' style='display:inline;'>
-            <input type='hidden' name='update_type' value='job_started'>
-            <button class='btn warning' type='submit'>Send Job Started Email</button>
-        </form>
-        <form method='post' action='{url_for("jobs.send_update_email", job_id=job_id)}' style='display:inline;'>
-            <input type='hidden' name='update_type' value='job_completed'>
-            <button class='btn success' type='submit'>Send Job Completed Email</button>
-        </form>
+        <style>
+            .updates-menu-wrap {{
+                position: relative;
+                display: inline-block;
+            }}
+            .updates-menu {{
+                display: none;
+                position: absolute;
+                top: calc(100% + 6px);
+                left: 0;
+                min-width: 240px;
+                background: #fff;
+                border: 1px solid #d8e2d0;
+                border-radius: 10px;
+                box-shadow: 0 10px 24px rgba(0,0,0,0.10);
+                z-index: 1000;
+                overflow: hidden;
+            }}
+            .updates-menu form {{
+                margin: 0;
+            }}
+            .updates-menu button {{
+                width: 100%;
+                text-align: left;
+                background: #fff;
+                border: none;
+                padding: 12px 14px;
+                cursor: pointer;
+                font-weight: 600;
+                color: #1f2933;
+            }}
+            .updates-menu button:hover {{
+                background: #f7f7f5;
+            }}
+            .custom-update-card {{
+                display: none;
+                margin-top: 14px;
+            }}
+        </style>
+
+        <div class="updates-menu-wrap">
+            <button class="btn secondary" type="button" onclick="toggleUpdatesMenu(event)">Updates ▼</button>
+
+            <div id="updatesMenu" class="updates-menu">
+                <form method="post" action="{url_for("jobs.send_update_email", job_id=job_id)}">
+                    <input type="hidden" name="update_type" value="on_the_way">
+                    <button type="submit">Send On The Way Email</button>
+                </form>
+
+                <form method="post" action="{url_for("jobs.send_update_email", job_id=job_id)}">
+                    <input type="hidden" name="update_type" value="job_started">
+                    <button type="submit">Send Job Started Email</button>
+                </form>
+
+                <form method="post" action="{url_for("jobs.send_update_email", job_id=job_id)}">
+                    <input type="hidden" name="update_type" value="job_completed">
+                    <button type="submit">Send Job Finished Email</button>
+                </form>
+
+                <div style="border-top:1px solid #e8ece7;"></div>
+
+                <button type="button" onclick="toggleCustomUpdateCard()">Compose Custom Update</button>
+            </div>
+        </div>
+
+        <div id="customUpdateCard" class="card custom-update-card">
+            <h3>Custom Job Update</h3>
+
+            <form method="post" action="{url_for("jobs.send_custom_email", job_id=job_id)}">
+                <div class="grid">
+                    <div>
+                        <label>To Email</label>
+                        <input
+                            type="email"
+                            name="to_email"
+                            value="{escape(customer_email)}"
+                            placeholder="Enter customer email"
+                            required
+                        >
+                    </div>
+
+                    <div>
+                        <label>Subject</label>
+                        <input
+                            type="text"
+                            name="subject"
+                            value="Job Update - {escape(clean_text_display(job['title']))}"
+                            required
+                        >
+                    </div>
+                </div>
+
+                <div style="margin-top:14px;">
+                    <label>Message</label>
+                    <textarea name="message" required>Hello {escape(clean_text_display(job['customer_name']))},
+
+This is an update regarding your job "{escape(clean_text_display(job['title']))}".
+
+Thank you,
+{escape(session.get("company_name") or "Your Company")}</textarea>
+                </div>
+
+                <div class="row-actions" style="margin-top:12px;">
+                    <button class="btn success" type="submit">Send Email</button>
+                    <button class="btn secondary" type="button" onclick="toggleCustomUpdateCard()">Cancel</button>
+                </div>
+            </form>
+        </div>
         """
     else:
-        email_buttons = "<div class='muted small'>Add a customer email address to send job update emails.</div>"
+        email_buttons = """
+        <div class='muted small'>Add a customer email address to send job updates.</div>
+        <div id="customUpdateCard" class="card custom-update-card" style="display:block; margin-top:14px;">
+            <h3>Custom Job Update</h3>
+            <div class="muted small" style="margin-bottom:12px;">No customer email is on file, but you can still enter one manually below.</div>
+
+            <form method="post" action="{send_custom_url}">
+                <div class="grid">
+                    <div>
+                        <label>To Email</label>
+                        <input
+                            type="email"
+                            name="to_email"
+                            value=""
+                            placeholder="Enter recipient email"
+                            required
+                        >
+                    </div>
+
+                    <div>
+                        <label>Subject</label>
+                        <input
+                            type="text"
+                            name="subject"
+                            value="Job Update - {job_title}"
+                            required
+                        >
+                    </div>
+                </div>
+
+                <div style="margin-top:14px;">
+                    <label>Message</label>
+                    <textarea name="message" required>Hello {customer_name},
+
+This is an update regarding your job "{job_title}".
+
+Thank you,
+{company_name}</textarea>
+                </div>
+
+                <div class="row-actions" style="margin-top:12px;">
+                    <button class="btn success" type="submit">Send Email</button>
+                </div>
+            </form>
+        </div>
+        """.format(
+            send_custom_url=url_for("jobs.send_custom_email", job_id=job_id),
+            job_title=escape(clean_text_display(job["title"])),
+            customer_name=escape(clean_text_display(job["customer_name"])),
+            company_name=escape(session.get("company_name") or "Your Company"),
+        )
 
     content = f"""
         <div class='card'>
@@ -1063,8 +1209,30 @@ def view_job(job_id):
             }}
         }}
 
+        function toggleUpdatesMenu(event) {{
+            event.stopPropagation();
+            const menu = document.getElementById('updatesMenu');
+            if (!menu) return;
+            menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+        }}
+
+        function toggleCustomUpdateCard() {{
+            const card = document.getElementById('customUpdateCard');
+            const menu = document.getElementById('updatesMenu');
+            if (menu) menu.style.display = 'none';
+            if (!card) return;
+            card.style.display = card.style.display === 'block' ? 'none' : 'block';
+        }}
+
         document.addEventListener('DOMContentLoaded', function() {{
             toggleJobItemMode();
+        }});
+
+        document.addEventListener('click', function() {{
+            const menu = document.getElementById('updatesMenu');
+            if (menu) {{
+                menu.style.display = 'none';
+            }}
         }});
         </script>
 
@@ -1147,6 +1315,68 @@ def send_update_email(job_id):
             flash("Job update email sent.")
     else:
         flash(f"Could not send email: {error_message}")
+
+    return redirect(url_for("jobs.view_job", job_id=job_id))
+
+@jobs_bp.route("/jobs/<int:job_id>/send_custom_email", methods=["POST"])
+@login_required
+@require_permission("can_manage_jobs")
+def send_custom_email(job_id):
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    job = conn.execute(
+        """
+        SELECT j.id
+        FROM jobs j
+        WHERE j.id = %s AND j.company_id = %s
+        """,
+        (job_id, cid),
+    ).fetchone()
+
+    conn.close()
+
+    if not job:
+        abort(404)
+
+    to_email = clean_text_input(request.form.get("to_email", ""))
+    subject = clean_text_input(request.form.get("subject", ""))
+    message = request.form.get("message", "") or ""
+
+    if not to_email:
+        flash("Recipient email is required.")
+        return redirect(url_for("jobs.view_job", job_id=job_id))
+
+    if not subject:
+        flash("Email subject is required.")
+        return redirect(url_for("jobs.view_job", job_id=job_id))
+
+    if not message.strip():
+        flash("Email message is required.")
+        return redirect(url_for("jobs.view_job", job_id=job_id))
+
+    try:
+        send_company_email(
+            company_id=cid,
+            to_email=to_email,
+            subject=subject,
+            html_body=message.replace("\n", "<br>"),
+            text_body=message,
+        )
+        flash("Custom job update email sent.")
+    except TypeError:
+        try:
+            send_company_email(
+                to_email=to_email,
+                subject=subject,
+                html_body=message.replace("\n", "<br>"),
+                text_body=message,
+            )
+            flash("Custom job update email sent.")
+        except Exception as e:
+            flash(f"Could not send email: {e}")
+    except Exception as e:
+        flash(f"Could not send email: {e}")
 
     return redirect(url_for("jobs.view_job", job_id=job_id))
 

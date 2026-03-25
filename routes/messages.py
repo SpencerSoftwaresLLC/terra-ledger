@@ -436,13 +436,16 @@ def messages_page():
     </script>
     """
 
-    return render_page(render_template_string(
-        page_html,
-        settings=settings,
-        history=history,
-        customers=customers,
-        from_number=from_number,
-    ), title="Messages", page_title="Messages")
+    return render_page(
+        render_template_string(
+            page_html,
+            settings=settings,
+            history=history,
+            customers=customers,
+            from_number=from_number,
+        ),
+        "Messages"
+    )
 
 
 @messages_bp.route("/messages/send", methods=["POST"])
@@ -676,8 +679,11 @@ def messaging_configuration():
     </div>
     """
 
-    return render_page(render_template_string(
-        page_html,
-        settings=settings,
-        from_number=from_number,
-    ), title="Messaging Configuration", page_title="Messaging Configuration")
+    return render_page(
+        render_template_string(
+            page_html,
+            settings=settings,
+            from_number=from_number,
+        ),
+        "Messaging Configuration"
+    )
