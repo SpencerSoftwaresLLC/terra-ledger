@@ -38,24 +38,24 @@ def _auth_styles():
     .auth-logo-wrap{
         display:flex;
         align-items:center;
-        gap:12px;
-        margin-bottom:18px;
+        gap:16px;
+        margin-bottom:20px;
     }
 
     .auth-logo{
-        width:52px;
-        height:52px;
+        width:64px;
+        height:64px;
         object-fit:contain;
-        border-radius:12px;
-        background: rgba(255,255,255,0.85);
-        padding:4px;
+        border-radius:14px;
+        background: rgba(255,255,255,0.9);
+        padding:6px;
         border:1px solid rgba(47,79,31,0.08);
         flex:0 0 auto;
     }
 
     .auth-logo-text{
-        font-size:22px;
-        font-weight:800;
+        font-size:24px;
+        font-weight:900;
         color:#2f4f1f;
     }
 
