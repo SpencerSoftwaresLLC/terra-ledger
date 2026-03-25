@@ -1,0 +1,724 @@
+import os
+
+from flask import Blueprint, request, redirect, url_for, flash, session, render_template_string
+from twilio.rest import Client
+
+from db import get_db_connection
+from decorators import login_required, require_permission
+from page_helpers import render_page
+
+
+messages_bp = Blueprint("messages", __name__)
+
+
+def ensure_messaging_tables():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    # Company-level messaging preferences only.
+    # Twilio credentials are now platform-managed through environment variables.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS messaging_settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id INTEGER NOT NULL UNIQUE,
+            messaging_enabled INTEGER NOT NULL DEFAULT 0,
+            send_job_updates INTEGER NOT NULL DEFAULT 1,
+            send_invoice_reminders INTEGER NOT NULL DEFAULT 0,
+            send_manual_messages INTEGER NOT NULL DEFAULT 1,
+            default_on_the_way_template TEXT,
+            default_job_started_template TEXT,
+            default_job_completed_template TEXT,
+            default_invoice_reminder_template TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Backfill old databases that may have an earlier version of the table.
+    cur.execute("PRAGMA table_info(messaging_settings)")
+    existing_cols = [row[1] for row in cur.fetchall()]
+
+    required_columns = {
+        "messaging_enabled": "INTEGER NOT NULL DEFAULT 0",
+        "send_job_updates": "INTEGER NOT NULL DEFAULT 1",
+        "send_invoice_reminders": "INTEGER NOT NULL DEFAULT 0",
+        "send_manual_messages": "INTEGER NOT NULL DEFAULT 1",
+        "default_on_the_way_template": "TEXT",
+        "default_job_started_template": "TEXT",
+        "default_job_completed_template": "TEXT",
+        "default_invoice_reminder_template": "TEXT",
+        "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+    }
+
+    for col_name, col_def in required_columns.items():
+        if col_name not in existing_cols:
+            cur.execute(f"ALTER TABLE messaging_settings ADD COLUMN {col_name} {col_def}")
+
+    # Stores outbound messages / history
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS message_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id INTEGER NOT NULL,
+            customer_id INTEGER,
+            job_id INTEGER,
+            invoice_id INTEGER,
+            phone_number TEXT,
+            direction TEXT NOT NULL DEFAULT 'outbound',
+            message_body TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'queued',
+            provider TEXT DEFAULT 'twilio',
+            provider_message_id TEXT,
+            sent_by_user_id INTEGER,
+            error_message TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            sent_at TIMESTAMP
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def get_messaging_settings(company_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT *
+        FROM messaging_settings
+        WHERE company_id = ?
+    """, (company_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def get_message_history(company_id, limit=100):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT
+            ml.*,
+            c.name AS customer_name,
+            j.title AS job_title,
+            i.invoice_number AS invoice_number
+        FROM message_log ml
+        LEFT JOIN customers c ON ml.customer_id = c.id
+        LEFT JOIN jobs j ON ml.job_id = j.id
+        LEFT JOIN invoices i ON ml.invoice_id = i.id
+        WHERE ml.company_id = ?
+        ORDER BY ml.created_at DESC, ml.id DESC
+        LIMIT ?
+    """, (company_id, limit))
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+def get_customers_for_messages(company_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    customer_rows = []
+    try:
+        cur.execute("""
+            SELECT id, name, phone
+            FROM customers
+            WHERE company_id = ?
+            ORDER BY name ASC
+        """, (company_id,))
+        customer_rows = cur.fetchall()
+    except Exception:
+        try:
+            cur.execute("""
+                SELECT id, name, phone_number AS phone
+                FROM customers
+                WHERE company_id = ?
+                ORDER BY name ASC
+            """, (company_id,))
+            customer_rows = cur.fetchall()
+        except Exception:
+            customer_rows = []
+
+    conn.close()
+    return customer_rows
+
+
+def insert_message_log(
+    company_id,
+    phone_number,
+    message_body,
+    status="queued",
+    customer_id=None,
+    job_id=None,
+    invoice_id=None,
+    provider="twilio",
+    provider_message_id=None,
+    sent_by_user_id=None,
+    error_message=None,
+):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO message_log (
+            company_id,
+            customer_id,
+            job_id,
+            invoice_id,
+            phone_number,
+            direction,
+            message_body,
+            status,
+            provider,
+            provider_message_id,
+            sent_by_user_id,
+            error_message,
+            sent_at
+        )
+        VALUES (?, ?, ?, ?, ?, 'outbound', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    """, (
+        company_id,
+        customer_id,
+        job_id,
+        invoice_id,
+        phone_number,
+        message_body,
+        status,
+        provider,
+        provider_message_id,
+        sent_by_user_id,
+        error_message,
+    ))
+    conn.commit()
+    conn.close()
+
+
+def send_text_message(to_number, message_body, settings_row=None):
+    try:
+        to_number = (to_number or "").strip()
+        message_body = (message_body or "").strip()
+
+        if not to_number:
+            return False, None, "Phone number is required."
+
+        if not message_body:
+            return False, None, "Message body is required."
+
+        if not settings_row:
+            return False, None, "Messaging settings were not found for this company."
+
+        messaging_enabled = int(settings_row["messaging_enabled"] or 0)
+        send_manual_messages = int(settings_row["send_manual_messages"] or 0)
+
+        if not messaging_enabled:
+            return False, None, "Messaging is disabled for this company."
+
+        if not send_manual_messages:
+            return False, None, "Manual messaging is disabled for this company."
+
+        account_sid = (os.environ.get("TWILIO_ACCOUNT_SID") or "").strip()
+        auth_token = (os.environ.get("TWILIO_AUTH_TOKEN") or "").strip()
+        from_number = (os.environ.get("TWILIO_FROM_NUMBER") or "").strip()
+
+        if not account_sid or not auth_token or not from_number:
+            return False, None, "Platform messaging is not configured. Add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_NUMBER to your environment."
+
+        client = Client(account_sid, auth_token)
+
+        msg = client.messages.create(
+            body=message_body,
+            from_=from_number,
+            to=to_number,
+        )
+
+        return True, msg.sid, None
+
+    except Exception as e:
+        return False, None, str(e)
+
+
+@messages_bp.route("/messages")
+@login_required
+@require_permission("can_manage_settings")
+def messages_page():
+    ensure_messaging_tables()
+
+    company_id = session.get("company_id")
+    if not company_id:
+        flash("Company session not found.")
+        return redirect(url_for("dashboard.dashboard"))
+
+    settings = get_messaging_settings(company_id)
+    history = get_message_history(company_id, limit=100)
+    customers = get_customers_for_messages(company_id)
+    from_number = (os.environ.get("TWILIO_FROM_NUMBER") or "").strip()
+
+    page_html = """
+    <div class="card">
+        <div class="section-head">
+            <div>
+                <h1 style="margin-bottom:6px;">Messages</h1>
+                <div class="muted">Send manual customer texts and review message history.</div>
+            </div>
+            <div class="row-actions">
+                <a class="btn secondary" href="{{ url_for('messages.messaging_configuration') }}">
+                    Messaging Configuration
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid" style="align-items:start;">
+        <div class="card">
+            <h3>Send Message</h3>
+            <form method="post" action="{{ url_for('messages.send_message') }}">
+                <div style="margin-bottom:14px;">
+                    <label>Customer</label>
+                    <select id="customerSelect" onchange="fillCustomerPhoneFromDropdown()">
+                        <option value="">Select customer (optional)</option>
+                        {% for customer in customers %}
+                            <option
+                                value="{{ customer['id'] }}"
+                                data-phone="{{ customer['phone'] or '' }}"
+                            >
+                                {{ customer['name'] }}{% if customer['phone'] %} — {{ customer['phone'] }}{% endif %}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <input type="hidden" name="customer_id" id="customerIdField">
+
+                <div style="margin-bottom:14px;">
+                    <label>Phone Number</label>
+                    <input
+                        type="text"
+                        name="phone_number"
+                        id="phoneNumberField"
+                        placeholder="Enter mobile number"
+                        required
+                    >
+                </div>
+
+                <div style="margin-bottom:14px;">
+                    <label>Template</label>
+                    <select id="templateSelect" onchange="applyMessageTemplate()">
+                        <option value="">Choose a template (optional)</option>
+                        <option value="{{ settings['default_on_the_way_template'] if settings and settings['default_on_the_way_template'] else 'Hello from TerraLedger — we are on the way to your job site.' }}">
+                            On The Way
+                        </option>
+                        <option value="{{ settings['default_job_started_template'] if settings and settings['default_job_started_template'] else 'Hello from TerraLedger — we have started your scheduled job.' }}">
+                            Job Started
+                        </option>
+                        <option value="{{ settings['default_job_completed_template'] if settings and settings['default_job_completed_template'] else 'Hello from TerraLedger — your job has been completed. Thank you.' }}">
+                            Job Completed
+                        </option>
+                        <option value="{{ settings['default_invoice_reminder_template'] if settings and settings['default_invoice_reminder_template'] else 'Hello from TerraLedger — this is a reminder that your invoice is still outstanding.' }}">
+                            Invoice Reminder
+                        </option>
+                    </select>
+                </div>
+
+                <div style="margin-bottom:14px;">
+                    <label>Message</label>
+                    <textarea
+                        name="message_body"
+                        id="messageBodyField"
+                        placeholder="Type your message here..."
+                        required
+                    ></textarea>
+                </div>
+
+                <div class="row-actions">
+                    <button type="submit" class="btn">Send Message</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3>Messaging Status</h3>
+
+            <div style="margin-bottom:12px;">
+                <strong>Enabled:</strong>
+                {% if settings and settings['messaging_enabled'] %}
+                    <span class="pill" style="background:#dff3d2;color:#254314;">Enabled</span>
+                {% else %}
+                    <span class="pill warning">Not Enabled</span>
+                {% endif %}
+            </div>
+
+            <div style="margin-bottom:12px;">
+                <strong>Provider:</strong>
+                <span class="muted">TerraLedger Messaging (Twilio)</span>
+            </div>
+
+            <div style="margin-bottom:12px;">
+                <strong>From Number:</strong>
+                <span class="muted">{{ from_number if from_number else 'Platform number not configured' }}</span>
+            </div>
+
+            <div style="margin-bottom:12px;">
+                <strong>Manual Messages:</strong>
+                <span class="muted">
+                    {% if settings and settings['send_manual_messages'] %}On{% else %}Off{% endif %}
+                </span>
+            </div>
+
+            <div style="margin-bottom:12px;">
+                <strong>Job Updates:</strong>
+                <span class="muted">
+                    {% if settings and settings['send_job_updates'] %}On{% else %}Off{% endif %}
+                </span>
+            </div>
+
+            <div style="margin-bottom:12px;">
+                <strong>Invoice Reminders:</strong>
+                <span class="muted">
+                    {% if settings and settings['send_invoice_reminders'] %}On{% else %}Off{% endif %}
+                </span>
+            </div>
+
+            <div class="row-actions" style="margin-top:16px;">
+                <a class="btn secondary" href="{{ url_for('messages.messaging_configuration') }}">
+                    Open Configuration
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="section-head">
+            <div>
+                <h3 style="margin-bottom:6px;">Message History</h3>
+                <div class="muted">Latest outbound messages for your company.</div>
+            </div>
+        </div>
+
+        {% if history %}
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Customer</th>
+                            <th>Phone</th>
+                            <th>Message</th>
+                            <th>Status</th>
+                            <th>Related</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in history %}
+                        <tr>
+                            <td>{{ row['created_at'] or '' }}</td>
+                            <td>{{ row['customer_name'] or '—' }}</td>
+                            <td>{{ row['phone_number'] or '—' }}</td>
+                            <td>{{ row['message_body'] or '' }}</td>
+                            <td>
+                                {% if row['status'] == 'sent' %}
+                                    <span class="pill" style="background:#dff3d2;color:#254314;">Sent</span>
+                                {% elif row['status'] == 'failed' %}
+                                    <span class="pill" style="background:#f6d5d2;color:#7a1f17;">Failed</span>
+                                {% else %}
+                                    <span class="pill warning">{{ row['status'] }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if row['job_title'] %}
+                                    Job: {{ row['job_title'] }}<br>
+                                {% endif %}
+                                {% if row['invoice_number'] %}
+                                    Invoice: {{ row['invoice_number'] }}
+                                {% endif %}
+                                {% if not row['job_title'] and not row['invoice_number'] %}
+                                    —
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="muted">No messages have been logged yet.</div>
+        {% endif %}
+    </div>
+
+    <script>
+    function fillCustomerPhoneFromDropdown() {
+        const select = document.getElementById("customerSelect");
+        const phoneField = document.getElementById("phoneNumberField");
+        const customerIdField = document.getElementById("customerIdField");
+
+        if (!select || !phoneField || !customerIdField) return;
+
+        const selected = select.options[select.selectedIndex];
+        const phone = selected.getAttribute("data-phone") || "";
+        const customerId = selected.value || "";
+
+        customerIdField.value = customerId;
+
+        if (phone) {
+            phoneField.value = phone;
+        }
+    }
+
+    function applyMessageTemplate() {
+        const templateSelect = document.getElementById("templateSelect");
+        const messageField = document.getElementById("messageBodyField");
+
+        if (!templateSelect || !messageField) return;
+
+        const selectedValue = templateSelect.value || "";
+        if (selectedValue) {
+            messageField.value = selectedValue;
+        }
+    }
+    </script>
+    """
+
+    return render_page(render_template_string(
+        page_html,
+        settings=settings,
+        history=history,
+        customers=customers,
+        from_number=from_number,
+    ), title="Messages", page_title="Messages")
+
+
+@messages_bp.route("/messages/send", methods=["POST"])
+@login_required
+@require_permission("can_manage_settings")
+def send_message():
+    ensure_messaging_tables()
+
+    company_id = session.get("company_id")
+    user_id = session.get("user_id")
+
+    if not company_id:
+        flash("Company session not found.")
+        return redirect(url_for("messages.messages_page"))
+
+    customer_id = request.form.get("customer_id") or None
+    phone_number = (request.form.get("phone_number") or "").strip()
+    message_body = (request.form.get("message_body") or "").strip()
+
+    settings = get_messaging_settings(company_id)
+
+    success, provider_message_id, error_message = send_text_message(
+        to_number=phone_number,
+        message_body=message_body,
+        settings_row=settings,
+    )
+
+    if success:
+        insert_message_log(
+            company_id=company_id,
+            customer_id=customer_id,
+            phone_number=phone_number,
+            message_body=message_body,
+            status="sent",
+            provider="twilio",
+            provider_message_id=provider_message_id,
+            sent_by_user_id=user_id,
+        )
+        flash("Message sent successfully.")
+    else:
+        insert_message_log(
+            company_id=company_id,
+            customer_id=customer_id,
+            phone_number=phone_number,
+            message_body=message_body,
+            status="failed",
+            provider="twilio",
+            sent_by_user_id=user_id,
+            error_message=error_message,
+        )
+        flash(f"Message failed: {error_message}")
+
+    return redirect(url_for("messages.messages_page"))
+
+
+@messages_bp.route("/messaging/configuration", methods=["GET", "POST"])
+@login_required
+@require_permission("can_manage_settings")
+def messaging_configuration():
+    ensure_messaging_tables()
+
+    company_id = session.get("company_id")
+    if not company_id:
+        flash("Company session not found.")
+        return redirect(url_for("dashboard.dashboard"))
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    if request.method == "POST":
+        messaging_enabled = 1 if request.form.get("messaging_enabled") == "on" else 0
+        send_job_updates = 1 if request.form.get("send_job_updates") == "on" else 0
+        send_invoice_reminders = 1 if request.form.get("send_invoice_reminders") == "on" else 0
+        send_manual_messages = 1 if request.form.get("send_manual_messages") == "on" else 0
+
+        default_on_the_way_template = (request.form.get("default_on_the_way_template") or "").strip()
+        default_job_started_template = (request.form.get("default_job_started_template") or "").strip()
+        default_job_completed_template = (request.form.get("default_job_completed_template") or "").strip()
+        default_invoice_reminder_template = (request.form.get("default_invoice_reminder_template") or "").strip()
+
+        existing = get_messaging_settings(company_id)
+
+        if existing:
+            cur.execute("""
+                UPDATE messaging_settings
+                SET messaging_enabled = ?,
+                    send_job_updates = ?,
+                    send_invoice_reminders = ?,
+                    send_manual_messages = ?,
+                    default_on_the_way_template = ?,
+                    default_job_started_template = ?,
+                    default_job_completed_template = ?,
+                    default_invoice_reminder_template = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE company_id = ?
+            """, (
+                messaging_enabled,
+                send_job_updates,
+                send_invoice_reminders,
+                send_manual_messages,
+                default_on_the_way_template,
+                default_job_started_template,
+                default_job_completed_template,
+                default_invoice_reminder_template,
+                company_id,
+            ))
+        else:
+            cur.execute("""
+                INSERT INTO messaging_settings (
+                    company_id,
+                    messaging_enabled,
+                    send_job_updates,
+                    send_invoice_reminders,
+                    send_manual_messages,
+                    default_on_the_way_template,
+                    default_job_started_template,
+                    default_job_completed_template,
+                    default_invoice_reminder_template
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                company_id,
+                messaging_enabled,
+                send_job_updates,
+                send_invoice_reminders,
+                send_manual_messages,
+                default_on_the_way_template,
+                default_job_started_template,
+                default_job_completed_template,
+                default_invoice_reminder_template,
+            ))
+
+        conn.commit()
+        conn.close()
+
+        flash("Messaging configuration saved.")
+        return redirect(url_for("messages.messaging_configuration"))
+
+    conn.close()
+    settings = get_messaging_settings(company_id)
+    from_number = (os.environ.get("TWILIO_FROM_NUMBER") or "").strip()
+
+    page_html = """
+    <div class="card">
+        <div class="section-head">
+            <div>
+                <h1 style="margin-bottom:6px;">Messaging Configuration</h1>
+                <div class="muted">Control messaging preferences, automation, and default templates.</div>
+            </div>
+            <div class="row-actions">
+                <a class="btn secondary" href="{{ url_for('messages.messages_page') }}">Back to Messages</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <form method="post">
+            <div class="card" style="margin-top:0; margin-bottom:18px;">
+                <h3>Platform Messaging</h3>
+
+                <div style="margin-bottom:10px;">
+                    <strong>Provider:</strong>
+                    <span class="muted">TerraLedger Messaging (Twilio)</span>
+                </div>
+
+                <div style="margin-bottom:0;">
+                    <strong>Sending Number:</strong>
+                    <span class="muted">{{ from_number if from_number else 'Platform number not configured yet' }}</span>
+                </div>
+
+                <div class="muted small" style="margin-top:12px;">
+                    Messaging is provided by TerraLedger. Customers do not need to connect their own Twilio account.
+                </div>
+            </div>
+
+            <div class="card" style="margin-top:0; margin-bottom:18px;">
+                <h3>Messaging Options</h3>
+
+                <div style="display:grid; gap:10px;">
+                    <label style="display:flex; align-items:center; gap:10px; font-weight:600;">
+                        <input type="checkbox" name="messaging_enabled" {% if settings and settings['messaging_enabled'] %}checked{% endif %}>
+                        Enable Messaging
+                    </label>
+
+                    <label style="display:flex; align-items:center; gap:10px; font-weight:600;">
+                        <input type="checkbox" name="send_manual_messages" {% if not settings or settings['send_manual_messages'] %}checked{% endif %}>
+                        Allow Manual Messages
+                    </label>
+
+                    <label style="display:flex; align-items:center; gap:10px; font-weight:600;">
+                        <input type="checkbox" name="send_job_updates" {% if not settings or settings['send_job_updates'] %}checked{% endif %}>
+                        Enable Job Update Messages
+                    </label>
+
+                    <label style="display:flex; align-items:center; gap:10px; font-weight:600;">
+                        <input type="checkbox" name="send_invoice_reminders" {% if settings and settings['send_invoice_reminders'] %}checked{% endif %}>
+                        Enable Invoice Reminder Messages
+                    </label>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top:0;">
+                <h3>Default Templates</h3>
+
+                <div style="margin-bottom:14px;">
+                    <label>On The Way Template</label>
+                    <textarea name="default_on_the_way_template">{{ settings['default_on_the_way_template'] if settings and settings['default_on_the_way_template'] else 'Hello from TerraLedger — we are on the way to your job site.' }}</textarea>
+                </div>
+
+                <div style="margin-bottom:14px;">
+                    <label>Job Started Template</label>
+                    <textarea name="default_job_started_template">{{ settings['default_job_started_template'] if settings and settings['default_job_started_template'] else 'Hello from TerraLedger — we have started your scheduled job.' }}</textarea>
+                </div>
+
+                <div style="margin-bottom:14px;">
+                    <label>Job Completed Template</label>
+                    <textarea name="default_job_completed_template">{{ settings['default_job_completed_template'] if settings and settings['default_job_completed_template'] else 'Hello from TerraLedger — your job has been completed. Thank you.' }}</textarea>
+                </div>
+
+                <div style="margin-bottom:0;">
+                    <label>Invoice Reminder Template</label>
+                    <textarea name="default_invoice_reminder_template">{{ settings['default_invoice_reminder_template'] if settings and settings['default_invoice_reminder_template'] else 'Hello from TerraLedger — this is a reminder that your invoice is still outstanding.' }}</textarea>
+                </div>
+            </div>
+
+            <div class="row-actions" style="margin-top:18px;">
+                <button type="submit" class="btn">Save Configuration</button>
+                <a class="btn secondary" href="{{ url_for('messages.messages_page') }}">Cancel</a>
+            </div>
+        </form>
+    </div>
+    """
+
+    return render_page(render_template_string(
+        page_html,
+        settings=settings,
+        from_number=from_number,
+    ), title="Messaging Configuration", page_title="Messaging Configuration")

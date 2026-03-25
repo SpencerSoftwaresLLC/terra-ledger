@@ -604,14 +604,18 @@ def settings_taxes():
 
                 <div>
                     <label>Federal Withholding %</label>
-                    <input type='number' step='0.01' min='0' name='federal_withholding_rate'
-                           value='{float(settings["federal_withholding_rate"]) if settings and settings["federal_withholding_rate"] is not None else 0:.2f}'>
+                    <input type="number" step="0.01" min="0"
+                        name="federal_withholding_rate"
+                        value="{{ settings['federal_withholding_rate'] if settings and settings['federal_withholding_rate'] is not none else '' }}"
+                        placeholder="Auto">
                 </div>
 
                 <div>
                     <label>State Withholding %</label>
-                    <input type='number' step='0.01' min='0' name='state_withholding_rate'
-                           value='{float(settings["state_withholding_rate"]) if settings and settings["state_withholding_rate"] is not None else 0:.2f}'>
+                    <input type="number" steps="0.01" min="0"
+                        name="state_withholding_rate"
+                        value="{{ settings['state_withholding_rate'] if settings and settings['state_withholding_rate'] is not none else '' }}"
+                        placeholder="Auto"
                 </div>
 
                 <div>
