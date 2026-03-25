@@ -83,19 +83,14 @@ a {
     border-bottom: 1px solid rgba(255,255,255,0.14);
 }
 
-.logo {
+.sidebar-logo {
     width: 42px;
     height: 42px;
-    border-radius: 12px;
-    background: linear-gradient(135deg, var(--orange), var(--orange-soft));
-    color: #1f2933;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 900;
-    font-size: 1rem;
-    box-shadow: 0 4px 12px rgba(240, 140, 74, 0.28);
+    object-fit: contain;
+    border-radius: 10px;
     flex: 0 0 auto;
+    background: rgba(255,255,255,0.08);
+    padding: 4px;
 }
 
 .brand-text {
@@ -591,17 +586,13 @@ label {
     margin-bottom: 18px;
 }
 
-.auth-logo {
+.auth-logo-img {
     width: 52px;
     height: 52px;
-    border-radius: 14px;
-    background: linear-gradient(135deg, var(--orange), var(--orange-soft));
-    color: #1f2933;
-    font-weight: 900;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 6px 18px rgba(240, 140, 74, 0.22);
+    object-fit: contain;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.85);
+    padding: 4px;
     flex: 0 0 auto;
 }
 
@@ -840,7 +831,7 @@ label {
 
     <aside class="sidebar">
         <div class="sidebar-brand">
-            <div class="logo">TL</div>
+            <img src="/static/images/logo.png" class="sidebar-logo" alt="TerraLedger Logo">
             <div class="brand-text">
                 <strong>{{ session.get("company_name", "TerraLedger") }}</strong>
                 <div class="muted small">
@@ -916,7 +907,7 @@ label {
     <div class="auth-card">
 
         <div class="auth-brand">
-            <div class="auth-logo">TL</div>
+            <img src="/static/images/logo.png" class="auth-logo-img" alt="TerraLedger Logo">
             <div class="auth-brand-text">
                 <h2>TerraLedger</h2>
                 <div class="muted">Landscaper-focused business software</div>

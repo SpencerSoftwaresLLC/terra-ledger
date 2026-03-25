@@ -7,112 +7,106 @@
 
     <style>
         :root {
-            --bg: #0d1720;
+            --bg: #0f1720;
+            --bg-deep: #0a1118;
             --panel: #1b2c38;
             --panel-soft: #223746;
             --border: #314756;
             --text: #f7f3ea;
-            --muted: #d6c2a8;
+            --text-soft: #d6c2a8;
 
             --green: #6bbf72;
             --green-soft: #8fd59a;
 
             --orange: #f08c4a;
+            --orange-soft: #ffb06b;
+
+            --input-bg: #182833;
+            --white-card: #ffffff;
+            --white-border: #e5e7eb;
+            --white-text: #0f172a;
+            --white-muted: #475569;
         }
 
         * {
             box-sizing: border-box;
         }
 
-        body {
+        html, body {
             margin: 0;
+            min-height: 100%;
             font-family: Arial, sans-serif;
-            background: linear-gradient(180deg, var(--bg), #081017);
+            background:
+                radial-gradient(circle at bottom left, rgba(107, 191, 114, 0.28), transparent 28%),
+                radial-gradient(circle at top right, rgba(90, 162, 214, 0.18), transparent 30%),
+                linear-gradient(180deg, var(--bg), var(--bg-deep));
             color: var(--text);
         }
 
-        /* TOP BAR */
-        .topbar {
-            padding: 18px 24px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid var(--border);
+        body {
+            min-height: 100vh;
         }
 
-        .brand {
+        .public-header {
+            height: 74px;
+            display: flex;
+            align-items: center;
+            padding: 0 28px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            background: rgba(10, 17, 24, 0.35);
+            backdrop-filter: blur(4px);
+        }
+
+        .public-brand {
             font-size: 24px;
             font-weight: 800;
+            color: var(--text);
+            letter-spacing: 0.2px;
         }
 
-        .nav a {
-            color: var(--muted);
-            margin-left: 14px;
-            text-decoration: none;
-            font-weight: 600;
-            padding: 6px 10px;
-            border-radius: 8px;
-        }
-
-        .nav a:hover {
-            background: rgba(255,255,255,0.05);
-        }
-
-        /* CENTER CONTENT */
         .page-content-wrap {
-            min-height: calc(100vh - 70px);
+            min-height: calc(100vh - 74px);
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 30px 16px;
+            padding: 36px 18px;
         }
 
         .page-content-inner {
             width: 100%;
-            max-width: 460px;
+            max-width: 520px;
         }
 
-        /* CARD */
         .card {
-            background: linear-gradient(180deg, var(--panel), var(--panel-soft));
-            border: 1px solid var(--border);
-            border-radius: 22px;
-            padding: 28px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
             position: relative;
+            background: var(--white-card);
+            color: var(--white-text);
+            border: 1px solid var(--white-border);
+            border-radius: 22px;
+            padding: 30px;
+            box-shadow:
+                0 25px 60px rgba(0, 0, 0, 0.30),
+                0 0 0 1px rgba(255,255,255,0.04);
+        }
+
+        .card::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: 22px;
+            pointer-events: none;
+            box-shadow: 0 0 70px rgba(107,191,114,0.10);
         }
 
         .card h1 {
-            margin: 0 0 10px;
-            font-size: 32px;
+            margin: 0 0 10px 0;
+            font-size: 34px;
+            line-height: 1.1;
+            color: var(--white-text);
         }
 
         .muted {
-            color: var(--muted);
-        }
-
-        /* INPUTS */
-        input {
-            width: 100%;
-            border: 1px solid var(--border);
-            background: #182833;
-            color: var(--text);
-            border-radius: 12px;
-            padding: 12px 14px;
-            font-size: 15px;
-        }
-
-        input:focus {
-            outline: none;
-            border-color: var(--green);
-            box-shadow: 0 0 0 3px rgba(107,191,114,0.25);
-        }
-
-        label {
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 6px;
-            display: block;
+            color: var(--white-muted);
         }
 
         .grid {
@@ -120,81 +114,152 @@
             gap: 16px;
         }
 
-        /* BUTTONS (GREEN PRIMARY) */
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 14px;
+            font-weight: 700;
+            color: #334155;
+        }
+
+        input,
+        select,
+        textarea {
+            width: 100%;
+            box-sizing: border-box;
+            border: 1px solid #cbd5e1;
+            background: #ffffff;
+            color: var(--white-text);
+            border-radius: 12px;
+            padding: 12px 14px;
+            font-size: 15px;
+            transition: border-color .15s ease, box-shadow .15s ease;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: var(--green);
+            box-shadow: 0 0 0 4px rgba(107,191,114,0.18);
+        }
+
         .btn {
-            background: linear-gradient(135deg, var(--green), var(--green-soft));
-            color: #0d1720;
-            border: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            min-width: 120px;
             padding: 12px 16px;
             border-radius: 12px;
+            border: none;
+            background: linear-gradient(135deg, var(--green), var(--green-soft));
+            color: #0d1720;
             font-weight: 800;
+            font-size: 15px;
             cursor: pointer;
-            box-shadow: 0 10px 25px rgba(107,191,114,0.25);
+            text-decoration: none;
+            box-shadow: 0 12px 28px rgba(107,191,114,0.22);
+            transition: transform .12s ease, opacity .12s ease;
         }
 
         .btn:hover {
-            opacity: 0.95;
+            opacity: 0.96;
+            transform: translateY(-1px);
         }
 
         .btn.secondary {
-            background: transparent;
-            color: var(--text);
-            border: 1px solid var(--border);
+            background: #e2e8f0;
+            color: #0f172a;
+            border: 1px solid #cbd5e1;
+            box-shadow: none;
         }
 
         .btn.secondary:hover {
-            background: rgba(255,255,255,0.05);
+            background: #dbe4ee;
+            opacity: 1;
         }
 
-        /* FLASH */
+        .flash-wrap {
+            width: 100%;
+            max-width: 520px;
+            margin: 18px auto 0 auto;
+            padding: 0 18px;
+        }
+
         .flash {
-            background: rgba(107,191,114,0.15);
-            border: 1px solid rgba(107,191,114,0.3);
-            padding: 12px;
-            border-radius: 12px;
-            margin-bottom: 16px;
+            background: rgba(107,191,114,0.16);
+            border: 1px solid rgba(107,191,114,0.35);
             color: var(--text);
+            border-radius: 14px;
+            padding: 12px 14px;
+            margin-bottom: 12px;
+            backdrop-filter: blur(2px);
         }
 
-        /* GREEN GLOW EFFECT */
-        .card::after {
-            content: "";
-            position: absolute;
-            inset: 0;
-            border-radius: 22px;
-            pointer-events: none;
-            box-shadow: 0 0 60px rgba(107,191,114,0.08);
+        .auth-badge {
+            display: inline-block;
+            margin-bottom: 14px;
+            padding: 7px 12px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            color: #7c2d12;
+            background: #ffedd5;
+            border: 1px solid #fed7aa;
         }
 
-        /* SUBTLE ACCENT LINE */
-        .card::before {
-            content: "";
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 3px;
-            border-radius: 22px 22px 0 0;
-            background: linear-gradient(90deg, var(--green), var(--orange));
-            opacity: 0.6;
+        .auth-actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 22px;
+        }
+
+        @media (max-width: 640px) {
+            .public-header {
+                padding: 0 18px;
+            }
+
+            .public-brand {
+                font-size: 22px;
+            }
+
+            .page-content-wrap {
+                padding: 24px 14px;
+            }
+
+            .card {
+                padding: 22px;
+                border-radius: 18px;
+            }
+
+            .card h1 {
+                font-size: 30px;
+            }
+
+            .auth-actions {
+                flex-direction: column;
+            }
+
+            .auth-actions .btn,
+            .auth-actions .btn.secondary {
+                width: 100%;
+            }
         }
     </style>
 </head>
-
 <body>
 
-    <div class="topbar">
-        <div class="brand">TerraLedger™</div>
-
-        <div class="nav">
-            <a href="{{ url_for('auth.login') }}">Login</a>
-            <a href="{{ url_for('auth.register') }}">Register</a>
-        </div>
-    </div>
+    <header class="public-header">
+        <div class="public-brand">TerraLedger<sup style="font-size: 11px;">™</sup></div>
+    </header>
 
     {% with messages = get_flashed_messages() %}
         {% if messages %}
-            <div style="max-width:460px; margin:20px auto;">
+            <div class="flash-wrap">
                 {% for message in messages %}
                     <div class="flash">{{ message }}</div>
                 {% endfor %}

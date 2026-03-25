@@ -70,13 +70,18 @@ def register():
     content = """
     <div class="auth-shell">
         <div class="auth-card">
-            <div class="auth-badge">TerraLedger</div>
+
+            <div class="auth-logo-wrap">
+                <img src="/static/images/logo.png" class="auth-logo">
+                <div class="auth-logo-text">TerraLedger™</div>
+            </div>
+
             <h1>Create Account</h1>
             <p class="auth-subtext">
                 Create your company account to start using TerraLedger.
             </p>
 
-            <form method="post" class="auth-form">
+            <form method="post">
                 <div class="auth-grid">
                     <div>
                         <label>Company Name</label>
@@ -101,99 +106,118 @@ def register():
                     <a class="btn secondary" href="/login">Login</a>
                 </div>
             </form>
+
         </div>
     </div>
 
     <style>
-        .auth-shell{
-            min-height: calc(100vh - 120px);
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            padding:40px 20px;
-        }
-        .auth-card{
-            width:100%;
-            max-width:560px;
-            background:#fff;
-            border:1px solid #e5e7eb;
-            border-radius:18px;
-            box-shadow:0 18px 40px rgba(15, 23, 42, 0.08);
-            padding:32px;
-        }
-        .auth-badge{
-            display:inline-block;
-            font-size:12px;
-            font-weight:700;
-            letter-spacing:.08em;
-            text-transform:uppercase;
-            color:#92400e;
-            background:#ffedd5;
-            border:1px solid #fed7aa;
-            border-radius:999px;
-            padding:6px 10px;
-            margin-bottom:14px;
-        }
-        .auth-card h1{
-            margin:0 0 8px 0;
-            font-size:32px;
-            line-height:1.15;
-            color:#0f172a;
-        }
-        .auth-subtext{
-            margin:0 0 24px 0;
-            color:#475569;
-            line-height:1.6;
-        }
-        .auth-form label{
-            display:block;
-            font-size:14px;
-            font-weight:600;
-            color:#334155;
-            margin-bottom:6px;
-        }
-        .auth-grid{
-            display:grid;
-            grid-template-columns:1fr;
-            gap:16px;
-        }
-        .auth-grid input{
-            width:100%;
-            box-sizing:border-box;
-            border:1px solid #cbd5e1;
-            border-radius:10px;
-            padding:12px 14px;
-            font-size:15px;
-            background:#fff;
-        }
-        .auth-grid input:focus{
-            outline:none;
-            border-color:#f97316;
-            box-shadow:0 0 0 3px rgba(249,115,22,.12);
-        }
+    .auth-shell{
+        min-height: calc(100vh - 120px);
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        padding:40px 20px;
+    }
+
+    .auth-card{
+        width:100%;
+        max-width:520px;
+        background: linear-gradient(180deg, #1b2c38, #223746);
+        border:1px solid #314756;
+        border-radius:20px;
+        box-shadow: 0 25px 60px rgba(0,0,0,0.4);
+        padding:28px;
+        color:#f7f3ea;
+    }
+
+    /* 🔥 LOGO */
+    .auth-logo-wrap{
+        display:flex;
+        align-items:center;
+        gap:12px;
+        margin-bottom:18px;
+    }
+
+    .auth-logo{
+        width:42px;
+        height:42px;
+        object-fit:contain;
+        border-radius:10px;
+    }
+
+    .auth-logo-text{
+        font-size:20px;
+        font-weight:800;
+        color:#f7f3ea;
+    }
+
+    .auth-card h1{
+        margin:0 0 8px 0;
+        font-size:32px;
+        color:#f7f3ea;
+    }
+
+    .auth-subtext{
+        margin:0 0 24px 0;
+        color:#d6c2a8;
+    }
+
+    .auth-grid{
+        display:grid;
+        gap:16px;
+    }
+
+    .auth-grid label{
+        font-size:14px;
+        font-weight:600;
+    }
+
+    .auth-grid input{
+        width:100%;
+        border:1px solid #314756;
+        background:#182833;
+        color:#f7f3ea;
+        border-radius:12px;
+        padding:12px 14px;
+    }
+
+    .auth-grid input:focus{
+        outline:none;
+        border-color:#6bbf72;
+        box-shadow:0 0 0 3px rgba(107,191,114,0.2);
+    }
+
+    .auth-actions{
+        display:flex;
+        gap:12px;
+        margin-top:22px;
+    }
+
+    .btn{
+        background: linear-gradient(135deg, #6bbf72, #8fd59a);
+        color:#0d1720;
+        border:none;
+        padding:12px 16px;
+        border-radius:12px;
+        font-weight:800;
+        cursor:pointer;
+    }
+
+    .btn.secondary{
+        background:#223746;
+        color:#f7f3ea;
+        border:1px solid #314756;
+    }
+
+    .btn.secondary:hover{
+        background:#2a4253;
+    }
+
+    @media (max-width: 640px){
         .auth-actions{
-            display:flex;
-            gap:12px;
-            flex-wrap:wrap;
-            margin-top:22px;
+            flex-direction:column;
         }
-        @media (max-width: 640px){
-            .auth-card{
-                padding:24px;
-            }
-            .auth-card h1{
-                font-size:28px;
-            }
-            .auth-actions{
-                flex-direction:column;
-            }
-            .auth-actions .btn,
-            .auth-actions .btn.secondary{
-                width:100%;
-                text-align:center;
-                justify-content:center;
-            }
-        }
+    }
     </style>
     """
     return render_public_page(content, "Register")
@@ -226,13 +250,9 @@ def login():
             flash("Invalid email or password.")
             return redirect(url_for("auth.login"))
 
-        if "is_active" in user.keys() and int(user["is_active"] or 1) != 1:
-            flash("This user account is inactive.")
-            return redirect(url_for("auth.login"))
-
         session["user_id"] = user["id"]
         session["user_name"] = user["name"]
-        session["user_email"] = email 
+        session["user_email"] = email
         session["company_id"] = user["company_id"]
         session["company_name"] = user["company_name"]
 
@@ -241,13 +261,18 @@ def login():
     content = """
     <div class="auth-shell">
         <div class="auth-card">
-            <div class="auth-badge">TerraLedger</div>
+
+            <div class="auth-logo-wrap">
+                <img src="/static/images/logo.png" class="auth-logo">
+                <div class="auth-logo-text">TerraLedger™</div>
+            </div>
+
             <h1>Login</h1>
             <p class="auth-subtext">
                 Sign in to access your TerraLedger workspace.
             </p>
 
-            <form method="post" class="auth-form">
+            <form method="post">
                 <div class="auth-grid">
                     <div>
                         <label>Email</label>
@@ -264,100 +289,9 @@ def login():
                     <a class="btn secondary" href="/register">Create Account</a>
                 </div>
             </form>
+
         </div>
     </div>
-
-    <style>
-        .auth-shell{
-            min-height: calc(100vh - 120px);
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            padding:40px 20px;
-        }
-        .auth-card{
-            width:100%;
-            max-width:560px;
-            background:#fff;
-            border:1px solid #e5e7eb;
-            border-radius:18px;
-            box-shadow:0 18px 40px rgba(15, 23, 42, 0.08);
-            padding:32px;
-        }
-        .auth-badge{
-            display:inline-block;
-            font-size:12px;
-            font-weight:700;
-            letter-spacing:.08em;
-            text-transform:uppercase;
-            color:#92400e;
-            background:#ffedd5;
-            border:1px solid #fed7aa;
-            border-radius:999px;
-            padding:6px 10px;
-            margin-bottom:14px;
-        }
-        .auth-card h1{
-            margin:0 0 8px 0;
-            font-size:32px;
-            line-height:1.15;
-            color:#0f172a;
-        }
-        .auth-subtext{
-            margin:0 0 24px 0;
-            color:#475569;
-            line-height:1.6;
-        }
-        .auth-form label{
-            display:block;
-            font-size:14px;
-            font-weight:600;
-            color:#334155;
-            margin-bottom:6px;
-        }
-        .auth-grid{
-            display:grid;
-            grid-template-columns:1fr;
-            gap:16px;
-        }
-        .auth-grid input{
-            width:100%;
-            box-sizing:border-box;
-            border:1px solid #cbd5e1;
-            border-radius:10px;
-            padding:12px 14px;
-            font-size:15px;
-            background:#fff;
-        }
-        .auth-grid input:focus{
-            outline:none;
-            border-color:#f97316;
-            box-shadow:0 0 0 3px rgba(249,115,22,.12);
-        }
-        .auth-actions{
-            display:flex;
-            gap:12px;
-            flex-wrap:wrap;
-            margin-top:22px;
-        }
-        @media (max-width: 640px){
-            .auth-card{
-                padding:24px;
-            }
-            .auth-card h1{
-                font-size:28px;
-            }
-            .auth-actions{
-                flex-direction:column;
-            }
-            .auth-actions .btn,
-            .auth-actions .btn.secondary{
-                width:100%;
-                text-align:center;
-                justify-content:center;
-            }
-        }
-    </style>
     """
     return render_public_page(content, "Login")
 
