@@ -14,11 +14,9 @@ def ensure_messaging_tables():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # Company-level messaging preferences only.
-    # Twilio credentials are now platform-managed through environment variables.
     cur.execute("""
         CREATE TABLE IF NOT EXISTS messaging_settings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             company_id INTEGER NOT NULL UNIQUE,
             messaging_enabled INTEGER NOT NULL DEFAULT 0,
             send_job_updates INTEGER NOT NULL DEFAULT 1,
@@ -33,9 +31,32 @@ def ensure_messaging_tables():
         )
     """)
 
-    # Backfill old databases that may have an earlier version of the table.
-    cur.execute("PRAGMA table_info(messaging_settings)")
-    existing_cols = [row[1] for row in cur.fetchall()]
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS message_log (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            customer_id INTEGER,
+            job_id INTEGER,
+            invoice_id INTEGER,
+            phone_number TEXT,
+            direction TEXT NOT NULL DEFAULT 'outbound',
+            message_body TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'queued',
+            provider TEXT DEFAULT 'email',
+            provider_message_id TEXT,
+            sent_by_user_id INTEGER,
+            error_message TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            sent_at TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = 'messaging_settings'
+    """)
+    existing_cols = [row["column_name"] for row in cur.fetchall()]
 
     required_columns = {
         "messaging_enabled": "INTEGER NOT NULL DEFAULT 0",
@@ -54,27 +75,6 @@ def ensure_messaging_tables():
         if col_name not in existing_cols:
             cur.execute(f"ALTER TABLE messaging_settings ADD COLUMN {col_name} {col_def}")
 
-    # Stores outbound messages / history
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS message_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            company_id INTEGER NOT NULL,
-            customer_id INTEGER,
-            job_id INTEGER,
-            invoice_id INTEGER,
-            phone_number TEXT,
-            direction TEXT NOT NULL DEFAULT 'outbound',
-            message_body TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'queued',
-            provider TEXT DEFAULT 'twilio',
-            provider_message_id TEXT,
-            sent_by_user_id INTEGER,
-            error_message TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            sent_at TIMESTAMP
-        )
-    """)
-
     conn.commit()
     conn.close()
 
@@ -85,7 +85,7 @@ def get_messaging_settings(company_id):
     cur.execute("""
         SELECT *
         FROM messaging_settings
-        WHERE company_id = ?
+        WHERE company_id = %s
     """, (company_id,))
     row = cur.fetchone()
     conn.close()
@@ -105,9 +105,9 @@ def get_message_history(company_id, limit=100):
         LEFT JOIN customers c ON ml.customer_id = c.id
         LEFT JOIN jobs j ON ml.job_id = j.id
         LEFT JOIN invoices i ON ml.invoice_id = i.id
-        WHERE ml.company_id = ?
+        WHERE ml.company_id = %s
         ORDER BY ml.created_at DESC, ml.id DESC
-        LIMIT ?
+        LIMIT %s
     """, (company_id, limit))
     rows = cur.fetchall()
     conn.close()
@@ -123,7 +123,7 @@ def get_customers_for_messages(company_id):
         cur.execute("""
             SELECT id, name, phone
             FROM customers
-            WHERE company_id = ?
+            WHERE company_id = %s
             ORDER BY name ASC
         """, (company_id,))
         customer_rows = cur.fetchall()
@@ -132,7 +132,7 @@ def get_customers_for_messages(company_id):
             cur.execute("""
                 SELECT id, name, phone_number AS phone
                 FROM customers
-                WHERE company_id = ?
+                WHERE company_id = %s
                 ORDER BY name ASC
             """, (company_id,))
             customer_rows = cur.fetchall()
@@ -174,7 +174,7 @@ def insert_message_log(
             error_message,
             sent_at
         )
-        VALUES (?, ?, ?, ?, ?, 'outbound', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        VALUES (%s, %s, %s, %s, %s, 'outbound', %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
     """, (
         company_id,
         customer_id,
@@ -528,16 +528,16 @@ def messaging_configuration():
         if existing:
             cur.execute("""
                 UPDATE messaging_settings
-                SET messaging_enabled = ?,
-                    send_job_updates = ?,
-                    send_invoice_reminders = ?,
-                    send_manual_messages = ?,
-                    default_on_the_way_template = ?,
-                    default_job_started_template = ?,
-                    default_job_completed_template = ?,
-                    default_invoice_reminder_template = ?,
+                SET messaging_enabled = %s,
+                    send_job_updates = %s,
+                    send_invoice_reminders = %s,
+                    send_manual_messages = %s,
+                    default_on_the_way_template = %s,
+                    default_job_started_template = %s,
+                    default_job_completed_template = %s,
+                    default_invoice_reminder_template = %s,
                     updated_at = CURRENT_TIMESTAMP
-                WHERE company_id = ?
+                WHERE company_id = %s
             """, (
                 messaging_enabled,
                 send_job_updates,
@@ -562,7 +562,7 @@ def messaging_configuration():
                     default_job_completed_template,
                     default_invoice_reminder_template
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 company_id,
                 messaging_enabled,
