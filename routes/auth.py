@@ -7,6 +7,118 @@ from page_helpers import render_public_page
 auth_bp = Blueprint("auth", __name__)
 
 
+def _auth_styles():
+    return """
+    <style>
+    .auth-panel{
+        width:100%;
+        max-width:520px;
+        margin:0 auto;
+    }
+
+    .auth-logo-wrap{
+        display:flex;
+        align-items:center;
+        gap:12px;
+        margin-bottom:18px;
+    }
+
+    .auth-logo{
+        width:48px;
+        height:48px;
+        object-fit:contain;
+        border-radius:12px;
+        background: rgba(255,255,255,0.10);
+        padding:4px;
+        flex:0 0 auto;
+    }
+
+    .auth-logo-text{
+        font-size:22px;
+        font-weight:800;
+        color:#f7f3ea;
+        line-height:1.1;
+    }
+
+    .auth-panel h1{
+        margin:0 0 8px 0;
+        font-size:34px;
+        color:#f7f3ea;
+        line-height:1.1;
+    }
+
+    .auth-subtext{
+        margin:0 0 24px 0;
+        color:#d6c2a8;
+        line-height:1.6;
+    }
+
+    .auth-grid{
+        display:grid;
+        gap:16px;
+    }
+
+    .auth-grid label{
+        display:block;
+        font-size:14px;
+        font-weight:700;
+        color:#f7f3ea;
+        margin-bottom:6px;
+    }
+
+    .auth-grid input{
+        width:100%;
+        box-sizing:border-box;
+        border:1px solid #314756;
+        background:#182833;
+        color:#f7f3ea;
+        border-radius:12px;
+        padding:12px 14px;
+        font-size:15px;
+    }
+
+    .auth-grid input:focus{
+        outline:none;
+        border-color:#6bbf72;
+        box-shadow:0 0 0 3px rgba(107,191,114,0.20);
+    }
+
+    .auth-actions{
+        display:flex;
+        gap:12px;
+        flex-wrap:wrap;
+        margin-top:22px;
+    }
+
+    .auth-actions .btn{
+        min-width:140px;
+        justify-content:center;
+    }
+
+    .auth-actions .btn.secondary{
+        background:#223746;
+        color:#f7f3ea;
+        border:1px solid #314756;
+    }
+
+    .auth-actions .btn.secondary:hover{
+        background:#2a4253;
+    }
+
+    @media (max-width: 640px){
+        .auth-actions{
+            flex-direction:column;
+        }
+
+        .auth-actions .btn,
+        .auth-actions .btn.secondary{
+            width:100%;
+        }
+    }
+    </style>
+    """
+
+
 @auth_bp.route("/")
 def home():
     if session.get("user_id"):
@@ -67,158 +179,48 @@ def register():
         flash("Account created.")
         return redirect(url_for("dashboard.dashboard"))
 
-    content = """
-    <div class="auth-shell">
-        <div class="auth-card">
+    logo_src = url_for("static", filename="images/logo.png")
 
-            <div class="auth-logo-wrap">
-                <img src="/static/images/logo.png" class="auth-logo">
-                <div class="auth-logo-text">TerraLedger™</div>
+    content = f"""
+    <div class="auth-panel">
+        <div class="auth-logo-wrap">
+            <img src="{logo_src}" class="auth-logo" alt="TerraLedger Logo">
+            <div class="auth-logo-text">TerraLedger<sup style="font-size:10px;">™</sup></div>
+        </div>
+
+        <h1>Create Account</h1>
+        <p class="auth-subtext">
+            Create your company account to start using TerraLedger.
+        </p>
+
+        <form method="post">
+            <div class="auth-grid">
+                <div>
+                    <label>Company Name</label>
+                    <input name="company_name" required>
+                </div>
+                <div>
+                    <label>Your Name</label>
+                    <input name="user_name" required>
+                </div>
+                <div>
+                    <label>Email</label>
+                    <input type="email" name="email" required>
+                </div>
+                <div>
+                    <label>Password</label>
+                    <input type="password" name="password" required>
+                </div>
             </div>
 
-            <h1>Create Account</h1>
-            <p class="auth-subtext">
-                Create your company account to start using TerraLedger.
-            </p>
-
-            <form method="post">
-                <div class="auth-grid">
-                    <div>
-                        <label>Company Name</label>
-                        <input name="company_name" required>
-                    </div>
-                    <div>
-                        <label>Your Name</label>
-                        <input name="user_name" required>
-                    </div>
-                    <div>
-                        <label>Email</label>
-                        <input type="email" name="email" required>
-                    </div>
-                    <div>
-                        <label>Password</label>
-                        <input type="password" name="password" required>
-                    </div>
-                </div>
-
-                <div class="auth-actions">
-                    <button class="btn" type="submit">Create Account</button>
-                    <a class="btn secondary" href="/login">Login</a>
-                </div>
-            </form>
-
-        </div>
+            <div class="auth-actions">
+                <button class="btn" type="submit">Create Account</button>
+                <a class="btn secondary" href="/login">Login</a>
+            </div>
+        </form>
     </div>
 
-    <style>
-    .auth-shell{
-        min-height: calc(100vh - 120px);
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        padding:40px 20px;
-    }
-
-    .auth-card{
-        width:100%;
-        max-width:520px;
-        background: linear-gradient(180deg, #1b2c38, #223746);
-        border:1px solid #314756;
-        border-radius:20px;
-        box-shadow: 0 25px 60px rgba(0,0,0,0.4);
-        padding:28px;
-        color:#f7f3ea;
-    }
-
-    /* 🔥 LOGO */
-    .auth-logo-wrap{
-        display:flex;
-        align-items:center;
-        gap:12px;
-        margin-bottom:18px;
-    }
-
-    .auth-logo{
-        width:42px;
-        height:42px;
-        object-fit:contain;
-        border-radius:10px;
-    }
-
-    .auth-logo-text{
-        font-size:20px;
-        font-weight:800;
-        color:#f7f3ea;
-    }
-
-    .auth-card h1{
-        margin:0 0 8px 0;
-        font-size:32px;
-        color:#f7f3ea;
-    }
-
-    .auth-subtext{
-        margin:0 0 24px 0;
-        color:#d6c2a8;
-    }
-
-    .auth-grid{
-        display:grid;
-        gap:16px;
-    }
-
-    .auth-grid label{
-        font-size:14px;
-        font-weight:600;
-    }
-
-    .auth-grid input{
-        width:100%;
-        border:1px solid #314756;
-        background:#182833;
-        color:#f7f3ea;
-        border-radius:12px;
-        padding:12px 14px;
-    }
-
-    .auth-grid input:focus{
-        outline:none;
-        border-color:#6bbf72;
-        box-shadow:0 0 0 3px rgba(107,191,114,0.2);
-    }
-
-    .auth-actions{
-        display:flex;
-        gap:12px;
-        margin-top:22px;
-    }
-
-    .btn{
-        background: linear-gradient(135deg, #6bbf72, #8fd59a);
-        color:#0d1720;
-        border:none;
-        padding:12px 16px;
-        border-radius:12px;
-        font-weight:800;
-        cursor:pointer;
-    }
-
-    .btn.secondary{
-        background:#223746;
-        color:#f7f3ea;
-        border:1px solid #314756;
-    }
-
-    .btn.secondary:hover{
-        background:#2a4253;
-    }
-
-    @media (max-width: 640px){
-        .auth-actions{
-            flex-direction:column;
-        }
-    }
-    </style>
+    {_auth_styles()}
     """
     return render_public_page(content, "Register")
 
@@ -250,6 +252,10 @@ def login():
             flash("Invalid email or password.")
             return redirect(url_for("auth.login"))
 
+        if "is_active" in user.keys() and int(user["is_active"] or 1) != 1:
+            flash("This user account is inactive.")
+            return redirect(url_for("auth.login"))
+
         session["user_id"] = user["id"]
         session["user_name"] = user["name"]
         session["user_email"] = email
@@ -258,40 +264,40 @@ def login():
 
         return redirect(url_for("dashboard.dashboard"))
 
-    content = """
-    <div class="auth-shell">
-        <div class="auth-card">
+    logo_src = url_for("static", filename="images/logo.png")
 
-            <div class="auth-logo-wrap">
-                <img src="/static/images/logo.png" class="auth-logo">
-                <div class="auth-logo-text">TerraLedger™</div>
+    content = f"""
+    <div class="auth-panel">
+        <div class="auth-logo-wrap">
+            <img src="{logo_src}" class="auth-logo" alt="TerraLedger Logo">
+            <div class="auth-logo-text">TerraLedger<sup style="font-size:10px;">™</sup></div>
+        </div>
+
+        <h1>Login</h1>
+        <p class="auth-subtext">
+            Sign in to access your TerraLedger workspace.
+        </p>
+
+        <form method="post">
+            <div class="auth-grid">
+                <div>
+                    <label>Email</label>
+                    <input type="email" name="email" required>
+                </div>
+                <div>
+                    <label>Password</label>
+                    <input type="password" name="password" required>
+                </div>
             </div>
 
-            <h1>Login</h1>
-            <p class="auth-subtext">
-                Sign in to access your TerraLedger workspace.
-            </p>
-
-            <form method="post">
-                <div class="auth-grid">
-                    <div>
-                        <label>Email</label>
-                        <input type="email" name="email" required>
-                    </div>
-                    <div>
-                        <label>Password</label>
-                        <input type="password" name="password" required>
-                    </div>
-                </div>
-
-                <div class="auth-actions">
-                    <button class="btn" type="submit">Login</button>
-                    <a class="btn secondary" href="/register">Create Account</a>
-                </div>
-            </form>
-
-        </div>
+            <div class="auth-actions">
+                <button class="btn" type="submit">Login</button>
+                <a class="btn secondary" href="/register">Create Account</a>
+            </div>
+        </form>
     </div>
+
+    {_auth_styles()}
     """
     return render_public_page(content, "Login")
 

@@ -1342,10 +1342,12 @@ def view_invoice(invoice_id):
             <td>{escape(_clean_display(p["payment_method"]))}</td>
             <td>{escape(_clean_display(p["reference"]))}</td>
             <td>
-                <a class='btn small' href='{url_for("invoices.edit_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}'>Edit</a>
-                <form method='post' action='{url_for("invoices.delete_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}' style='display:inline;'>
-                    <button class='btn secondary small' type='submit'>Delete</button>
-                </form>
+                <div class='row-actions'>
+                    <a class='btn small' href='{url_for("invoices.edit_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}'>Edit</a>
+                    <form method='post' action='{url_for("invoices.delete_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}' style='display:inline;'>
+                        <button class='btn secondary small' type='submit'>Delete</button>
+                    </form>
+                </div>
             </td>
         </tr>
         """
@@ -1353,39 +1355,44 @@ def view_invoice(invoice_id):
     if not payment_rows:
         payment_rows = "<tr><td colspan='5' class='muted'>No payments recorded.</td></tr>"
 
+    invoice_number = _clean_display(invoice["invoice_number"] or invoice["id"])
+    invoice_status = _clean_display(invoice["status"])
+    is_paid = str(invoice["status"] or "").strip().lower() == "paid"
+
+    toggle_button_html = f"""
+    <form method='post' action='{url_for("invoices.toggle_invoice_paid", invoice_id=invoice_id)}' style='display:inline;'>
+        <button class='btn {"secondary" if is_paid else "success"}' type='submit'>
+            {"Mark Unpaid" if is_paid else "Mark Paid"}
+        </button>
+    </form>
+    """
+
     content = f"""
     <div class='card'>
-        <div style='display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;'>
+        <div style='display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; align-items:flex-start;'>
             <div>
-                <h1>Invoice #{escape(str(invoice["invoice_number"] or invoice["id"]))}</h1>
+                <h1>Invoice #{escape(str(invoice_number))}</h1>
                 <p class='muted'>
                     <strong>Customer:</strong> {escape(_clean_display(invoice["customer_name"]))}<br>
                     <strong>Company:</strong> {escape(_clean_display(invoice["customer_company"]))}<br>
                     <strong>Email:</strong> {escape(_clean_display(invoice["customer_email"]))}<br>
                     <strong>Invoice Date:</strong> {escape(str(invoice["invoice_date"] or "-"))}<br>
                     <strong>Due Date:</strong> {escape(str(invoice["due_date"] or "-"))}<br>
-                    <strong>Status:</strong> {escape(_clean_display(invoice["status"]))}
+                    <strong>Status:</strong> {escape(invoice_status)}
                 </p>
             </div>
 
-            <div style='display:flex; gap:8px; flex-wrap:wrap;'>
-                <a class='btn secondary' href='{url_for("invoices.invoices")}'>Back</a>
-
-                <a class='btn' href='{url_for("invoices.email_invoice_preview", invoice_id=invoice_id)}'>Email Invoice</a>
-
-                <form method='post' action='{url_for("invoices.mark_invoice_paid", invoice_id=invoice_id)}' style='display:inline;'>
-                    <button class='btn success' type='submit'>Mark Paid</button>
-                </form>
-
-                <form method='post' action='{url_for("invoices.mark_invoice_unpaid", invoice_id=invoice_id)}' style='display:inline;'>
-                    <button class='btn secondary' type='submit'>Mark Unpaid</button>
-                </form>
+            <div style='display:flex; flex-direction:column; gap:10px; align-items:flex-end;'>
+                <div class='row-actions' style='justify-content:flex-end;'>
+                    <a class='btn secondary' href='{url_for("invoices.invoices")}'>Back</a>
+                    <a class='btn' href='{url_for("invoices.email_invoice_preview", invoice_id=invoice_id)}'>Email Invoice</a>
+                    {toggle_button_html}
+                </div>
 
                 <form method='post'
                       action='{url_for("invoices.delete_invoice", invoice_id=invoice_id)}'
-                      style='display:inline;'
                       onsubmit="return confirm('Delete this invoice? This will also remove its items and payments.');">
-                    <button class='btn danger' type='submit'>Delete Invoice</button>
+                    <button class='btn danger small' type='submit'>Delete Invoice</button>
                 </form>
             </div>
         </div>
@@ -1396,10 +1403,12 @@ def view_invoice(invoice_id):
             <div class='stat-label'>Total</div>
             <div class='stat-value'>${_safe_float(invoice["total"]):,.2f}</div>
         </div>
+
         <div class='card stat-card'>
             <div class='stat-label'>Paid</div>
             <div class='stat-value' style='color:#16a34a;'>${_safe_float(invoice["amount_paid"]):,.2f}</div>
         </div>
+
         <div class='card stat-card'>
             <div class='stat-label'>Balance Due</div>
             <div class='stat-value' style='color:#dc2626;'>${_safe_float(invoice["balance_due"]):,.2f}</div>
@@ -1408,7 +1417,10 @@ def view_invoice(invoice_id):
 
     <div class='card'>
         <h2>Add Payment</h2>
-        <p class='muted'>Use this for partial payments. Example: if a $500 invoice gets a $200 payment, TerraLedger will mark it as Partial and leave $300 due.</p>
+        <p class='muted'>
+            Use this for partial payments. Example: if a $500 invoice gets a $200 payment,
+            TerraLedger will mark it as Partial and leave $300 due.
+        </p>
 
         <form method='post' action='{url_for("invoices.add_invoice_payment", invoice_id=invoice_id)}'>
             <div class='grid'>
@@ -1458,7 +1470,10 @@ def view_invoice(invoice_id):
     </div>
 
     <div class='card'>
-        <h2>Payment History</h2>
+        <div class='section-head'>
+            <h2>Payment History</h2>
+        </div>
+
         <table class='table'>
             <thead>
                 <tr>
@@ -1480,7 +1495,80 @@ def view_invoice(invoice_id):
         <p>{escape(_clean_display(invoice["notes"]))}</p>
     </div>
     """
-    return render_page(content, f"Invoice #{invoice['invoice_number'] or invoice_id}")
+    return render_page(content, f"Invoice #{invoice_number}")
+
+
+@invoices_bp.route("/invoices/<int:invoice_id>/toggle_paid", methods=["POST"])
+@login_required
+@require_permission("can_manage_invoices")
+def toggle_invoice_paid(invoice_id):
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    invoice = conn.execute(
+        """
+        SELECT *
+        FROM invoices
+        WHERE id = %s AND company_id = %s
+        """,
+        (invoice_id, cid),
+    ).fetchone()
+
+    if not invoice:
+        conn.close()
+        flash("Invoice not found.")
+        return redirect(url_for("invoices.invoices"))
+
+    current_status = str(invoice["status"] or "").strip().lower()
+
+    if current_status == "paid":
+        conn.execute(
+            """
+            DELETE FROM invoice_payments
+            WHERE invoice_id = %s AND company_id = %s
+            """,
+            (invoice_id, cid),
+        )
+
+        conn.commit()
+        conn.close()
+
+        _sync_invoice_status_and_bookkeeping(invoice_id)
+
+        flash("Invoice marked unpaid and payment history cleared.")
+        return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
+
+    remaining_balance = _safe_float(invoice["balance_due"])
+
+    if remaining_balance <= 0:
+        conn.close()
+        flash("Invoice is already fully paid.")
+        return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
+
+    conn.execute(
+        """
+        INSERT INTO invoice_payments
+        (company_id, invoice_id, payment_date, amount, payment_method, reference, notes)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            cid,
+            invoice_id,
+            date.today().isoformat(),
+            remaining_balance,
+            "Mark Paid",
+            "",
+            "Remaining balance marked paid",
+        ),
+    )
+
+    conn.commit()
+    conn.close()
+
+    _sync_invoice_status_and_bookkeeping(invoice_id)
+
+    flash("Invoice marked paid.")
+    return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
 
 @invoices_bp.route("/invoices/<int:invoice_id>/email")
@@ -1965,98 +2053,6 @@ def delete_invoice_payment(invoice_id, payment_id):
     _sync_invoice_status_and_bookkeeping(invoice_id)
 
     flash("Payment deleted.")
-    return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
-
-
-@invoices_bp.route("/invoices/<int:invoice_id>/mark_paid", methods=["POST"])
-@login_required
-@require_permission("can_manage_invoices")
-def mark_invoice_paid(invoice_id):
-    conn = get_db_connection()
-    cid = session["company_id"]
-
-    invoice = conn.execute(
-        """
-        SELECT *
-        FROM invoices
-        WHERE id = %s AND company_id = %s
-        """,
-        (invoice_id, cid),
-    ).fetchone()
-
-    if not invoice:
-        conn.close()
-        flash("Invoice not found.")
-        return redirect(url_for("invoices.invoices"))
-
-    remaining_balance = _safe_float(invoice["balance_due"])
-
-    if remaining_balance <= 0:
-        conn.close()
-        flash("Invoice is already fully paid.")
-        return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
-
-    conn.execute(
-        """
-        INSERT INTO invoice_payments
-        (company_id, invoice_id, payment_date, amount, payment_method, reference, notes)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """,
-        (
-            cid,
-            invoice_id,
-            date.today().isoformat(),
-            remaining_balance,
-            "Mark Paid",
-            "",
-            "Remaining balance marked paid",
-        ),
-    )
-
-    conn.commit()
-    conn.close()
-
-    _sync_invoice_status_and_bookkeeping(invoice_id)
-
-    flash("Invoice marked paid.")
-    return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
-
-
-@invoices_bp.route("/invoices/<int:invoice_id>/mark_unpaid", methods=["POST"])
-@login_required
-@require_permission("can_manage_invoices")
-def mark_invoice_unpaid(invoice_id):
-    conn = get_db_connection()
-    cid = session["company_id"]
-
-    invoice = conn.execute(
-        """
-        SELECT *
-        FROM invoices
-        WHERE id = %s AND company_id = %s
-        """,
-        (invoice_id, cid),
-    ).fetchone()
-
-    if not invoice:
-        conn.close()
-        flash("Invoice not found.")
-        return redirect(url_for("invoices.invoices"))
-
-    conn.execute(
-        """
-        DELETE FROM invoice_payments
-        WHERE invoice_id = %s AND company_id = %s
-        """,
-        (invoice_id, cid),
-    )
-
-    conn.commit()
-    conn.close()
-
-    _sync_invoice_status_and_bookkeeping(invoice_id)
-
-    flash("Invoice marked unpaid and payment history cleared.")
     return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
 
