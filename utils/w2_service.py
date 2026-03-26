@@ -117,7 +117,7 @@ def get_employee_w2_source_data(conn, company_id, employee_id, tax_year):
         FROM payroll_entries
         WHERE company_id = %s
           AND employee_id = %s
-          AND EXTRACT(YEAR FROM pay_date) = %s
+          AND LEFT(CAST(pay_date AS TEXT), 4) = %s
         """,
         (company_id, employee_id, tax_year),
     ).fetchone()
@@ -229,7 +229,7 @@ def get_company_w2_year_summary(conn, company_id, tax_year):
             COALESCE(SUM(local_tax), 0) AS total_local_tax
         FROM payroll_entries
         WHERE company_id = %s
-          AND EXTRACT(YEAR FROM pay_date) = %s
+          AND LEFT(CAST(pay_date AS TEXT), 4) = %s
         """,
         (company_id, tax_year),
     ).fetchone()
@@ -274,7 +274,7 @@ def list_employee_w2_summaries(conn, company_id, tax_year):
             COALESCE(SUM(other_deductions), 0) AS other_deductions
         FROM payroll_entries
         WHERE company_id = %s
-          AND EXTRACT(YEAR FROM pay_date) = %s
+          AND LEFT(CAST(pay_date AS TEXT), 4) = %s
         GROUP BY employee_id
         """,
         (company_id, tax_year),
