@@ -3,7 +3,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import secrets
 from datetime import datetime, timedelta
 
-from db import get_db_connection, create_owner_user
+from db import get_db_connection, create_owner_user, ensure_password_reset_table
 from page_helpers import render_public_page
 from utils.emailing import send_company_email
 
@@ -372,6 +372,7 @@ def login():
 
 @auth_bp.route("/forgot-password", methods=["GET", "POST"])
 def forgot_password():
+    ensure_password_reset_table
     if request.method == "POST":
         email = (request.form.get("email") or "").strip().lower()
 
@@ -443,6 +444,7 @@ def forgot_password():
 
 @auth_bp.route("/reset-password/<token>", methods=["GET", "POST"])
 def reset_password(token):
+    ensure_password_reset_table
     conn = get_db_connection()
 
     row = conn.execute(
