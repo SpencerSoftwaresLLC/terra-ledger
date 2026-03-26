@@ -75,6 +75,11 @@ a {
     box-shadow: 2px 0 14px rgba(47, 79, 31, 0.16);
 }
 
+.sidebar-nav a.active {
+    background: var(--green);
+    color: #fff;
+}
+
 .sidebar-brand {
     display: flex;
     align-items: center;
@@ -841,15 +846,25 @@ label {
         </div>
 
         <nav class="sidebar-nav">
-            <a href="{{ url_for('dashboard.dashboard') }}">Dashboard</a>
-            <a href="{{ url_for('customers.customers') }}">Customers</a>
-            <a href="{{ url_for('employees.employees') }}">Employees</a>
-            <a href="{{ url_for('quotes.quotes') }}">Quotes</a>
-            <a href="{{ url_for('jobs.jobs') }}">Jobs</a>
-            <a href="{{ url_for('invoices.invoices') }}">Invoices</a>
-            <a href="{{ url_for('messages.messages_page') }}">Messages</a>
-            <a href="{{ url_for('calendar.calendar_page') }}">Calendar</a>
-            <a href="{{ url_for('bookkeeping.bookkeeping') }}">Bookkeeping</a>
+            <a class="{% if request.endpoint == 'dashboard.dashboard' %}active{% endif %}" href="{{ url_for('dashboard.dashboard') }}">Dashboard</a>
+
+            <a class="{% if request.endpoint == 'customers.customers' %}active{% endif %}" href="{{ url_for('customers.customers') }}">Customers</a>
+
+            <a class="{% if request.endpoint == 'employees.employees' %}active{% endif %}" href="{{ url_for('employees.employees') }}">Employees</a>
+
+            <a class="{% if request.endpoint.startswith('employees.time_clock') %}active{% endif %}" href="{{ url_for('employees.time_clock') }}">Clock In / Out</a>
+
+            <a class="{% if request.endpoint == 'quotes.quotes' %}active{% endif %}" href="{{ url_for('quotes.quotes') }}">Quotes</a>
+
+            <a class="{% if request.endpoint == 'jobs.jobs' %}active{% endif %}" href="{{ url_for('jobs.jobs') }}">Jobs</a>
+
+            <a class="{% if request.endpoint == 'invoices.invoices' %}active{% endif %}" href="{{ url_for('invoices.invoices') }}">Invoices</a>
+
+            <a class="{% if request.endpoint == 'messages.messages_page' %}active{% endif %}" href="{{ url_for('messages.messages_page') }}">Messages</a>
+
+            <a class="{% if request.endpoint == 'calendar.calendar_page' %}active{% endif %}" href="{{ url_for('calendar.calendar_page') }}">Calendar</a>
+
+            <a class="{% if request.endpoint == 'bookkeeping.bookkeeping' %}active{% endif %}" href="{{ url_for('bookkeeping.bookkeeping') }}">Bookkeeping</a>
         </nav>
     </aside>
 

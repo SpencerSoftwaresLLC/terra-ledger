@@ -1130,6 +1130,8 @@ def init_db():
     ensure_document_number_columns()
     ensure_job_item_columns()
     ensure_password_reset_table()
+    ensure_employee_time_entries_table()
+    ensure_company_time_clock_columns()
 
 
 # -------------------------------------------------------------------
@@ -1380,6 +1382,15 @@ def get_next_invoice_number(company_id):
     conn.commit()
     conn.close()
     return str(next_number)
+
+def ensure_company_time_clock_columns():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    safe_add_column(cur, "company_profile", "time_clock_pay_period_start_day", "INTEGER NOT NULL DEFAULT 2")
+
+    conn.commit()
+    conn.close()
 
 
 def get_next_quote_number(company_id):
@@ -1920,6 +1931,26 @@ def ensure_job_cost_ledger(conn, job_item_id):
             """,
             (new_ledger_id, job_item_id),
         )
+
+def ensure_employee_time_entries_table():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS employee_time_entries (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            employee_id INTEGER NOT NULL,
+            clock_in TIMESTAMP NOT NULL,
+            clock_out TIMESTAMP,
+            total_hours DOUBLE PRECISION NOT NULL DEFAULT 0,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.commit()
+    conn.close()
 
 
 def repair_all_job_item_ledgers(conn, company_id):

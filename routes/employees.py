@@ -1,5 +1,6 @@
-from flask import Blueprint, request, redirect, url_for, session, flash
+from flask import Blueprint, request, redirect, url_for, session, flash, render_template_string, abort
 from html import escape
+from datetime import datetime, date, timedelta
 
 from db import (
     get_db_connection,
@@ -8,6 +9,9 @@ from db import (
     ensure_employee_payroll_columns,
     ensure_employee_tax_columns,
     get_employee_columns,
+    ensure_employee_time_entries_table,
+    ensure_company_profile_table,
+    ensure_company_time_clock_columns,
 )
 from decorators import login_required, require_permission, subscription_required
 from page_helpers import render_page
@@ -203,6 +207,63 @@ def _employee_form_html(employee=None, form_action="", submit_label="Save Employ
     return content
 
 
+def _format_hours(hours_value):
+    try:
+        return f"{float(hours_value or 0):.2f}"
+    except Exception:
+        return "0.00"
+
+
+def _weekday_label(day_number):
+    labels = {
+        0: "Monday",
+        1: "Tuesday",
+        2: "Wednesday",
+        3: "Thursday",
+        4: "Friday",
+        5: "Saturday",
+        6: "Sunday",
+    }
+    return labels.get(int(day_number), "Wednesday")
+
+
+def _get_company_time_clock_start_day(company_id):
+    ensure_company_profile_table()
+    ensure_company_time_clock_columns()
+
+    conn = get_db_connection()
+    row = conn.execute(
+        """
+        SELECT time_clock_pay_period_start_day
+        FROM company_profile
+        WHERE company_id = %s
+        """,
+        (company_id,),
+    ).fetchone()
+    conn.close()
+
+    if row and row["time_clock_pay_period_start_day"] is not None:
+        try:
+            value = int(row["time_clock_pay_period_start_day"])
+            if 0 <= value <= 6:
+                return value
+        except Exception:
+            pass
+
+    return 2
+
+
+def _get_current_pay_period(start_day):
+    today = date.today()
+    start_day = int(start_day)
+
+    days_since_start = (today.weekday() - start_day) % 7
+    start_date = today - timedelta(days=days_since_start)
+    end_date = start_date + timedelta(days=6)
+
+    return start_date, end_date
+
+
 @employees_bp.route("/employees")
 @login_required
 @subscription_required
@@ -236,7 +297,7 @@ def employees():
             f"""
             SELECT *
             FROM employees
-            WHERE company_id = ?
+            WHERE company_id = %s
             ORDER BY is_active DESC, {name_col} ASC, id DESC
             """,
             (cid,),
@@ -246,7 +307,7 @@ def employees():
             f"""
             SELECT *
             FROM employees
-            WHERE company_id = ? AND is_active = 1
+            WHERE company_id = %s AND is_active = 1
             ORDER BY {name_col} ASC, id DESC
             """,
             (cid,),
@@ -309,6 +370,7 @@ def employees():
             <div class='row-actions'>
                 <a href='{url_for("employees.employees", show="active")}' class='{active_btn_class}'>Active Employees</a>
                 <a href='{url_for("employees.employees", show="all")}' class='{all_btn_class}'>All Employees</a>
+                <a href='{url_for("employees.time_clock")}' class='btn'>Clock In / Out</a>
                 <a href='{url_for("payroll.employee_payroll")}' class='btn warning'>Payroll</a>
                 <a href='{url_for("employees.new_employee")}' class='btn success'>+ New Employee</a>
             </div>
@@ -331,6 +393,7 @@ def employees():
             </tr>
             {employee_rows or "<tr><td colspan='8' class='muted'>No employees found.</td></tr>"}
         </table>
+        </div>
     </div>
     """
     return render_page(content, "Employees")
@@ -443,12 +506,12 @@ def new_employee():
                 insert_cols.append(col)
                 insert_vals.append(data[col])
 
-        placeholders = ",".join(["?"] * len(insert_cols))
+        placeholders = ",".join(["%s"] * len(insert_cols))
         col_sql = ",".join(insert_cols)
 
         conn.execute(
             f"INSERT INTO employees ({col_sql}) VALUES ({placeholders})",
-            insert_vals,
+            tuple(insert_vals),
         )
         conn.commit()
         conn.close()
@@ -481,7 +544,7 @@ def view_employee(employee_id):
         """
         SELECT *
         FROM employees
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (employee_id, cid),
     ).fetchone()
@@ -505,7 +568,7 @@ def view_employee(employee_id):
                 gross_pay,
                 net_pay
             FROM payroll_entries
-            WHERE employee_id = ? AND company_id = ?
+            WHERE employee_id = %s AND company_id = %s
             ORDER BY
                 CASE WHEN pay_date IS NULL OR pay_date = '' THEN 1 ELSE 0 END,
                 pay_date DESC,
@@ -661,7 +724,7 @@ def edit_employee(employee_id):
     cid = session["company_id"]
 
     employee = conn.execute(
-        "SELECT * FROM employees WHERE id = ? AND company_id = ?",
+        "SELECT * FROM employees WHERE id = %s AND company_id = %s",
         (employee_id, cid),
     ).fetchone()
 
@@ -703,27 +766,27 @@ def edit_employee(employee_id):
         conn.execute(
             """
             UPDATE employees
-            SET first_name = ?,
-                last_name = ?,
-                full_name = ?,
-                phone = ?,
-                email = ?,
-                position = ?,
-                hire_date = ?,
-                pay_type = ?,
-                hourly_rate = ?,
-                overtime_rate = ?,
-                salary_amount = ?,
-                default_hours = ?,
-                payroll_notes = ?,
-                federal_filing_status = ?,
-                pay_frequency = ?,
-                w4_step2_checked = ?,
-                w4_step3_amount = ?,
-                w4_step4a_other_income = ?,
-                w4_step4b_deductions = ?,
-                w4_step4c_extra_withholding = ?
-            WHERE id = ? AND company_id = ?
+            SET first_name = %s,
+                last_name = %s,
+                full_name = %s,
+                phone = %s,
+                email = %s,
+                position = %s,
+                hire_date = %s,
+                pay_type = %s,
+                hourly_rate = %s,
+                overtime_rate = %s,
+                salary_amount = %s,
+                default_hours = %s,
+                payroll_notes = %s,
+                federal_filing_status = %s,
+                pay_frequency = %s,
+                w4_step2_checked = %s,
+                w4_step3_amount = %s,
+                w4_step4a_other_income = %s,
+                w4_step4b_deductions = %s,
+                w4_step4c_extra_withholding = %s
+            WHERE id = %s AND company_id = %s
             """,
             (
                 first_name,
@@ -779,7 +842,7 @@ def activate_employee(employee_id):
         """
         UPDATE employees
         SET is_active = 1
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (employee_id, cid),
     )
@@ -803,7 +866,7 @@ def deactivate_employee(employee_id):
         """
         UPDATE employees
         SET is_active = 0
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (employee_id, cid),
     )
@@ -825,7 +888,7 @@ def delete_employee(employee_id):
         """
         SELECT id
         FROM employees
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (employee_id, cid),
     ).fetchone()
@@ -840,21 +903,32 @@ def delete_employee(employee_id):
             """
             SELECT ledger_entry_id
             FROM payroll_entries
-            WHERE employee_id = ? AND company_id = ? AND ledger_entry_id IS NOT NULL
+            WHERE employee_id = %s AND company_id = %s AND ledger_entry_id IS NOT NULL
             """,
             (employee_id, cid),
         ).fetchall()
 
         for row in payroll_ledger_ids:
             conn.execute(
-                "DELETE FROM ledger_entries WHERE id = ? AND company_id = ?",
+                "DELETE FROM ledger_entries WHERE id = %s AND company_id = %s",
                 (row["ledger_entry_id"], cid),
             )
 
         conn.execute(
             """
             DELETE FROM payroll_entries
-            WHERE employee_id = ? AND company_id = ?
+            WHERE employee_id = %s AND company_id = %s
+            """,
+            (employee_id, cid),
+        )
+    except Exception:
+        pass
+
+    try:
+        conn.execute(
+            """
+            DELETE FROM employee_time_entries
+            WHERE employee_id = %s AND company_id = %s
             """,
             (employee_id, cid),
         )
@@ -864,7 +938,7 @@ def delete_employee(employee_id):
     conn.execute(
         """
         DELETE FROM employees
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (employee_id, cid),
     )
@@ -874,3 +948,524 @@ def delete_employee(employee_id):
 
     flash("Employee deleted.")
     return redirect(url_for("employees.employees"))
+
+
+@employees_bp.route("/employees/time-clock", methods=["GET"])
+@login_required
+@require_permission("can_manage_employees")
+def time_clock():
+    ensure_employee_time_entries_table()
+    ensure_company_profile_table()
+    ensure_company_time_clock_columns()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    pay_period_start_day = _get_company_time_clock_start_day(cid)
+    pay_period_start, pay_period_end = _get_current_pay_period(pay_period_start_day)
+    pay_period_end_day = (pay_period_start_day - 1) % 7
+
+    employees = conn.execute(
+        """
+        SELECT
+            id,
+            first_name,
+            last_name,
+            full_name,
+            email,
+            is_active
+        FROM employees
+        WHERE company_id = %s AND is_active = 1
+        ORDER BY
+            COALESCE(NULLIF(last_name, ''), NULLIF(full_name, ''), NULLIF(first_name, ''), 'ZZZ'),
+            COALESCE(NULLIF(first_name, ''), ''),
+            id
+        """,
+        (cid,),
+    ).fetchall()
+
+    status_rows = conn.execute(
+        """
+        SELECT
+            e.id AS employee_id,
+            e.first_name,
+            e.last_name,
+            e.full_name,
+            t.id AS time_entry_id,
+            t.clock_in,
+            t.clock_out,
+            t.total_hours
+        FROM employees e
+        LEFT JOIN employee_time_entries t
+            ON t.employee_id = e.id
+           AND t.company_id = e.company_id
+           AND t.clock_out IS NULL
+        WHERE e.company_id = %s AND e.is_active = 1
+        ORDER BY
+            COALESCE(NULLIF(e.last_name, ''), NULLIF(e.full_name, ''), NULLIF(e.first_name, ''), 'ZZZ'),
+            COALESCE(NULLIF(e.first_name, ''), ''),
+            e.id
+        """,
+        (cid,),
+    ).fetchall()
+
+    today_rows = conn.execute(
+        """
+        SELECT
+            employee_id,
+            COALESCE(SUM(total_hours), 0) AS today_hours
+        FROM employee_time_entries
+        WHERE company_id = %s
+          AND DATE(clock_in) = %s
+        GROUP BY employee_id
+        """,
+        (cid, date.today().isoformat()),
+    ).fetchall()
+
+    pay_period_rows = conn.execute(
+        """
+        SELECT
+            employee_id,
+            COALESCE(SUM(total_hours), 0) AS pay_period_hours
+        FROM employee_time_entries
+        WHERE company_id = %s
+          AND DATE(clock_in) >= %s
+          AND DATE(clock_in) <= %s
+        GROUP BY employee_id
+        """,
+        (cid, pay_period_start.isoformat(), pay_period_end.isoformat()),
+    ).fetchall()
+
+    recent_entries = conn.execute(
+        """
+        SELECT
+            t.id,
+            t.employee_id,
+            t.clock_in,
+            t.clock_out,
+            t.total_hours,
+            t.notes,
+            e.first_name,
+            e.last_name,
+            e.full_name
+        FROM employee_time_entries t
+        JOIN employees e ON t.employee_id = e.id
+        WHERE t.company_id = %s
+        ORDER BY t.clock_in DESC
+        LIMIT 25
+        """,
+        (cid,),
+    ).fetchall()
+
+    conn.close()
+
+    today_map = {row["employee_id"]: float(row["today_hours"] or 0) for row in today_rows}
+    pay_period_map = {row["employee_id"]: float(row["pay_period_hours"] or 0) for row in pay_period_rows}
+
+    employees_with_status = []
+    currently_clocked_in = 0
+
+    for row in status_rows:
+        employee_name = (
+            f"{(row['first_name'] or '').strip()} {(row['last_name'] or '').strip()}".strip()
+            or (row["full_name"] or "").strip()
+            or f"Employee #{row['employee_id']}"
+        )
+
+        is_clocked_in = bool(row["time_entry_id"])
+        if is_clocked_in:
+            currently_clocked_in += 1
+
+        employees_with_status.append({
+            "employee_id": row["employee_id"],
+            "employee_name": employee_name,
+            "is_clocked_in": is_clocked_in,
+            "clock_in": row["clock_in"],
+            "today_hours": today_map.get(row["employee_id"], 0),
+            "pay_period_hours": pay_period_map.get(row["employee_id"], 0),
+        })
+
+    clocked_in_ids = {
+        row["employee_id"]
+        for row in employees_with_status
+        if row["is_clocked_in"]
+    }
+
+    time_clock_html = """
+    <div class='card'>
+        <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
+            <div>
+                <h1 style='margin-bottom:6px;'>Clock In / Out</h1>
+                <p class='muted' style='margin:0;'>Track employee hours using your company's chosen pay period.</p>
+            </div>
+            <div class='row-actions'>
+                <a class='btn secondary' href='{{ url_for("dashboard.dashboard") }}'>Back to Dashboard</a>
+            </div>
+        </div>
+    </div>
+
+    <div class='card'>
+        <h2>Pay Period Settings</h2>
+        <form method='post' action='{{ url_for("employees.update_time_clock_settings") }}'>
+            <div style='display:grid; grid-template-columns:minmax(220px, 1fr) auto; gap:12px; align-items:end;'>
+                <div>
+                    <label>Pay Period Start Day</label>
+                    <select name='time_clock_pay_period_start_day' required>
+                        {% for day_number, day_name in weekday_options %}
+                            <option value='{{ day_number }}' {% if day_number == pay_period_start_day %}selected{% endif %}>{{ day_name }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class='muted' style='margin-top:6px;'>
+                        Current pay period runs {{ pay_period_start_label }} through {{ pay_period_end_label }}.
+                    </div>
+                </div>
+                <div>
+                    <button class='btn' type='submit'>Save Pay Period</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <div class='card'>
+        <div style='display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px;'>
+            <div style='border:1px solid #e5e7eb; border-radius:12px; padding:16px; background:#f8fafc;'>
+                <div class='muted' style='margin-bottom:6px;'>Current Pay Period</div>
+                <div style='font-size:1.1rem; font-weight:700;'>{{ pay_period_start }} to {{ pay_period_end }}</div>
+            </div>
+
+            <div style='border:1px solid #e5e7eb; border-radius:12px; padding:16px; background:#f8fafc;'>
+                <div class='muted' style='margin-bottom:6px;'>Employees</div>
+                <div style='font-size:1.4rem; font-weight:700;'>{{ employees|length }}</div>
+            </div>
+
+            <div style='border:1px solid #e5e7eb; border-radius:12px; padding:16px; background:#f8fafc;'>
+                <div class='muted' style='margin-bottom:6px;'>Currently Clocked In</div>
+                <div style='font-size:1.4rem; font-weight:700;'>{{ currently_clocked_in }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class='card'>
+        <h2>Clock Actions</h2>
+
+        <form method='post' action='{{ url_for("employees.time_clock_clock_in") }}' style='margin-bottom:14px;'>
+            <div style='display:grid; grid-template-columns:minmax(220px, 1fr) auto; gap:12px; align-items:end;'>
+                <div>
+                    <label>Select Employee to Clock In</label>
+                    <select name='employee_id' required>
+                        <option value=''>Choose employee</option>
+                        {% for emp in employees if emp["id"] not in clocked_in_ids %}
+                            {% set emp_name = ((emp["first_name"] or "") ~ " " ~ (emp["last_name"] or "")).strip() or (emp["full_name"] or "") or ("Employee #" ~ emp["id"]) %}
+                            <option value='{{ emp["id"] }}'>{{ emp_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <button class='btn success' type='submit'>Clock In</button>
+                </div>
+            </div>
+        </form>
+
+        <form method='post' action='{{ url_for("employees.time_clock_clock_out") }}'>
+            <div style='display:grid; grid-template-columns:minmax(220px, 1fr) auto; gap:12px; align-items:end;'>
+                <div>
+                    <label>Select Employee to Clock Out</label>
+                    <select name='employee_id' required>
+                        <option value=''>Choose employee</option>
+                        {% for emp in employees if emp["id"] in clocked_in_ids %}
+                            {% set emp_name = ((emp["first_name"] or "") ~ " " ~ (emp["last_name"] or "")).strip() or (emp["full_name"] or "") or ("Employee #" ~ emp["id"]) %}
+                            <option value='{{ emp["id"] }}'>{{ emp_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <button class='btn warning' type='submit'>Clock Out</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <div class='card'>
+        <h2>Current Employee Status</h2>
+        {% if employees_with_status %}
+            <div style='overflow-x:auto;'>
+                <table class='table'>
+                    <thead>
+                        <tr>
+                            <th>Employee</th>
+                            <th>Status</th>
+                            <th>Clocked In At</th>
+                            <th>Today</th>
+                            <th>This Pay Period</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in employees_with_status %}
+                            <tr>
+                                <td>{{ row.employee_name }}</td>
+                                <td>
+                                    {% if row.is_clocked_in %}
+                                        <span style='color:#166534; font-weight:700;'>Clocked In</span>
+                                    {% else %}
+                                        <span style='color:#666;'>Clocked Out</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ row.clock_in or "-" }}</td>
+                                <td>{{ format_hours(row.today_hours) }} hrs</td>
+                                <td>{{ format_hours(row.pay_period_hours) }} hrs</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p class='muted'>No employees found.</p>
+        {% endif %}
+    </div>
+
+    <div class='card'>
+        <h2>Recent Time Entries</h2>
+        {% if recent_entries %}
+            <div style='overflow-x:auto;'>
+                <table class='table'>
+                    <thead>
+                        <tr>
+                            <th>Employee</th>
+                            <th>Clock In</th>
+                            <th>Clock Out</th>
+                            <th>Total Hours</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in recent_entries %}
+                            {% set entry_name = ((row["first_name"] or "") ~ " " ~ (row["last_name"] or "")).strip() or (row["full_name"] or "") or ("Employee #" ~ row["employee_id"]) %}
+                            <tr>
+                                <td>{{ entry_name }}</td>
+                                <td>{{ row["clock_in"] }}</td>
+                                <td>{{ row["clock_out"] or "-" }}</td>
+                                <td>{{ format_hours(row["total_hours"]) }}</td>
+                                <td>{{ row["notes"] or "" }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p class='muted'>No time entries yet.</p>
+        {% endif %}
+    </div>
+    """
+
+    return render_page(
+        render_template_string(
+            time_clock_html,
+            employees=employees,
+            employees_with_status=employees_with_status,
+            recent_entries=recent_entries,
+            currently_clocked_in=currently_clocked_in,
+            pay_period_start=pay_period_start.isoformat(),
+            pay_period_end=pay_period_end.isoformat(),
+            pay_period_start_day=pay_period_start_day,
+            pay_period_start_label=_weekday_label(pay_period_start_day),
+            pay_period_end_label=_weekday_label(pay_period_end_day),
+            weekday_options=[
+                (0, "Monday"),
+                (1, "Tuesday"),
+                (2, "Wednesday"),
+                (3, "Thursday"),
+                (4, "Friday"),
+                (5, "Saturday"),
+                (6, "Sunday"),
+            ],
+            clocked_in_ids=clocked_in_ids,
+            format_hours=_format_hours,
+        ),
+        "Clock In / Out",
+    )
+
+
+@employees_bp.route("/employees/time-clock/settings", methods=["POST"])
+@login_required
+@require_permission("can_manage_employees")
+def update_time_clock_settings():
+    ensure_company_profile_table()
+    ensure_company_time_clock_columns()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    raw_value = (request.form.get("time_clock_pay_period_start_day") or "").strip()
+
+    try:
+        start_day = int(raw_value)
+    except Exception:
+        conn.close()
+        flash("Invalid pay period start day.")
+        return redirect(url_for("employees.time_clock"))
+
+    if start_day < 0 or start_day > 6:
+        conn.close()
+        flash("Invalid pay period start day.")
+        return redirect(url_for("employees.time_clock"))
+
+    existing_profile = conn.execute(
+        """
+        SELECT id
+        FROM company_profile
+        WHERE company_id = %s
+        """,
+        (cid,),
+    ).fetchone()
+
+    if existing_profile:
+        conn.execute(
+            """
+            UPDATE company_profile
+            SET time_clock_pay_period_start_day = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE company_id = %s
+            """,
+            (start_day, cid),
+        )
+    else:
+        conn.execute(
+            """
+            INSERT INTO company_profile (company_id, time_clock_pay_period_start_day)
+            VALUES (%s, %s)
+            """,
+            (cid, start_day),
+        )
+
+    conn.commit()
+    conn.close()
+
+    flash(f"Pay period updated. It now starts on {_weekday_label(start_day)}.")
+    return redirect(url_for("employees.time_clock"))
+
+
+@employees_bp.route("/employees/time-clock/clock-in", methods=["POST"])
+@login_required
+@require_permission("can_manage_employees")
+def time_clock_clock_in():
+    ensure_employee_time_entries_table()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    employee_id = (request.form.get("employee_id") or "").strip()
+
+    if not employee_id:
+        conn.close()
+        flash("Please select an employee.")
+        return redirect(url_for("employees.time_clock"))
+
+    employee = conn.execute(
+        """
+        SELECT id, first_name, last_name, full_name
+        FROM employees
+        WHERE id = %s AND company_id = %s AND is_active = 1
+        """,
+        (employee_id, cid),
+    ).fetchone()
+
+    if not employee:
+        conn.close()
+        flash("Employee not found.")
+        return redirect(url_for("employees.time_clock"))
+
+    existing_open = conn.execute(
+        """
+        SELECT id
+        FROM employee_time_entries
+        WHERE company_id = %s
+          AND employee_id = %s
+          AND clock_out IS NULL
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (cid, employee_id),
+    ).fetchone()
+
+    if existing_open:
+        conn.close()
+        flash("That employee is already clocked in.")
+        return redirect(url_for("employees.time_clock"))
+
+    conn.execute(
+        """
+        INSERT INTO employee_time_entries (
+            company_id,
+            employee_id,
+            clock_in,
+            clock_out,
+            total_hours,
+            notes
+        )
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """,
+        (cid, employee_id, datetime.now(), None, 0, None),
+    )
+
+    conn.commit()
+    conn.close()
+
+    flash("Employee clocked in successfully.")
+    return redirect(url_for("employees.time_clock"))
+
+
+@employees_bp.route("/employees/time-clock/clock-out", methods=["POST"])
+@login_required
+@require_permission("can_manage_employees")
+def time_clock_clock_out():
+    ensure_employee_time_entries_table()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    employee_id = (request.form.get("employee_id") or "").strip()
+
+    if not employee_id:
+        conn.close()
+        flash("Please select an employee.")
+        return redirect(url_for("employees.time_clock"))
+
+    open_entry = conn.execute(
+        """
+        SELECT id, clock_in
+        FROM employee_time_entries
+        WHERE company_id = %s
+          AND employee_id = %s
+          AND clock_out IS NULL
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (cid, employee_id),
+    ).fetchone()
+
+    if not open_entry:
+        conn.close()
+        flash("That employee is not currently clocked in.")
+        return redirect(url_for("employees.time_clock"))
+
+    clock_in_time = open_entry["clock_in"]
+    clock_out_time = datetime.now()
+
+    total_seconds = (clock_out_time - clock_in_time).total_seconds()
+    total_hours = round(max(total_seconds / 3600.0, 0), 2)
+
+    conn.execute(
+        """
+        UPDATE employee_time_entries
+        SET clock_out = %s,
+            total_hours = %s
+        WHERE id = %s
+        """,
+        (clock_out_time, total_hours, open_entry["id"]),
+    )
+
+    conn.commit()
+    conn.close()
+
+    flash(f"Employee clocked out successfully. Total hours: {total_hours:.2f}")
+    return redirect(url_for("employees.time_clock"))
