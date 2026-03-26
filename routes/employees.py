@@ -1030,11 +1030,11 @@ def edit_employee(employee_id):
             salary_amount = 0
 
         federal_filing_status = _clean_text(request.form.get("federal_filing_status")) or "Single"
-        pay_frequency = _clean_text(request.form.get("pay_frequency")) or "Biweekly"
+        pay_frequency = _clean_text(request.form.get("pay_frequency")) or "Weekly"
 
         # ✅ FIXED: PostgreSQL-safe flags (0/1 instead of True/False)
         w4_step2_checked = 1 if request.form.get("w4_step2_checked") else 0
-        is_indiana_resident = 1 if request.form.get("is_indiana_resident") else 0
+        is_indiana_resident = bool(request.form.get("is_indiana_resident"))
 
         w4_step3_amount = _safe_float(request.form.get("w4_step3_amount"), 0)
         w4_step4a_other_income = _safe_float(request.form.get("w4_step4a_other_income"), 0)
