@@ -1,11 +1,15 @@
 import os
 import uuid
 import json
+import io
 
 from flask import Blueprint, request, redirect, url_for, session, flash, render_template_string, make_response
 from markupsafe import escape
 from werkzeug.utils import secure_filename
 from datetime import datetime
+
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 
 from db import (
     get_db_connection,
@@ -13,6 +17,13 @@ from db import (
     ensure_company_profile_columns,
     ensure_company_tax_settings_table,
     ensure_company_profile_location_columns,
+)
+from utils.w2_service import (
+    get_company_w2_readiness,
+    get_employee_w2_readiness,
+    build_w2_summary_data,
+    get_company_w2_year_summary,
+    list_employee_w2_summaries,
 )
 from decorators import login_required, require_permission
 from page_helpers import render_page
@@ -22,6 +33,7 @@ from utils.backups import create_company_backup, export_company_backup_data, loa
 settings_bp = Blueprint("settings", __name__)
 
 ALLOWED_LOGO_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp", "svg"}
+
 
 def allowed_logo_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_LOGO_EXTENSIONS
@@ -34,10 +46,27 @@ def ensure_logo_upload_folder():
     return upload_folder
 
 
+def ensure_w2_company_profile_columns():
+    ensure_company_profile_table()
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS ein TEXT")
+        cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS state_employer_id TEXT")
+        cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS w2_contact_name TEXT")
+        cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS w2_contact_phone TEXT")
+        cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS w2_contact_email TEXT")
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def get_company_profile(cid):
     ensure_company_profile_table()
     ensure_company_profile_columns()
     ensure_company_profile_location_columns()
+    ensure_w2_company_profile_columns()
 
     conn = get_db_connection()
     profile = conn.execute(
@@ -70,6 +99,12 @@ def get_company_profile_values(profile):
     platform_sender_enabled = int(profile["platform_sender_enabled"] or 1) if profile and "platform_sender_enabled" in profile.keys() else 1
     reply_to_mode = profile["reply_to_mode"] if profile and "reply_to_mode" in profile.keys() and profile["reply_to_mode"] else "company"
 
+    ein = profile["ein"] if profile and "ein" in profile.keys() and profile["ein"] else ""
+    state_employer_id = profile["state_employer_id"] if profile and "state_employer_id" in profile.keys() and profile["state_employer_id"] else ""
+    w2_contact_name = profile["w2_contact_name"] if profile and "w2_contact_name" in profile.keys() and profile["w2_contact_name"] else ""
+    w2_contact_phone = profile["w2_contact_phone"] if profile and "w2_contact_phone" in profile.keys() and profile["w2_contact_phone"] else ""
+    w2_contact_email = profile["w2_contact_email"] if profile and "w2_contact_email" in profile.keys() and profile["w2_contact_email"] else ""
+
     return {
         "display_name": display_name,
         "legal_name": legal_name,
@@ -91,7 +126,182 @@ def get_company_profile_values(profile):
         "reply_to_email": reply_to_email,
         "platform_sender_enabled": platform_sender_enabled,
         "reply_to_mode": reply_to_mode,
+        "ein": ein,
+        "state_employer_id": state_employer_id,
+        "w2_contact_name": w2_contact_name,
+        "w2_contact_phone": w2_contact_phone,
+        "w2_contact_email": w2_contact_email,
     }
+
+
+def _money(value):
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _company_display_name_for_reports(cid):
+    profile = get_company_profile(cid)
+    values = get_company_profile_values(profile)
+    return values.get("legal_name") or values.get("display_name") or session.get("company_name", "TerraLedger")
+
+
+def _build_w2_summary_pdf(company_name, tax_year, employee_name, summary):
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+
+    y = height - 50
+
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(50, y, "Year-End W-2 Summary")
+    y -= 24
+
+    pdf.setFont("Helvetica", 10)
+    pdf.drawString(50, y, f"Company: {company_name}")
+    y -= 16
+    pdf.drawString(50, y, f"Tax Year: {tax_year}")
+    y -= 16
+    pdf.drawString(50, y, f"Employee: {employee_name}")
+    y -= 30
+
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(50, y, "Payroll Totals")
+    y -= 18
+
+    rows = [
+        ("Wages", _money(summary.get("wages"))),
+        ("Federal Withholding", _money(summary.get("federal_withholding"))),
+        ("Social Security", _money(summary.get("social_security"))),
+        ("Medicare", _money(summary.get("medicare"))),
+        ("State Withholding", _money(summary.get("state_withholding"))),
+        ("Local Tax", _money(summary.get("local_tax"))),
+    ]
+
+    pdf.setFont("Helvetica", 11)
+    for label, amount in rows:
+        pdf.drawString(60, y, label)
+        pdf.drawRightString(560, y, f"${amount:,.2f}")
+        y -= 20
+
+    y -= 10
+    pdf.setFont("Helvetica-Oblique", 9)
+    pdf.drawString(50, y, "This is a TerraLedger year-end payroll summary for W-2 preparation and review.")
+    y -= 14
+    pdf.drawString(50, y, "It is not the final official IRS W-2 form layout.")
+
+    pdf.showPage()
+    pdf.save()
+
+    pdf_data = buffer.getvalue()
+    buffer.close()
+    return pdf_data
+
+
+def _build_w2_all_summary_pdf(company_name, tax_year, employee_rows):
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+
+    def start_page():
+        pdf.setFont("Helvetica-Bold", 16)
+        pdf.drawString(50, height - 50, "Year-End W-2 Summary Report")
+        pdf.setFont("Helvetica", 10)
+        pdf.drawString(50, height - 68, f"Company: {company_name}")
+        pdf.drawString(50, height - 84, f"Tax Year: {tax_year}")
+
+        header_y = height - 115
+        pdf.setFont("Helvetica-Bold", 9)
+        pdf.drawString(50, header_y, "Employee")
+        pdf.drawRightString(290, header_y, "Wages")
+        pdf.drawRightString(355, header_y, "Federal")
+        pdf.drawRightString(420, header_y, "SS")
+        pdf.drawRightString(485, header_y, "Medicare")
+        pdf.drawRightString(545, header_y, "State")
+        return header_y - 18
+
+    y = start_page()
+    pdf.setFont("Helvetica", 8)
+
+    total_wages = 0.0
+    total_federal = 0.0
+    total_ss = 0.0
+    total_medicare = 0.0
+    total_state = 0.0
+    total_local = 0.0
+
+    for row in employee_rows:
+        if y < 70:
+            pdf.showPage()
+            y = start_page()
+            pdf.setFont("Helvetica", 8)
+
+        wages = _money(row.get("wages"))
+        federal = _money(row.get("federal_withholding"))
+        ss = _money(row.get("social_security"))
+        medicare = _money(row.get("medicare"))
+        state = _money(row.get("state_withholding"))
+        local = _money(row.get("local_tax"))
+
+        total_wages += wages
+        total_federal += federal
+        total_ss += ss
+        total_medicare += medicare
+        total_state += state
+        total_local += local
+
+        pdf.drawString(50, y, str(row.get("employee_name", ""))[:38])
+        pdf.drawRightString(290, y, f"${wages:,.2f}")
+        pdf.drawRightString(355, y, f"${federal:,.2f}")
+        pdf.drawRightString(420, y, f"${ss:,.2f}")
+        pdf.drawRightString(485, y, f"${medicare:,.2f}")
+        pdf.drawRightString(545, y, f"${state:,.2f}")
+        y -= 16
+
+    if y < 95:
+        pdf.showPage()
+        y = start_page()
+        pdf.setFont("Helvetica", 8)
+
+    y -= 8
+    pdf.line(50, y, 560, y)
+    y -= 16
+    pdf.setFont("Helvetica-Bold", 9)
+    pdf.drawString(50, y, "Totals")
+    pdf.drawRightString(290, y, f"${total_wages:,.2f}")
+    pdf.drawRightString(355, y, f"${total_federal:,.2f}")
+    pdf.drawRightString(420, y, f"${total_ss:,.2f}")
+    pdf.drawRightString(485, y, f"${total_medicare:,.2f}")
+    pdf.drawRightString(545, y, f"${total_state:,.2f}")
+
+    y -= 20
+    pdf.setFont("Helvetica", 9)
+    pdf.drawString(50, y, f"Total Local Tax: ${total_local:,.2f}")
+
+    pdf.showPage()
+    pdf.save()
+
+    pdf_data = buffer.getvalue()
+    buffer.close()
+    return pdf_data
+
+
+def _w2_company_readiness(values):
+    checks = [
+        ("Legal Business Name", values.get("legal_name")),
+        ("EIN", values.get("ein")),
+        ("Address Line 1", values.get("address_line_1")),
+        ("City", values.get("city")),
+        ("State", values.get("state")),
+        ("ZIP Code", values.get("zip_code")),
+        ("W-2 Contact Name", values.get("w2_contact_name")),
+        ("W-2 Contact Phone", values.get("w2_contact_phone")),
+        ("W-2 Contact Email", values.get("w2_contact_email")),
+    ]
+
+    missing = [label for label, val in checks if not (str(val or "").strip())]
+    return {"missing": missing, "ready": len(missing) == 0}
 
 
 @settings_bp.route("/settings")
@@ -208,6 +418,17 @@ def settings():
 
             <div class="card settings-card">
                 <div class="settings-card-head">
+                    <h3>Year-End / W-2</h3>
+                    <span class="settings-badge">Payroll</span>
+                </div>
+                <p class="muted">Review yearly payroll totals, manage W-2 company filing settings, and generate printable year-end summaries.</p>
+                <div class="settings-actions">
+                    <a class="btn success" href="{url_for('settings.settings_w2')}">Open W-2 Center</a>
+                </div>
+            </div>
+
+            <div class="card settings-card">
+                <div class="settings-card-head">
                     <h3>Backups</h3>
                     <span class="settings-badge">Safety</span>
                 </div>
@@ -240,6 +461,7 @@ def settings_company():
     ensure_company_profile_columns()
     ensure_company_profile_location_columns()
     ensure_company_profile_table()
+    ensure_w2_company_profile_columns()
 
     def clean_text_input(value):
         if value is None:
@@ -687,6 +909,518 @@ def settings_taxes():
     )
 
 
+@settings_bp.route("/settings/w2")
+@login_required
+@require_permission("can_manage_settings")
+def settings_w2():
+    ensure_w2_company_profile_columns()
+
+    cid = session["company_id"]
+    year = request.args.get("year", str(datetime.utcnow().year)).strip()
+    if not year.isdigit():
+        year = str(datetime.utcnow().year)
+
+    profile = get_company_profile(cid)
+    values = get_company_profile_values(profile)
+
+    # ✅ USE NEW SERVICE
+    company_readiness = get_company_w2_readiness(values)
+
+    conn = get_db_connection()
+
+    year_summary = get_company_w2_year_summary(conn, cid, year)
+    employee_summaries = list_employee_w2_summaries(conn, cid, year)
+
+    conn.close()
+
+    # totals
+    total_wages = year_summary["total_wages"]
+    total_federal = year_summary["total_federal_withholding"]
+    total_ss = year_summary["total_social_security_tax"]
+    total_medicare = year_summary["total_medicare_tax"]
+    total_state = year_summary["total_state_withholding"]
+    total_local = year_summary["total_local_tax"]
+
+    # rows
+    rows = ""
+    for row in employee_summaries:
+        print_button = (
+            f"<a class='btn secondary small' target='_blank' href='{url_for('settings.print_w2_summary', employee_id=row['employee_id'], year=year)}'>Print</a>"
+            if row["has_payroll_data"]
+            else "<span class='muted'>No data</span>"
+        )
+
+        rows += f"""
+        <tr>
+            <td>{escape(row["employee_name"])}</td>
+            <td>${row["gross_pay"]:,.2f}</td>
+            <td>${row["federal_withholding"]:,.2f}</td>
+            <td>${row["social_security_tax"]:,.2f}</td>
+            <td>${row["medicare_tax"]:,.2f}</td>
+            <td>${row["state_withholding"]:,.2f}</td>
+            <td>${row["local_tax"]:,.2f}</td>
+            <td>{print_button}</td>
+        </tr>
+        """
+
+    # readiness UI
+    if company_readiness["missing"]:
+        missing_html = "".join(f"<li>{escape(item)}</li>" for item in company_readiness["missing"])
+        readiness_card = f"""
+        <div class='card' style='border:1px solid #f59e0b; background:#fffaf0;'>
+            <h2>W-2 Filing Readiness</h2>
+            <ul>{missing_html}</ul>
+            <a class='btn warning' href='{url_for("settings.settings_w2_company")}'>Complete Profile</a>
+        </div>
+        """
+    else:
+        readiness_card = f"""
+        <div class='card' style='border:1px solid #16a34a; background:#f0fdf4;'>
+            <h2>W-2 Filing Readiness</h2>
+            <p style='color:#166534;'>Ready</p>
+        </div>
+        """
+
+    content = f"""
+    <div class='card'>
+        <h1>W-2 Center</h1>
+        <a href='{url_for("settings.settings")}' class='btn secondary'>Back</a>
+    </div>
+
+    {readiness_card}
+
+    <div class='card'>
+        <h2>Year Summary</h2>
+        <div>Total Wages: ${total_wages:,.2f}</div>
+        <div>Federal: ${total_federal:,.2f}</div>
+        <div>SS: ${total_ss:,.2f}</div>
+        <div>Medicare: ${total_medicare:,.2f}</div>
+        <div>State: ${total_state:,.2f}</div>
+        <div>Local: ${total_local:,.2f}</div>
+    </div>
+
+    <div class='card'>
+        <h2>Employee W-2 Summary</h2>
+        <table>
+            <tr>
+                <th>Employee</th>
+                <th>Wages</th>
+                <th>Federal</th>
+                <th>SS</th>
+                <th>Medicare</th>
+                <th>State</th>
+                <th>Local</th>
+                <th>Print</th>
+            </tr>
+            {rows}
+        </table>
+    </div>
+    """
+
+    return render_page(content, "W-2 Center")
+
+
+@settings_bp.route("/settings/w2/company", methods=["GET", "POST"])
+@login_required
+@require_permission("can_manage_settings")
+def settings_w2_company():
+    ensure_company_profile_table()
+    ensure_company_profile_columns()
+    ensure_company_profile_location_columns()
+    ensure_w2_company_profile_columns()
+
+    cid = session["company_id"]
+    conn = get_db_connection()
+
+    existing = conn.execute(
+        "SELECT * FROM company_profile WHERE company_id = ?",
+        (cid,),
+    ).fetchone()
+
+    if request.method == "POST":
+        values = get_company_profile_values(existing)
+
+        legal_name = (request.form.get("legal_name") or "").strip()
+        ein = (request.form.get("ein") or "").strip()
+        state_employer_id = (request.form.get("state_employer_id") or "").strip()
+        address_line_1 = (request.form.get("address_line_1") or "").strip()
+        address_line_2 = (request.form.get("address_line_2") or "").strip()
+        city = (request.form.get("city") or "").strip()
+        state = (request.form.get("state") or "").strip().upper()
+        zip_code = (request.form.get("zip_code") or "").strip()
+        w2_contact_name = (request.form.get("w2_contact_name") or "").strip()
+        w2_contact_phone = (request.form.get("w2_contact_phone") or "").strip()
+        w2_contact_email = (request.form.get("w2_contact_email") or "").strip()
+
+        if existing:
+            conn.execute(
+                """
+                UPDATE company_profile
+                SET display_name = ?,
+                    legal_name = ?,
+                    logo_url = ?,
+                    phone = ?,
+                    email = ?,
+                    website = ?,
+                    address_line_1 = ?,
+                    address_line_2 = ?,
+                    city = ?,
+                    state = ?,
+                    county = ?,
+                    zip_code = ?,
+                    invoice_header_name = ?,
+                    quote_header_name = ?,
+                    invoice_footer_note = ?,
+                    quote_footer_note = ?,
+                    email_from_name = ?,
+                    reply_to_email = ?,
+                    platform_sender_enabled = ?,
+                    reply_to_mode = ?,
+                    ein = ?,
+                    state_employer_id = ?,
+                    w2_contact_name = ?,
+                    w2_contact_phone = ?,
+                    w2_contact_email = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE company_id = ?
+                """,
+                (
+                    values["display_name"],
+                    legal_name,
+                    values["logo_url"],
+                    values["phone"],
+                    values["email"],
+                    values["website"],
+                    address_line_1,
+                    address_line_2,
+                    city,
+                    state,
+                    values["county"],
+                    zip_code,
+                    values["invoice_header_name"],
+                    values["quote_header_name"],
+                    values["invoice_footer_note"],
+                    values["quote_footer_note"],
+                    values["email_from_name"],
+                    values["reply_to_email"],
+                    values["platform_sender_enabled"],
+                    values["reply_to_mode"],
+                    ein,
+                    state_employer_id,
+                    w2_contact_name,
+                    w2_contact_phone,
+                    w2_contact_email,
+                    cid,
+                ),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO company_profile (
+                    company_id,
+                    display_name,
+                    legal_name,
+                    logo_url,
+                    phone,
+                    email,
+                    website,
+                    address_line_1,
+                    address_line_2,
+                    city,
+                    state,
+                    county,
+                    zip_code,
+                    invoice_header_name,
+                    quote_header_name,
+                    invoice_footer_note,
+                    quote_footer_note,
+                    email_from_name,
+                    reply_to_email,
+                    platform_sender_enabled,
+                    reply_to_mode,
+                    ein,
+                    state_employer_id,
+                    w2_contact_name,
+                    w2_contact_phone,
+                    w2_contact_email
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    cid,
+                    values["display_name"],
+                    legal_name,
+                    values["logo_url"],
+                    values["phone"],
+                    values["email"],
+                    values["website"],
+                    address_line_1,
+                    address_line_2,
+                    city,
+                    state,
+                    values["county"],
+                    zip_code,
+                    values["invoice_header_name"],
+                    values["quote_header_name"],
+                    values["invoice_footer_note"],
+                    values["quote_footer_note"],
+                    values["email_from_name"],
+                    values["reply_to_email"],
+                    values["platform_sender_enabled"],
+                    values["reply_to_mode"],
+                    ein,
+                    state_employer_id,
+                    w2_contact_name,
+                    w2_contact_phone,
+                    w2_contact_email,
+                ),
+            )
+
+        conn.commit()
+        conn.close()
+        flash("Company W-2 profile saved.")
+        return redirect(url_for("settings.settings_w2_company"))
+
+    conn.close()
+
+    values = get_company_profile_values(existing)
+    readiness = _w2_company_readiness(values)
+
+    missing_html = ""
+    if readiness["missing"]:
+        missing_html = "".join(f"<li>{escape(item)}</li>" for item in readiness["missing"])
+        readiness_block = f"""
+        <div class='card' style='border:1px solid #f59e0b; background:#fffaf0;'>
+            <h2>Missing Items</h2>
+            <ul>{missing_html}</ul>
+        </div>
+        """
+    else:
+        readiness_block = """
+        <div class='card' style='border:1px solid #16a34a; background:#f0fdf4;'>
+            <h2>Ready</h2>
+            <p style='margin:0; color:#166534; font-weight:700;'>Company W-2 profile looks complete.</p>
+        </div>
+        """
+
+    content = f"""
+    <div class='card'>
+        <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
+            <div>
+                <h1 style='margin-bottom:6px;'>Company W-2 Profile</h1>
+                <p class='muted' style='margin:0;'>Store the company filing details needed for year-end W-2 preparation.</p>
+            </div>
+            <div class='row-actions'>
+                <a href='{url_for("settings.settings_w2")}' class='btn secondary'>Back to W-2 Center</a>
+            </div>
+        </div>
+    </div>
+
+    {readiness_block}
+
+    <div class='card'>
+        <h2>W-2 Filing Details</h2>
+        <form method='post'>
+            <div class='grid'>
+                <div>
+                    <label>Legal Business Name</label>
+                    <input name='legal_name' value='{escape(values["legal_name"])}' placeholder='Your legal business name'>
+                </div>
+
+                <div>
+                    <label>EIN</label>
+                    <input name='ein' value='{escape(values["ein"])}' placeholder='12-3456789'>
+                </div>
+
+                <div>
+                    <label>State Employer ID</label>
+                    <input name='state_employer_id' value='{escape(values["state_employer_id"])}' placeholder='State employer account ID'>
+                </div>
+
+                <div>
+                    <label>Address Line 1</label>
+                    <input name='address_line_1' value='{escape(values["address_line_1"])}' placeholder='Street address'>
+                </div>
+
+                <div>
+                    <label>Address Line 2</label>
+                    <input name='address_line_2' value='{escape(values["address_line_2"])}' placeholder='Suite / unit / additional details'>
+                </div>
+
+                <div>
+                    <label>City</label>
+                    <input name='city' value='{escape(values["city"])}' placeholder='City'>
+                </div>
+
+                <div>
+                    <label>State</label>
+                    <input name='state' value='{escape(values["state"])}' placeholder='IN' maxlength='2'>
+                </div>
+
+                <div>
+                    <label>ZIP Code</label>
+                    <input name='zip_code' value='{escape(values["zip_code"])}' placeholder='47905'>
+                </div>
+
+                <div>
+                    <label>W-2 Contact Name</label>
+                    <input name='w2_contact_name' value='{escape(values["w2_contact_name"])}' placeholder='Contact person for W-2 filing'>
+                </div>
+
+                <div>
+                    <label>W-2 Contact Phone</label>
+                    <input name='w2_contact_phone' value='{escape(values["w2_contact_phone"])}' placeholder='(765) 555-1234'>
+                </div>
+
+                <div>
+                    <label>W-2 Contact Email</label>
+                    <input name='w2_contact_email' value='{escape(values["w2_contact_email"])}' placeholder='payroll@yourcompany.com'>
+                </div>
+            </div>
+
+            <div class='row-actions' style='margin-top:20px;'>
+                <button class='btn success' type='submit'>Save Company W-2 Profile</button>
+            </div>
+        </form>
+    </div>
+    """
+
+    return render_page(content, "Company W-2 Profile")
+
+
+@settings_bp.route("/settings/w2/<int:employee_id>/print")
+@login_required
+@require_permission("can_manage_settings")
+def print_w2_summary(employee_id):
+    cid = session["company_id"]
+    year = request.args.get("year", str(datetime.utcnow().year)).strip()
+    if not year.isdigit():
+        year = str(datetime.utcnow().year)
+
+    conn = get_db_connection()
+
+    employee = conn.execute(
+        """
+        SELECT id, first_name, last_name, full_name
+        FROM employees
+        WHERE id = ? AND company_id = ?
+        """,
+        (employee_id, cid),
+    ).fetchone()
+
+    if not employee:
+        conn.close()
+        flash("Employee not found.")
+        return redirect(url_for("settings.settings_w2", year=year))
+
+    summary = conn.execute(
+        """
+        SELECT
+            COALESCE(SUM(gross_pay), 0) AS wages,
+            COALESCE(SUM(federal_withholding), 0) AS federal_withholding,
+            COALESCE(SUM(social_security), 0) AS social_security,
+            COALESCE(SUM(medicare), 0) AS medicare,
+            COALESCE(SUM(state_withholding), 0) AS state_withholding,
+            COALESCE(SUM(local_tax), 0) AS local_tax
+        FROM payroll_entries
+        WHERE company_id = ?
+          AND employee_id = ?
+          AND strftime('%Y', pay_date) = ?
+        """,
+        (cid, employee_id, year),
+    ).fetchone()
+
+    conn.close()
+
+    employee_name = (
+        (employee["full_name"] or "").strip()
+        or f"{(employee['first_name'] or '').strip()} {(employee['last_name'] or '').strip()}".strip()
+        or f"Employee #{employee_id}"
+    )
+
+    company_name = _company_display_name_for_reports(cid)
+    pdf_data = _build_w2_summary_pdf(company_name, year, employee_name, summary or {})
+
+    response = make_response(pdf_data)
+    response.headers["Content-Type"] = "application/pdf"
+    response.headers["Content-Disposition"] = f"inline; filename=w2_summary_{employee_name.replace(' ', '_')}_{year}.pdf"
+    return response
+
+
+@settings_bp.route("/settings/w2/print-all")
+@login_required
+@require_permission("can_manage_settings")
+def print_all_w2_summaries():
+    cid = session["company_id"]
+    year = request.args.get("year", str(datetime.utcnow().year)).strip()
+    if not year.isdigit():
+        year = str(datetime.utcnow().year)
+
+    conn = get_db_connection()
+
+    employees = conn.execute(
+        """
+        SELECT id, first_name, last_name, full_name
+        FROM employees
+        WHERE company_id = ?
+        ORDER BY first_name, last_name
+        """,
+        (cid,),
+    ).fetchall()
+
+    payroll = conn.execute(
+        """
+        SELECT
+            employee_id,
+            COALESCE(SUM(gross_pay), 0) AS wages,
+            COALESCE(SUM(federal_withholding), 0) AS federal_withholding,
+            COALESCE(SUM(social_security), 0) AS social_security,
+            COALESCE(SUM(medicare), 0) AS medicare,
+            COALESCE(SUM(state_withholding), 0) AS state_withholding,
+            COALESCE(SUM(local_tax), 0) AS local_tax
+        FROM payroll_entries
+        WHERE company_id = ?
+          AND strftime('%Y', pay_date) = ?
+        GROUP BY employee_id
+        """,
+        (cid, year),
+    ).fetchall()
+
+    conn.close()
+
+    payroll_map = {row["employee_id"]: row for row in payroll}
+    employee_rows = []
+
+    for e in employees:
+        summary = payroll_map.get(e["id"])
+        if not summary:
+            continue
+
+        employee_name = (
+            (e["full_name"] or "").strip()
+            or f"{(e['first_name'] or '').strip()} {(e['last_name'] or '').strip()}".strip()
+            or f"Employee #{e['id']}"
+        )
+
+        employee_rows.append({
+            "employee_name": employee_name,
+            "wages": summary["wages"],
+            "federal_withholding": summary["federal_withholding"],
+            "social_security": summary["social_security"],
+            "medicare": summary["medicare"],
+            "state_withholding": summary["state_withholding"],
+            "local_tax": summary["local_tax"],
+        })
+
+    company_name = _company_display_name_for_reports(cid)
+    pdf_data = _build_w2_all_summary_pdf(company_name, year, employee_rows)
+
+    response = make_response(pdf_data)
+    response.headers["Content-Type"] = "application/pdf"
+    response.headers["Content-Disposition"] = f"inline; filename=w2_summary_all_{year}.pdf"
+    return response
+
+
 @settings_bp.route("/settings/logo")
 @login_required
 @require_permission("can_manage_settings")
@@ -708,6 +1442,7 @@ def settings_branding():
     ensure_company_profile_table()
     ensure_company_profile_columns()
     ensure_company_profile_location_columns()
+    ensure_w2_company_profile_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -741,6 +1476,11 @@ def settings_branding():
         reply_to_email = existing["reply_to_email"] if existing and existing["reply_to_email"] else ""
         platform_sender_enabled = int(existing["platform_sender_enabled"] or 1) if existing else 1
         reply_to_mode = existing["reply_to_mode"] if existing and existing["reply_to_mode"] else "company"
+        ein = existing["ein"] if existing and "ein" in existing.keys() else ""
+        state_employer_id = existing["state_employer_id"] if existing and "state_employer_id" in existing.keys() else ""
+        w2_contact_name = existing["w2_contact_name"] if existing and "w2_contact_name" in existing.keys() else ""
+        w2_contact_phone = existing["w2_contact_phone"] if existing and "w2_contact_phone" in existing.keys() else ""
+        w2_contact_email = existing["w2_contact_email"] if existing and "w2_contact_email" in existing.keys() else ""
 
         uploaded_file = request.files.get("logo_file")
 
@@ -787,6 +1527,11 @@ def settings_branding():
                     reply_to_email = ?,
                     platform_sender_enabled = ?,
                     reply_to_mode = ?,
+                    ein = ?,
+                    state_employer_id = ?,
+                    w2_contact_name = ?,
+                    w2_contact_phone = ?,
+                    w2_contact_email = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE company_id = ?
                 """,
@@ -811,6 +1556,11 @@ def settings_branding():
                     reply_to_email,
                     platform_sender_enabled,
                     reply_to_mode,
+                    ein,
+                    state_employer_id,
+                    w2_contact_name,
+                    w2_contact_phone,
+                    w2_contact_email,
                     cid,
                 ),
             )
@@ -838,9 +1588,14 @@ def settings_branding():
                     email_from_name,
                     reply_to_email,
                     platform_sender_enabled,
-                    reply_to_mode
+                    reply_to_mode,
+                    ein,
+                    state_employer_id,
+                    w2_contact_name,
+                    w2_contact_phone,
+                    w2_contact_email
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     cid,
@@ -864,6 +1619,11 @@ def settings_branding():
                     reply_to_email,
                     platform_sender_enabled,
                     reply_to_mode,
+                    ein,
+                    state_employer_id,
+                    w2_contact_name,
+                    w2_contact_phone,
+                    w2_contact_email,
                 ),
             )
 
@@ -1048,6 +1808,7 @@ def settings_email():
     ensure_company_profile_table()
     ensure_company_profile_columns()
     ensure_company_profile_location_columns()
+    ensure_w2_company_profile_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -1089,6 +1850,11 @@ def settings_email():
                     reply_to_email = ?,
                     platform_sender_enabled = ?,
                     reply_to_mode = ?,
+                    ein = ?,
+                    state_employer_id = ?,
+                    w2_contact_name = ?,
+                    w2_contact_phone = ?,
+                    w2_contact_email = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE company_id = ?
                 """,
@@ -1113,6 +1879,11 @@ def settings_email():
                     reply_to_email,
                     platform_sender_enabled,
                     reply_to_mode,
+                    values["ein"],
+                    values["state_employer_id"],
+                    values["w2_contact_name"],
+                    values["w2_contact_phone"],
+                    values["w2_contact_email"],
                     cid,
                 ),
             )
@@ -1140,9 +1911,14 @@ def settings_email():
                     email_from_name,
                     reply_to_email,
                     platform_sender_enabled,
-                    reply_to_mode
+                    reply_to_mode,
+                    ein,
+                    state_employer_id,
+                    w2_contact_name,
+                    w2_contact_phone,
+                    w2_contact_email
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     cid,
@@ -1166,6 +1942,11 @@ def settings_email():
                     reply_to_email,
                     platform_sender_enabled,
                     reply_to_mode,
+                    values["ein"],
+                    values["state_employer_id"],
+                    values["w2_contact_name"],
+                    values["w2_contact_phone"],
+                    values["w2_contact_email"],
                 ),
             )
 
@@ -1261,6 +2042,7 @@ def settings_email():
 @require_permission("can_manage_settings")
 def test_email():
     ensure_company_profile_table()
+    ensure_w2_company_profile_columns()
 
     cid = session.get("company_id")
     if not cid:
@@ -1290,6 +2072,7 @@ def test_email():
 
     return redirect(url_for("settings.settings_email"))
 
+
 @settings_bp.route("/settings/backup/download")
 @login_required
 @require_permission("can_manage_settings")
@@ -1305,6 +2088,7 @@ def download_backup():
     response.headers["Content-Type"] = "application/json"
 
     return response
+
 
 @settings_bp.route("/settings/backup/restore", methods=["GET", "POST"])
 @login_required

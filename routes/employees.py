@@ -60,12 +60,21 @@ def _clean_text(value):
     return text
 
 
+def _normalize_ssn(value):
+    raw = "".join(ch for ch in str(value or "") if ch.isdigit())
+    if len(raw) == 9:
+        return f"{raw[:3]}-{raw[3:5]}-{raw[5:]}"
+    return str(value or "").strip()
+
+
 def ensure_employee_profile_columns():
     conn = get_db_connection()
     cur = conn.cursor()
 
     cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS first_name TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS middle_name TEXT")
     cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS last_name TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS suffix TEXT")
     cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS full_name TEXT")
     cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS phone TEXT")
     cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS email TEXT")
@@ -111,18 +120,36 @@ def ensure_employee_local_tax_columns():
     conn.close()
 
 
+def ensure_employee_w2_columns():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS ssn TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS w2_address_line_1 TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS w2_address_line_2 TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS w2_city TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS w2_state TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS w2_zip TEXT")
+
+    conn.commit()
+    conn.close()
+
+
 def _employee_display_name(employee):
     cols = employee.keys()
 
     first_name = employee["first_name"] if "first_name" in cols and employee["first_name"] else ""
+    middle_name = employee["middle_name"] if "middle_name" in cols and employee["middle_name"] else ""
     last_name = employee["last_name"] if "last_name" in cols and employee["last_name"] else ""
+    suffix = employee["suffix"] if "suffix" in cols and employee["suffix"] else ""
     full_name = employee["full_name"] if "full_name" in cols and employee["full_name"] else ""
     single_name = employee["name"] if "name" in cols and employee["name"] else ""
     employee_name_field = employee["employee_name"] if "employee_name" in cols and employee["employee_name"] else ""
     display_name = employee["display_name"] if "display_name" in cols and employee["display_name"] else ""
 
-    if first_name or last_name:
-        return f"{first_name} {last_name}".strip()
+    assembled = " ".join(part for part in [first_name, middle_name, last_name, suffix] if part).strip()
+    if assembled:
+        return assembled
     if full_name:
         return full_name
     if single_name:
@@ -163,9 +190,9 @@ def _employee_form_html(employee=None, form_action="", submit_label="Save Employ
     def checked(key, default=False):
         if hasattr(employee, "keys"):
             if key in employee.keys() and employee[key] is not None:
-                return "checked" if employee[key] else ""
+                return "checked" if bool(employee[key]) else ""
             return "checked" if default else ""
-        return "checked" if employee.get(key, default) else ""
+        return "checked" if bool(employee.get(key, default)) else ""
 
     county_of_residence = ""
     county_of_principal_employment = ""
@@ -189,7 +216,7 @@ def _employee_form_html(employee=None, form_action="", submit_label="Save Employ
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
             <div>
                 <h1 style='margin-bottom:6px;'>{escape(page_title)}</h1>
-                <p class='muted' style='margin:0;'>Manage employee information, payroll setup, federal withholding, and Indiana local tax setup.</p>
+                <p class='muted' style='margin:0;'>Manage employee information, payroll setup, federal withholding, Indiana local tax setup, and W-2 identity details.</p>
             </div>
             <div class='row-actions'>
                 <a class='btn warning' href='{url_for("payroll.employee_payroll")}'>Payroll</a>
@@ -207,8 +234,16 @@ def _employee_form_html(employee=None, form_action="", submit_label="Save Employ
                     <input name='first_name' value='{val("first_name")}' required>
                 </div>
                 <div>
+                    <label>Middle Name</label>
+                    <input name='middle_name' value='{val("middle_name")}'>
+                </div>
+                <div>
                     <label>Last Name</label>
                     <input name='last_name' value='{val("last_name")}' required>
+                </div>
+                <div>
+                    <label>Suffix</label>
+                    <input name='suffix' value='{val("suffix")}' placeholder='Jr, Sr, II'>
                 </div>
                 <div>
                     <label>Phone</label>
@@ -246,12 +281,51 @@ def _employee_form_html(employee=None, form_action="", submit_label="Save Employ
                 </div>
                 <div>
                     <label>State</label>
-                    <input name='state' value='{val("state", "IN")}'>
+                    <input name='state' value='{val("state", "IN")}' maxlength='2'>
                 </div>
                 <div>
                     <label>ZIP</label>
                     <input name='zip' value='{val("zip")}'>
                 </div>
+            </div>
+        </div>
+
+        <div class='card'>
+            <h2>W-2 Identity & Mailing Info</h2>
+            <div class='grid'>
+                <div>
+                    <label>SSN</label>
+                    <input name='ssn' value='{val("ssn")}' placeholder='123-45-6789'>
+                </div>
+
+                <div style='grid-column:1 / -1;'>
+                    <label>W-2 Address Line 1</label>
+                    <input name='w2_address_line_1' value='{val("w2_address_line_1")}' placeholder='Leave blank to use employee address later if desired'>
+                </div>
+
+                <div style='grid-column:1 / -1;'>
+                    <label>W-2 Address Line 2</label>
+                    <input name='w2_address_line_2' value='{val("w2_address_line_2")}'>
+                </div>
+
+                <div>
+                    <label>W-2 City</label>
+                    <input name='w2_city' value='{val("w2_city")}'>
+                </div>
+
+                <div>
+                    <label>W-2 State</label>
+                    <input name='w2_state' value='{val("w2_state")}' maxlength='2'>
+                </div>
+
+                <div>
+                    <label>W-2 ZIP</label>
+                    <input name='w2_zip' value='{val("w2_zip")}'>
+                </div>
+            </div>
+
+            <div class='muted' style='margin-top:12px;'>
+                These fields will be used for year-end W-2 preparation and employee statement printing.
             </div>
         </div>
 
@@ -456,6 +530,7 @@ def employees():
     ensure_employee_payroll_columns()
     ensure_employee_tax_columns()
     ensure_employee_local_tax_columns()
+    ensure_employee_w2_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -490,7 +565,7 @@ def employees():
             f"""
             SELECT *
             FROM employees
-            WHERE company_id = %s AND is_active = 1
+            WHERE company_id = %s AND is_active = TRUE
             ORDER BY {name_col} ASC, id DESC
             """,
             (cid,),
@@ -511,7 +586,7 @@ def employees():
                 else f"${float(r['hourly_rate'] or 0):.2f}/hr" if 'hourly_rate' in r.keys() and r['hourly_rate'] is not None
                 else '-'
             }</td>
-            <td>{"Active" if r['is_active'] else "Inactive"}</td>
+            <td>{"Active" if bool(r['is_active']) else "Inactive"}</td>
             <td>
                 <div class='row-actions'>
                     <a class='btn secondary small' href='{url_for("employees.view_employee", employee_id=r["id"])}'>View</a>
@@ -520,7 +595,7 @@ def employees():
                         f"<form method='post' action='{url_for('employees.deactivate_employee', employee_id=r['id'])}' class='inline-form'>"
                         f"<button class='btn warning small' type='submit'>Set Inactive</button>"
                         f"</form>"
-                        if r['is_active']
+                        if bool(r['is_active'])
                         else
                         f"<form method='post' action='{url_for('employees.activate_employee', employee_id=r['id'])}' class='inline-form'>"
                         f"<button class='btn success small' type='submit'>Set Active</button>"
@@ -592,6 +667,7 @@ def new_employee():
     ensure_employee_tax_columns()
     ensure_employee_status_column()
     ensure_employee_local_tax_columns()
+    ensure_employee_w2_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -600,7 +676,9 @@ def new_employee():
 
     if request.method == "POST":
         first_name = _clean_text(request.form.get("first_name"))
+        middle_name = _clean_text(request.form.get("middle_name"))
         last_name = _clean_text(request.form.get("last_name"))
+        suffix = _clean_text(request.form.get("suffix"))
         phone = _clean_text(request.form.get("phone"))
         email = _clean_text(request.form.get("email"))
         position = _clean_text(request.form.get("position"))
@@ -610,8 +688,15 @@ def new_employee():
         address_line_1 = _clean_text(request.form.get("address_line_1"))
         address_line_2 = _clean_text(request.form.get("address_line_2"))
         city = _clean_text(request.form.get("city"))
-        state = _clean_text(request.form.get("state")) or "IN"
+        state = (_clean_text(request.form.get("state")) or "IN").upper()
         zip_code = _clean_text(request.form.get("zip"))
+
+        ssn = _normalize_ssn(request.form.get("ssn"))
+        w2_address_line_1 = _clean_text(request.form.get("w2_address_line_1"))
+        w2_address_line_2 = _clean_text(request.form.get("w2_address_line_2"))
+        w2_city = _clean_text(request.form.get("w2_city"))
+        w2_state = _clean_text(request.form.get("w2_state")).upper()
+        w2_zip = _clean_text(request.form.get("w2_zip"))
 
         federal_filing_status = _clean_text(request.form.get("federal_filing_status")) or "Single"
         pay_frequency = _clean_text(request.form.get("pay_frequency")) or "Biweekly"
@@ -641,13 +726,10 @@ def new_employee():
                 "Add Employee",
             )
 
-        full_name = f"{first_name} {last_name}".strip()
+        full_name = " ".join(part for part in [first_name, middle_name, last_name, suffix] if part).strip()
 
-        # PostgreSQL-safe checkbox / flag normalization
-        # These are stored as 0/1 to avoid datatype mismatch when legacy columns
-        # are still INTEGER instead of BOOLEAN.
-        is_active = 1
-        w4_step2_checked = 1 if request.form.get("w4_step2_checked") else 0
+        is_active = True
+        w4_step2_checked = bool(request.form.get("w4_step2_checked"))
         is_indiana_resident = bool(request.form.get("is_indiana_resident"))
 
         w4_step3_amount = _safe_float(request.form.get("w4_step3_amount"), 0)
@@ -655,7 +737,6 @@ def new_employee():
         w4_step4b_deductions = _safe_float(request.form.get("w4_step4b_deductions"), 0)
         w4_step4c_extra_withholding = _safe_float(request.form.get("w4_step4c_extra_withholding"), 0)
 
-        # Keep pay fields clean based on pay type
         if pay_type.lower() == "salary":
             hourly_rate = 0
             overtime_rate = 0
@@ -665,7 +746,9 @@ def new_employee():
         data = {
             "company_id": cid,
             "first_name": first_name,
+            "middle_name": middle_name,
             "last_name": last_name,
+            "suffix": suffix,
             "full_name": full_name,
             "phone": phone,
             "email": email,
@@ -676,6 +759,12 @@ def new_employee():
             "city": city,
             "state": state,
             "zip": zip_code,
+            "ssn": ssn,
+            "w2_address_line_1": w2_address_line_1,
+            "w2_address_line_2": w2_address_line_2,
+            "w2_city": w2_city,
+            "w2_state": w2_state,
+            "w2_zip": w2_zip,
             "pay_type": pay_type,
             "hourly_rate": hourly_rate,
             "overtime_rate": overtime_rate,
@@ -699,7 +788,9 @@ def new_employee():
         ordered_columns = [
             "company_id",
             "first_name",
+            "middle_name",
             "last_name",
+            "suffix",
             "full_name",
             "phone",
             "email",
@@ -710,6 +801,12 @@ def new_employee():
             "city",
             "state",
             "zip",
+            "ssn",
+            "w2_address_line_1",
+            "w2_address_line_2",
+            "w2_city",
+            "w2_state",
+            "w2_zip",
             "pay_type",
             "hourly_rate",
             "overtime_rate",
@@ -765,6 +862,7 @@ def view_employee(employee_id):
     ensure_employee_payroll_columns()
     ensure_employee_tax_columns()
     ensure_employee_local_tax_columns()
+    ensure_employee_w2_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -823,13 +921,23 @@ def view_employee(employee_id):
     hourly_rate = employee["hourly_rate"] if "hourly_rate" in cols and employee["hourly_rate"] is not None else 0
     overtime_rate = employee["overtime_rate"] if "overtime_rate" in cols and employee["overtime_rate"] is not None else 0
     salary_amount = employee["salary_amount"] if "salary_amount" in cols and employee["salary_amount"] is not None else 0
-    status_text = "Active" if ("is_active" in cols and employee["is_active"]) else "Inactive"
+    status_text = "Active" if ("is_active" in cols and bool(employee["is_active"])) else "Inactive"
+
+    middle_name = employee["middle_name"] if "middle_name" in cols and employee["middle_name"] else "-"
+    suffix = employee["suffix"] if "suffix" in cols and employee["suffix"] else "-"
+    ssn = employee["ssn"] if "ssn" in cols and employee["ssn"] else "-"
 
     address_line_1 = employee["address_line_1"] if "address_line_1" in cols and employee["address_line_1"] else "-"
     address_line_2 = employee["address_line_2"] if "address_line_2" in cols and employee["address_line_2"] else "-"
     city = employee["city"] if "city" in cols and employee["city"] else "-"
     state = employee["state"] if "state" in cols and employee["state"] else "-"
     zip_code = employee["zip"] if "zip" in cols and employee["zip"] else "-"
+
+    w2_address_line_1 = employee["w2_address_line_1"] if "w2_address_line_1" in cols and employee["w2_address_line_1"] else "-"
+    w2_address_line_2 = employee["w2_address_line_2"] if "w2_address_line_2" in cols and employee["w2_address_line_2"] else "-"
+    w2_city = employee["w2_city"] if "w2_city" in cols and employee["w2_city"] else "-"
+    w2_state = employee["w2_state"] if "w2_state" in cols and employee["w2_state"] else "-"
+    w2_zip = employee["w2_zip"] if "w2_zip" in cols and employee["w2_zip"] else "-"
 
     federal_filing_status = (
         employee["federal_filing_status"]
@@ -841,13 +949,13 @@ def view_employee(employee_id):
         if "pay_frequency" in cols and employee["pay_frequency"]
         else "-"
     )
-    w4_step2_checked = "Yes" if "w4_step2_checked" in cols and employee["w4_step2_checked"] else "No"
+    w4_step2_checked = "Yes" if "w4_step2_checked" in cols and bool(employee["w4_step2_checked"]) else "No"
     w4_step3_amount = float(employee["w4_step3_amount"]) if "w4_step3_amount" in cols and employee["w4_step3_amount"] is not None else 0.0
     w4_step4a_other_income = float(employee["w4_step4a_other_income"]) if "w4_step4a_other_income" in cols and employee["w4_step4a_other_income"] is not None else 0.0
     w4_step4b_deductions = float(employee["w4_step4b_deductions"]) if "w4_step4b_deductions" in cols and employee["w4_step4b_deductions"] is not None else 0.0
     w4_step4c_extra_withholding = float(employee["w4_step4c_extra_withholding"]) if "w4_step4c_extra_withholding" in cols and employee["w4_step4c_extra_withholding"] is not None else 0.0
 
-    is_indiana_resident = "Yes" if "is_indiana_resident" in cols and employee["is_indiana_resident"] else "No"
+    is_indiana_resident = "Yes" if "is_indiana_resident" in cols and bool(employee["is_indiana_resident"]) else "No"
     county_of_residence = employee["county_of_residence"] if "county_of_residence" in cols and employee["county_of_residence"] else "-"
     county_of_principal_employment = employee["county_of_principal_employment"] if "county_of_principal_employment" in cols and employee["county_of_principal_employment"] else "-"
     county_tax_effective_year = employee["county_tax_effective_year"] if "county_tax_effective_year" in cols and employee["county_tax_effective_year"] else "-"
@@ -879,7 +987,7 @@ def view_employee(employee_id):
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
             <div>
                 <h1 style='margin-bottom:6px;'>{escape(employee_name)}</h1>
-                <p class='muted' style='margin:0;'>Employee details, payroll profile, and tax setup.</p>
+                <p class='muted' style='margin:0;'>Employee details, payroll profile, tax setup, and W-2 identity fields.</p>
             </div>
             <div class='row-actions'>
                 <a class='btn' href='{url_for("employees.edit_employee", employee_id=employee_id)}'>Edit Employee</a>
@@ -894,6 +1002,8 @@ def view_employee(employee_id):
         <div class='grid'>
             <div><strong>Name</strong><br>{escape(employee_name)}</div>
             <div><strong>Status</strong><br>{escape(status_text)}</div>
+            <div><strong>Middle Name</strong><br>{escape(str(middle_name))}</div>
+            <div><strong>Suffix</strong><br>{escape(str(suffix))}</div>
             <div><strong>Phone</strong><br>{escape(str(phone))}</div>
             <div><strong>Email</strong><br>{escape(str(email))}</div>
             <div><strong>Position</strong><br>{escape(str(position))}</div>
@@ -909,6 +1019,18 @@ def view_employee(employee_id):
             <div><strong>City</strong><br>{escape(str(city))}</div>
             <div><strong>State</strong><br>{escape(str(state))}</div>
             <div><strong>ZIP</strong><br>{escape(str(zip_code))}</div>
+        </div>
+    </div>
+
+    <div class='card'>
+        <h2>W-2 Identity & Mailing Info</h2>
+        <div class='grid'>
+            <div><strong>SSN</strong><br>{escape(str(ssn))}</div>
+            <div style='grid-column:1 / -1;'><strong>W-2 Address Line 1</strong><br>{escape(str(w2_address_line_1))}</div>
+            <div style='grid-column:1 / -1;'><strong>W-2 Address Line 2</strong><br>{escape(str(w2_address_line_2))}</div>
+            <div><strong>W-2 City</strong><br>{escape(str(w2_city))}</div>
+            <div><strong>W-2 State</strong><br>{escape(str(w2_state))}</div>
+            <div><strong>W-2 ZIP</strong><br>{escape(str(w2_zip))}</div>
         </div>
     </div>
 
@@ -982,6 +1104,7 @@ def edit_employee(employee_id):
     ensure_employee_payroll_columns()
     ensure_employee_tax_columns()
     ensure_employee_local_tax_columns()
+    ensure_employee_w2_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -998,7 +1121,9 @@ def edit_employee(employee_id):
 
     if request.method == "POST":
         first_name = _clean_text(request.form.get("first_name"))
+        middle_name = _clean_text(request.form.get("middle_name"))
         last_name = _clean_text(request.form.get("last_name"))
+        suffix = _clean_text(request.form.get("suffix"))
         phone = _clean_text(request.form.get("phone"))
         email = _clean_text(request.form.get("email"))
         position = _clean_text(request.form.get("position"))
@@ -1012,8 +1137,15 @@ def edit_employee(employee_id):
         address_line_1 = _clean_text(request.form.get("address_line_1"))
         address_line_2 = _clean_text(request.form.get("address_line_2"))
         city = _clean_text(request.form.get("city"))
-        state = _clean_text(request.form.get("state")) or "IN"
+        state = (_clean_text(request.form.get("state")) or "IN").upper()
         zip_code = _clean_text(request.form.get("zip"))
+
+        ssn = _normalize_ssn(request.form.get("ssn"))
+        w2_address_line_1 = _clean_text(request.form.get("w2_address_line_1"))
+        w2_address_line_2 = _clean_text(request.form.get("w2_address_line_2"))
+        w2_city = _clean_text(request.form.get("w2_city"))
+        w2_state = _clean_text(request.form.get("w2_state")).upper()
+        w2_zip = _clean_text(request.form.get("w2_zip"))
 
         pay_type = _clean_text(request.form.get("pay_type")) or "Hourly"
         hourly_rate = _safe_float(request.form.get("hourly_rate"), 0)
@@ -1022,7 +1154,6 @@ def edit_employee(employee_id):
         default_hours = _safe_float(request.form.get("default_hours"), 0)
         payroll_notes = _clean_text(request.form.get("payroll_notes"))
 
-        # Clean pay logic
         if pay_type.lower() == "salary":
             hourly_rate = 0
             overtime_rate = 0
@@ -1032,8 +1163,7 @@ def edit_employee(employee_id):
         federal_filing_status = _clean_text(request.form.get("federal_filing_status")) or "Single"
         pay_frequency = _clean_text(request.form.get("pay_frequency")) or "Weekly"
 
-        # ✅ FIXED: PostgreSQL-safe flags (0/1 instead of True/False)
-        w4_step2_checked = 1 if request.form.get("w4_step2_checked") else 0
+        w4_step2_checked = bool(request.form.get("w4_step2_checked"))
         is_indiana_resident = bool(request.form.get("is_indiana_resident"))
 
         w4_step3_amount = _safe_float(request.form.get("w4_step3_amount"), 0)
@@ -1048,13 +1178,15 @@ def edit_employee(employee_id):
             date.today().year
         )
 
-        full_name = f"{first_name} {last_name}".strip()
+        full_name = " ".join(part for part in [first_name, middle_name, last_name, suffix] if part).strip()
 
         conn.execute(
             """
             UPDATE employees
             SET first_name = %s,
+                middle_name = %s,
                 last_name = %s,
+                suffix = %s,
                 full_name = %s,
                 phone = %s,
                 email = %s,
@@ -1065,6 +1197,12 @@ def edit_employee(employee_id):
                 city = %s,
                 state = %s,
                 zip = %s,
+                ssn = %s,
+                w2_address_line_1 = %s,
+                w2_address_line_2 = %s,
+                w2_city = %s,
+                w2_state = %s,
+                w2_zip = %s,
                 pay_type = %s,
                 hourly_rate = %s,
                 overtime_rate = %s,
@@ -1086,7 +1224,9 @@ def edit_employee(employee_id):
             """,
             (
                 first_name,
+                middle_name,
                 last_name,
+                suffix,
                 full_name,
                 phone,
                 email,
@@ -1097,6 +1237,12 @@ def edit_employee(employee_id):
                 city,
                 state,
                 zip_code,
+                ssn,
+                w2_address_line_1,
+                w2_address_line_2,
+                w2_city,
+                w2_state,
+                w2_zip,
                 pay_type,
                 hourly_rate,
                 overtime_rate,
@@ -1148,7 +1294,7 @@ def activate_employee(employee_id):
     conn.execute(
         """
         UPDATE employees
-        SET is_active = 1
+        SET is_active = TRUE
         WHERE id = %s AND company_id = %s
         """,
         (employee_id, cid),
@@ -1173,7 +1319,7 @@ def deactivate_employee(employee_id):
     conn.execute(
         """
         UPDATE employees
-        SET is_active = 0
+        SET is_active = FALSE
         WHERE id = %s AND company_id = %s
         """,
         (employee_id, cid),
@@ -1286,7 +1432,7 @@ def time_clock():
             email,
             is_active
         FROM employees
-        WHERE company_id = %s AND is_active = 1
+        WHERE company_id = %s AND is_active = TRUE
         ORDER BY
             COALESCE(NULLIF(last_name, ''), NULLIF(full_name, ''), NULLIF(first_name, ''), 'ZZZ'),
             COALESCE(NULLIF(first_name, ''), ''),
@@ -1311,7 +1457,7 @@ def time_clock():
             ON t.employee_id = e.id
            AND t.company_id = e.company_id
            AND t.clock_out IS NULL
-        WHERE e.company_id = %s AND e.is_active = 1
+        WHERE e.company_id = %s AND e.is_active = TRUE
         ORDER BY
             COALESCE(NULLIF(e.last_name, ''), NULLIF(e.full_name, ''), NULLIF(e.first_name, ''), 'ZZZ'),
             COALESCE(NULLIF(e.first_name, ''), ''),
@@ -1686,7 +1832,7 @@ def time_clock_clock_in():
         """
         SELECT id, first_name, last_name, full_name
         FROM employees
-        WHERE id = %s AND company_id = %s AND is_active = 1
+        WHERE id = %s AND company_id = %s AND is_active = TRUE
         """,
         (employee_id, cid),
     ).fetchone()
