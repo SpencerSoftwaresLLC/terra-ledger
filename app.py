@@ -18,7 +18,7 @@ from routes.customers import customers_bp
 from routes.jobs import jobs_bp
 from routes.quotes import quotes_bp
 from routes.invoices import invoices_bp
-from routes.payroll import payroll_bp
+from routes.payroll import payroll_bp, ensure_payroll_check_structure
 from routes.employees import employees_bp
 from routes.users import users_bp
 from routes.settings import settings_bp
@@ -26,7 +26,7 @@ from routes.billing import billing_bp
 from routes.calendar import calendar_bp
 from routes.messages import messages_bp
 from routes.payment_setup import payment_setup_bp
-from routes.bookkeeping import bookkeeping_bp
+from routes.bookkeeping import bookkeeping_bp, _ensure_bookkeeping_check_structure
 from routes.help_assistant import help_assistant_bp
 from routes.mobile import mobile_bp
 from routes.legal import legal_bp
@@ -35,7 +35,7 @@ from routes.legal import legal_bp
 def run_startup_tasks():
     print("STARTING DB INIT", flush=True)
     init_db()
-    print("INIT_DB SUCCESS", flush=True)
+    print("init_db SUCCESS", flush=True)
 
     ensure_company_profile_location_columns()
     print("ensure_company_profile_location_columns SUCCESS", flush=True)
@@ -45,6 +45,12 @@ def run_startup_tasks():
 
     ensure_password_reset_table()
     print("ensure_password_reset_table SUCCESS", flush=True)
+
+    ensure_payroll_check_structure()
+    print("ensure_payroll_check_structure SUCCESS", flush=True)
+
+    _ensure_bookkeeping_check_structure()
+    print("_ensure_bookkeeping_check_structure SUCCESS", flush=True)
 
 
 def create_app():
@@ -106,6 +112,7 @@ def create_app():
 
     print("APP CREATE SUCCESS", flush=True)
     return app
+
 
 app = create_app()
 

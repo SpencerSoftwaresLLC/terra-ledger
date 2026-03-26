@@ -1,7 +1,12 @@
 from flask import Blueprint, request, redirect, url_for, session, flash, make_response, jsonify
-from datetime import date
+from datetime import date, datetime
 import io
 import csv
+from decimal import Decimal, ROUND_HALF_UP
+
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib.units import inch
 
 from db import (
     get_db_connection,
@@ -31,7 +36,7 @@ def clean_text_input(value):
     text = str(value).strip()
     if not text:
         return ""
-    if text.lower() in {"none", "null", "n/a", "0", "0.0", "0.00"}:
+    if text.lower() in {"none", "null", "n/a"}:
         return ""
     return text
 
@@ -39,6 +44,21 @@ def clean_text_input(value):
 def clean_text_display(value, fallback="-"):
     text = clean_text_input(value)
     return text if text else fallback
+
+
+def money(value):
+    return float(Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def html_escape(value):
+    text = "" if value is None else str(value)
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
 
 
 def get_salary_period_amount(annual_salary, pay_frequency):
@@ -117,6 +137,332 @@ def get_employee_time_clock_hours(conn, company_id, employee_id, start_date, end
     return round(regular, 2), round(overtime, 2)
 
 
+def ensure_payroll_check_structure():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS checks (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            check_number INTEGER NOT NULL,
+            check_date DATE NOT NULL,
+            payee_name TEXT NOT NULL,
+            amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+            amount_written TEXT,
+            memo TEXT,
+            source_type TEXT NOT NULL,
+            source_id INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'Printed',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            printed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+    cur.execute("ALTER TABLE payroll_entries ADD COLUMN IF NOT EXISTS payment_method TEXT")
+    cur.execute("ALTER TABLE payroll_entries ADD COLUMN IF NOT EXISTS check_id INTEGER")
+    cur.execute("ALTER TABLE payroll_entries ADD COLUMN IF NOT EXISTS check_number INTEGER")
+    cur.execute("ALTER TABLE payroll_entries ADD COLUMN IF NOT EXISTS check_printed_at TIMESTAMP")
+
+    cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS next_check_number INTEGER DEFAULT 1001")
+    cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS company_check_name TEXT")
+    cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS check_address_line_1 TEXT")
+    cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS check_address_line_2 TEXT")
+    cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS check_city TEXT")
+    cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS check_state TEXT")
+    cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS check_zip TEXT")
+
+    conn.commit()
+    conn.close()
+
+
+def number_to_words_under_1000(n):
+    ones = [
+        "Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven",
+        "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen",
+        "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"
+    ]
+    tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"]
+
+    n = int(n)
+    if n < 20:
+        return ones[n]
+    if n < 100:
+        if n % 10 == 0:
+            return tens[n // 10]
+        return f"{tens[n // 10]} {ones[n % 10]}"
+    if n % 100 == 0:
+        return f"{ones[n // 100]} Hundred"
+    return f"{ones[n // 100]} Hundred {number_to_words_under_1000(n % 100)}"
+
+
+def number_to_words(n):
+    n = int(n)
+    if n == 0:
+        return "Zero"
+
+    parts = []
+
+    billions = n // 1_000_000_000
+    if billions:
+        parts.append(f"{number_to_words_under_1000(billions)} Billion")
+        n %= 1_000_000_000
+
+    millions = n // 1_000_000
+    if millions:
+        parts.append(f"{number_to_words_under_1000(millions)} Million")
+        n %= 1_000_000
+
+    thousands = n // 1000
+    if thousands:
+        parts.append(f"{number_to_words_under_1000(thousands)} Thousand")
+        n %= 1000
+
+    if n:
+        parts.append(number_to_words_under_1000(n))
+
+    return " ".join(parts)
+
+
+def amount_to_words(amount):
+    amount = Decimal(str(amount or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    dollars = int(amount)
+    cents = int((amount - Decimal(dollars)) * 100)
+    return f"{number_to_words(dollars)} and {cents:02d}/100"
+
+
+def get_company_check_info(profile):
+    profile = profile or {}
+
+    company_name = (
+        clean_text_input(profile.get("company_check_name"))
+        or clean_text_input(profile.get("company_name"))
+        or clean_text_input(profile.get("name"))
+        or "Company"
+    )
+
+    address_line_1 = (
+        clean_text_input(profile.get("check_address_line_1"))
+        or clean_text_input(profile.get("address_line_1"))
+        or clean_text_input(profile.get("address"))
+    )
+    address_line_2 = clean_text_input(profile.get("check_address_line_2"))
+    city = clean_text_input(profile.get("check_city")) or clean_text_input(profile.get("city"))
+    state = clean_text_input(profile.get("check_state")) or clean_text_input(profile.get("state"))
+    zip_code = clean_text_input(profile.get("check_zip")) or clean_text_input(profile.get("zip"))
+
+    city_state_zip = " ".join(part for part in [city, state, zip_code] if part).strip()
+
+    next_check_number = int(profile.get("next_check_number") or 1001)
+
+    return {
+        "company_name": company_name,
+        "address_line_1": address_line_1,
+        "address_line_2": address_line_2,
+        "city_state_zip": city_state_zip,
+        "next_check_number": next_check_number,
+    }
+
+
+def build_payroll_check_pdf(company_info, payroll_row, employee_name, check_number):
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+
+    amount = money(payroll_row["net_pay"])
+    amount_written = amount_to_words(amount)
+    pay_date = clean_text_input(payroll_row["pay_date"]) or date.today().isoformat()
+    memo = f"Payroll {clean_text_input(payroll_row['pay_period_start'])} to {clean_text_input(payroll_row['pay_period_end'])}"
+
+    # Check area
+    top_y = height - 0.75 * inch
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(0.7 * inch, top_y, company_info["company_name"])
+
+    c.setFont("Helvetica", 9)
+    line_y = top_y - 0.18 * inch
+    if company_info["address_line_1"]:
+        c.drawString(0.7 * inch, line_y, company_info["address_line_1"])
+        line_y -= 0.15 * inch
+    if company_info["address_line_2"]:
+        c.drawString(0.7 * inch, line_y, company_info["address_line_2"])
+        line_y -= 0.15 * inch
+    if company_info["city_state_zip"]:
+        c.drawString(0.7 * inch, line_y, company_info["city_state_zip"])
+
+    c.setFont("Helvetica-Bold", 11)
+    c.drawRightString(width - 0.7 * inch, top_y, f"Check #{check_number}")
+    c.setFont("Helvetica", 10)
+    c.drawRightString(width - 0.7 * inch, top_y - 0.24 * inch, f"Date: {pay_date}")
+
+    c.setFont("Helvetica", 10)
+    c.drawString(0.7 * inch, height - 1.75 * inch, "Pay to the Order of:")
+    c.line(1.95 * inch, height - 1.79 * inch, width - 1.65 * inch, height - 1.79 * inch)
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(2.05 * inch, height - 1.72 * inch, employee_name)
+
+    c.rect(width - 1.85 * inch, height - 1.97 * inch, 1.15 * inch, 0.33 * inch)
+    c.setFont("Helvetica-Bold", 11)
+    c.drawCentredString(width - 1.275 * inch, height - 1.84 * inch, f"${amount:,.2f}")
+
+    c.setFont("Helvetica", 10)
+    c.drawString(0.7 * inch, height - 2.35 * inch, amount_written)
+    c.line(0.7 * inch, height - 2.42 * inch, width - 1.05 * inch, height - 2.42 * inch)
+
+    c.setFont("Helvetica", 9)
+    c.drawString(0.7 * inch, height - 2.78 * inch, "Memo")
+    c.line(1.05 * inch, height - 2.82 * inch, 3.8 * inch, height - 2.82 * inch)
+    c.drawString(1.12 * inch, height - 2.75 * inch, memo)
+
+    c.drawString(width - 2.55 * inch, height - 2.78 * inch, "Authorized Signature")
+    c.line(width - 2.65 * inch, height - 2.82 * inch, width - 0.7 * inch, height - 2.82 * inch)
+
+    # Divider
+    divider_y = height - 3.45 * inch
+    c.setDash(4, 3)
+    c.line(0.5 * inch, divider_y, width - 0.5 * inch, divider_y)
+    c.setDash()
+
+    # Stub area
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(0.7 * inch, divider_y - 0.35 * inch, "Payroll Check Stub")
+
+    c.setFont("Helvetica", 10)
+    stub_y = divider_y - 0.65 * inch
+    c.drawString(0.7 * inch, stub_y, f"Employee: {employee_name}")
+    c.drawString(3.75 * inch, stub_y, f"Check #: {check_number}")
+
+    stub_y -= 0.22 * inch
+    c.drawString(0.7 * inch, stub_y, f"Pay Date: {pay_date}")
+    c.drawString(3.75 * inch, stub_y, f"Pay Type: {clean_text_display(payroll_row['pay_type'])}")
+
+    stub_y -= 0.22 * inch
+    c.drawString(
+        0.7 * inch,
+        stub_y,
+        f"Pay Period: {clean_text_input(payroll_row['pay_period_start'])} to {clean_text_input(payroll_row['pay_period_end'])}"
+    )
+    c.drawString(3.75 * inch, stub_y, f"Method: Check")
+
+    stub_y -= 0.34 * inch
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(0.7 * inch, stub_y, "Hours / Rates")
+    c.drawString(2.55 * inch, stub_y, "Deductions")
+    c.drawString(4.65 * inch, stub_y, "Totals")
+
+    c.setFont("Helvetica", 10)
+    stub_y -= 0.24 * inch
+    c.drawString(0.7 * inch, stub_y, f"Regular Hours: {money(payroll_row['hours_regular']):.2f}")
+    c.drawString(2.55 * inch, stub_y, f"Federal: ${money(payroll_row['federal_withholding']):,.2f}")
+    c.drawString(4.65 * inch, stub_y, f"Gross: ${money(payroll_row['gross_pay']):,.2f}")
+
+    stub_y -= 0.22 * inch
+    c.drawString(0.7 * inch, stub_y, f"OT Hours: {money(payroll_row['hours_overtime']):.2f}")
+    c.drawString(2.55 * inch, stub_y, f"State: ${money(payroll_row['state_withholding']):,.2f}")
+    c.drawString(4.65 * inch, stub_y, f"Net: ${money(payroll_row['net_pay']):,.2f}")
+
+    stub_y -= 0.22 * inch
+    c.drawString(0.7 * inch, stub_y, f"Reg Rate: ${money(payroll_row['rate_regular']):,.2f}")
+    c.drawString(2.55 * inch, stub_y, f"Social Security: ${money(payroll_row['social_security']):,.2f}")
+
+    stub_y -= 0.22 * inch
+    c.drawString(0.7 * inch, stub_y, f"OT Rate: ${money(payroll_row['rate_overtime']):,.2f}")
+    c.drawString(2.55 * inch, stub_y, f"Medicare: ${money(payroll_row['medicare']):,.2f}")
+
+    stub_y -= 0.22 * inch
+    c.drawString(2.55 * inch, stub_y, f"Local Tax: ${money(payroll_row['local_tax']):,.2f}")
+
+    stub_y -= 0.22 * inch
+    c.drawString(2.55 * inch, stub_y, f"Other Deduct.: ${money(payroll_row['other_deductions']):,.2f}")
+
+    notes = clean_text_input(payroll_row["notes"])
+    if notes:
+        stub_y -= 0.32 * inch
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(0.7 * inch, stub_y, "Notes:")
+        c.setFont("Helvetica", 10)
+        c.drawString(1.15 * inch, stub_y, notes[:95])
+
+    c.showPage()
+    c.save()
+
+    pdf_data = buffer.getvalue()
+    buffer.close()
+    return pdf_data
+
+
+def create_or_get_payroll_check(conn, company_id, payroll_row, employee_name):
+    existing_check_id = payroll_row["check_id"] if "check_id" in payroll_row.keys() else None
+    existing_check_number = payroll_row["check_number"] if "check_number" in payroll_row.keys() else None
+
+    if existing_check_id and existing_check_number:
+        check = conn.execute(
+            """
+            SELECT id, check_number
+            FROM checks
+            WHERE id = %s AND company_id = %s
+            """,
+            (existing_check_id, company_id),
+        ).fetchone()
+        if check:
+            return int(check["id"]), int(check["check_number"])
+
+    profile = get_company_profile_row(company_id) or {}
+    company_info = get_company_check_info(profile)
+    check_number = int(company_info["next_check_number"])
+
+    amount = money(payroll_row["net_pay"])
+    amount_written = amount_to_words(amount)
+    memo = f"Payroll {clean_text_input(payroll_row['pay_period_start'])} to {clean_text_input(payroll_row['pay_period_end'])}"
+    check_date = clean_text_input(payroll_row["pay_date"]) or date.today().isoformat()
+
+    inserted = conn.execute(
+        """
+        INSERT INTO checks (
+            company_id, check_number, check_date, payee_name, amount,
+            amount_written, memo, source_type, source_id, status
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, 'payroll', %s, 'Printed')
+        RETURNING id
+        """,
+        (
+            company_id,
+            check_number,
+            check_date,
+            employee_name,
+            amount,
+            amount_written,
+            memo,
+            payroll_row["id"],
+        ),
+    ).fetchone()
+
+    conn.execute(
+        """
+        UPDATE payroll_entries
+        SET payment_method = 'Check',
+            check_id = %s,
+            check_number = %s,
+            check_printed_at = CURRENT_TIMESTAMP
+        WHERE id = %s AND company_id = %s
+        """,
+        (inserted["id"], check_number, payroll_row["id"], company_id),
+    )
+
+    conn.execute(
+        """
+        UPDATE company_profile
+        SET next_check_number = %s
+        WHERE company_id = %s
+        """,
+        (check_number + 1, company_id),
+    )
+
+    return int(inserted["id"]), check_number
+
+
 @payroll_bp.route("/api/time-clock/hours", methods=["POST"])
 @login_required
 @require_permission("can_manage_payroll")
@@ -124,6 +470,7 @@ def get_time_clock_hours_api():
     ensure_employee_payroll_columns()
     ensure_bookkeeping_history_table()
     ensure_payroll_table_structure()
+    ensure_payroll_check_structure()
 
     data = request.get_json(silent=True) or {}
 
@@ -182,6 +529,7 @@ def payroll_preview():
     ensure_employee_payroll_columns()
     ensure_bookkeeping_history_table()
     ensure_payroll_table_structure()
+    ensure_payroll_check_structure()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -306,11 +654,12 @@ def employee_payroll():
     ensure_employee_payroll_columns()
     ensure_bookkeeping_history_table()
     ensure_payroll_table_structure()
+    ensure_payroll_check_structure()
 
     conn = get_db_connection()
     cid = session["company_id"]
 
-    profile = get_company_profile_row(cid)
+    profile = get_company_profile_row(cid) or {}
     start_day = get_company_time_clock_start_day(profile)
     pay_period_start, pay_period_end = get_current_pay_period(start_day)
     pay_period_start_default = pay_period_start.isoformat()
@@ -333,6 +682,7 @@ def employee_payroll():
         rate_overtime = safe_float(request.form.get("rate_overtime"), 0)
         other_deductions = safe_float(request.form.get("other_deductions"), 0)
         notes = clean_text_input(request.form.get("notes", ""))
+        payment_method = clean_text_input(request.form.get("payment_method", "")) or "Direct Deposit"
 
         employee = conn.execute(
             """
@@ -404,15 +754,16 @@ def employee_payroll():
             2,
         )
 
-        conn.execute(
+        inserted = conn.execute(
             """
             INSERT INTO payroll_entries (
                 company_id, employee_id, pay_date, pay_period_start, pay_period_end,
                 pay_type, hours_regular, hours_overtime, rate_regular, rate_overtime,
                 gross_pay, federal_withholding, state_withholding, social_security,
-                medicare, local_tax, other_deductions, net_pay, notes
+                medicare, local_tax, other_deductions, net_pay, notes, payment_method
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
             """,
             (
                 cid,
@@ -434,13 +785,21 @@ def employee_payroll():
                 other_deductions,
                 net_pay,
                 notes,
+                payment_method,
             ),
-        )
+        ).fetchone()
 
         conn.commit()
+
         flash(
             f"Payroll entry saved. Gross: ${gross_pay:.2f} | Federal: ${federal_withholding:.2f} | Net: ${net_pay:.2f}"
         )
+
+        if payment_method == "Check":
+            payroll_id = int(inserted["id"])
+            conn.close()
+            return redirect(url_for("payroll.print_payroll_check", payroll_id=payroll_id))
+
         conn.close()
         return redirect(url_for("payroll.employee_payroll"))
 
@@ -472,7 +831,10 @@ def employee_payroll():
 
     rows = conn.execute(
         """
-        SELECT p.*, e.first_name, e.last_name
+        SELECT
+            p.*,
+            e.first_name,
+            e.last_name
         FROM payroll_entries p
         JOIN employees e ON p.employee_id = e.id
         WHERE p.company_id = %s
@@ -497,36 +859,61 @@ def employee_payroll():
         conn=conn,
     )
 
+    company_check_info = get_company_check_info(profile)
+    next_check_number = company_check_info["next_check_number"]
+
     conn.close()
 
     employee_options = "".join(
         f"""
         <option
             value='{e["id"]}'
-            data-pay-type='{clean_text_input(e["pay_type"]) or "Hourly"}'
-            data-pay-frequency='{clean_text_input(e["pay_frequency"]) or "Biweekly"}'
+            data-pay-type='{html_escape(clean_text_input(e["pay_type"]) or "Hourly")}'
+            data-pay-frequency='{html_escape(clean_text_input(e["pay_frequency"]) or "Biweekly")}'
             data-hourly-rate='{e["hourly_rate"] or 0}'
             data-overtime-rate='{e["overtime_rate"] or 0}'
             data-salary-amount='{e["salary_amount"] or 0}'
-            data-filing-status='{clean_text_input(e["w4_filing_status"]) or clean_text_input(e["federal_filing_status"]) or "Single"}'
+            data-filing-status='{html_escape(clean_text_input(e["w4_filing_status"]) or clean_text_input(e["federal_filing_status"]) or "Single")}'
             data-step2-checked='{1 if (e["w4_step2_checked"] or 0) else 0}'
             data-step3-amount='{e["w4_step3_amount"] or 0}'
             data-step4a='{e["w4_step4a_other_income"] or 0}'
             data-step4b='{e["w4_step4b_deductions"] or 0}'
             data-step4c='{e["w4_step4c_extra_withholding"] or 0}'
         >
-            {clean_text_display(e["first_name"], "").strip()} {clean_text_display(e["last_name"], "").strip()}
+            {html_escape((clean_text_display(e["first_name"], "").strip() + " " + clean_text_display(e["last_name"], "").strip()).strip())}
         </option>
         """
         for e in employees
     )
 
-    payroll_rows = "".join(
-        f"""
+    payroll_rows = ""
+    for r in rows:
+        payment_method = clean_text_input(r["payment_method"]) or "-"
+        check_number = r["check_number"] if "check_number" in r.keys() else None
+
+        actions_html = []
+        if payment_method == "Check" or check_number:
+            actions_html.append(
+                f"<a class='btn secondary small' href='{url_for('payroll.print_payroll_check', payroll_id=r['id'])}' target='_blank'>Print Check</a>"
+            )
+        actions_html.append(
+            f"""
+            <form method='post'
+                  action='{url_for("payroll.delete_payroll_entry", payroll_id=r["id"])}'
+                  onsubmit="return confirm('Delete this payroll entry?');"
+                  style='margin:0;'>
+                <button class='btn danger small' type='submit'>Delete</button>
+            </form>
+            """
+        )
+
+        payroll_rows += f"""
         <tr>
-            <td>{clean_text_display(r['pay_date'])}</td>
-            <td>{(clean_text_input(r['first_name']) + ' ' + clean_text_input(r['last_name'])).strip() or '-'}</td>
-            <td>{clean_text_display(r['pay_type'])}</td>
+            <td>{html_escape(clean_text_display(r['pay_date']))}</td>
+            <td>{html_escape((clean_text_input(r['first_name']) + ' ' + clean_text_input(r['last_name'])).strip() or '-')}</td>
+            <td>{html_escape(clean_text_display(r['pay_type']))}</td>
+            <td>{html_escape(payment_method)}</td>
+            <td>{html_escape(str(check_number) if check_number else '-')}</td>
             <td>${float(r['gross_pay'] or 0):.2f}</td>
             <td>${float(r['federal_withholding'] or 0):.2f}</td>
             <td>${float(r['state_withholding'] or 0):.2f}</td>
@@ -536,27 +923,23 @@ def employee_payroll():
             <td>${float(r['other_deductions'] or 0):.2f}</td>
             <td>${float(r['net_pay'] or 0):.2f}</td>
             <td>
-                <form method='post'
-                      action='{url_for("payroll.delete_payroll_entry", payroll_id=r["id"])}'
-                      onsubmit="return confirm('Delete this payroll entry?');"
-                      style='margin:0;'>
-                    <button class='btn danger small' type='submit'>Delete</button>
-                </form>
+                <div class='row-actions'>
+                    {''.join(actions_html)}
+                </div>
             </td>
         </tr>
         """
-        for r in rows
-    )
 
     tax_defaults_html = f"""
     <div class='card'>
         <h2>Current Tax Defaults</h2>
         <div class='grid'>
-            <div><strong>Provider</strong><br>{clean_text_display(preview_taxes.get('provider', 'internal'), 'internal')}</div>
-            <div><strong>State</strong><br>{clean_text_display(preview_taxes.get('state_name', '-'), '-')}</div>
+            <div><strong>Provider</strong><br>{html_escape(clean_text_display(preview_taxes.get('provider', 'internal'), 'internal'))}</div>
+            <div><strong>State</strong><br>{html_escape(clean_text_display(preview_taxes.get('state_name', '-'), '-'))}</div>
             <div><strong>Social Security</strong><br>6.20%</div>
             <div><strong>Medicare</strong><br>1.45%</div>
-            <div><strong>Local</strong><br>{clean_text_display(preview_taxes.get('local_name', '-'), '-')}</div>
+            <div><strong>Local</strong><br>{html_escape(clean_text_display(preview_taxes.get('local_name', '-'), '-'))}</div>
+            <div><strong>Next Check #</strong><br>{next_check_number}</div>
         </div>
     </div>
     """
@@ -566,7 +949,7 @@ def employee_payroll():
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
             <div>
                 <h1 style='margin-bottom:6px;'>Payroll</h1>
-                <p class='muted' style='margin:0;'>Track employee pay and payroll deductions.</p>
+                <p class='muted' style='margin:0;'>Track employee pay, payroll deductions, and printable payroll checks.</p>
             </div>
             <div class='row-actions'>
                 <a href='{url_for("payroll.export_payroll")}' class='btn secondary'>Export CSV</a>
@@ -603,6 +986,16 @@ def employee_payroll():
                 <div>
                     <label>Pay Period End</label>
                     <input type='date' name='pay_period_end' id='pay_period_end' value='{pay_period_end_default}'>
+                </div>
+
+                <div>
+                    <label>Payment Method</label>
+                    <select name='payment_method' id='payment_method'>
+                        <option value='Direct Deposit'>Direct Deposit</option>
+                        <option value='Check'>Check</option>
+                        <option value='Cash'>Cash</option>
+                        <option value='Other'>Other</option>
+                    </select>
                 </div>
 
                 <div>
@@ -672,6 +1065,7 @@ def employee_payroll():
 
             <div class='row-actions' style='margin-top:20px;'>
                 <button class='btn success' type='submit'>Save Payroll Entry</button>
+                <div class='muted'>Choosing <strong>Check</strong> will save the payroll entry and open the printable payroll check PDF.</div>
             </div>
         </form>
     </div>
@@ -699,6 +1093,8 @@ def employee_payroll():
                 <th>Date</th>
                 <th>Employee</th>
                 <th>Pay Type</th>
+                <th>Method</th>
+                <th>Check #</th>
                 <th>Gross</th>
                 <th>Federal</th>
                 <th>State</th>
@@ -709,7 +1105,7 @@ def employee_payroll():
                 <th>Net</th>
                 <th>Actions</th>
             </tr>
-            {payroll_rows or "<tr><td colspan='12' class='muted'>No payroll entries yet.</td></tr>"}
+            {payroll_rows or "<tr><td colspan='14' class='muted'>No payroll entries yet.</td></tr>"}
         </table>
         </div>
     </div>
@@ -970,6 +1366,84 @@ document.addEventListener('DOMContentLoaded', function() {{
     return render_page(content, "Employee Payroll")
 
 
+@payroll_bp.route("/employees/payroll/<int:payroll_id>/print-check")
+@login_required
+@subscription_required
+@require_permission("can_manage_payroll")
+def print_payroll_check(payroll_id):
+    ensure_employee_payroll_columns()
+    ensure_bookkeeping_history_table()
+    ensure_payroll_table_structure()
+    ensure_payroll_check_structure()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    row = conn.execute(
+        """
+        SELECT
+            p.*,
+            e.first_name,
+            e.last_name,
+            e.full_name
+        FROM payroll_entries p
+        JOIN employees e ON p.employee_id = e.id
+        WHERE p.id = %s AND p.company_id = %s
+        """,
+        (payroll_id, cid),
+    ).fetchone()
+
+    if not row:
+        conn.close()
+        flash("Payroll entry not found.")
+        return redirect(url_for("payroll.employee_payroll"))
+
+    employee_name = (
+        clean_text_input(row["full_name"])
+        or f"{clean_text_input(row['first_name'])} {clean_text_input(row['last_name'])}".strip()
+        or "Employee"
+    )
+
+    if money(row["net_pay"]) <= 0:
+        conn.close()
+        flash("Cannot print a check for a payroll entry with zero or negative net pay.")
+        return redirect(url_for("payroll.employee_payroll"))
+
+    check_id, check_number = create_or_get_payroll_check(conn, cid, row, employee_name)
+    conn.commit()
+
+    profile = get_company_profile_row(cid) or {}
+    company_info = get_company_check_info(profile)
+
+    refreshed_row = conn.execute(
+        """
+        SELECT
+            p.*,
+            e.first_name,
+            e.last_name,
+            e.full_name
+        FROM payroll_entries p
+        JOIN employees e ON p.employee_id = e.id
+        WHERE p.id = %s AND p.company_id = %s
+        """,
+        (payroll_id, cid),
+    ).fetchone()
+
+    pdf_data = build_payroll_check_pdf(
+        company_info=company_info,
+        payroll_row=refreshed_row,
+        employee_name=employee_name,
+        check_number=check_number,
+    )
+
+    conn.close()
+
+    response = make_response(pdf_data)
+    response.headers["Content-Type"] = "application/pdf"
+    response.headers["Content-Disposition"] = f"inline; filename=payroll_check_{check_number}.pdf"
+    return response
+
+
 @payroll_bp.route("/employees/payroll/export")
 @login_required
 @require_permission("can_manage_payroll")
@@ -977,6 +1451,7 @@ def export_payroll():
     ensure_employee_payroll_columns()
     ensure_bookkeeping_history_table()
     ensure_payroll_table_structure()
+    ensure_payroll_check_structure()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -1003,6 +1478,8 @@ def export_payroll():
         "Pay Date",
         "Employee",
         "Pay Type",
+        "Payment Method",
+        "Check Number",
         "Pay Period Start",
         "Pay Period End",
         "Regular Hours",
@@ -1028,6 +1505,8 @@ def export_payroll():
             clean_text_input(r["pay_date"]),
             employee_name,
             clean_text_input(r["pay_type"]),
+            clean_text_input(r["payment_method"]) if "payment_method" in r.keys() else "",
+            r["check_number"] if "check_number" in r.keys() and r["check_number"] else "",
             clean_text_input(r["pay_period_start"]),
             clean_text_input(r["pay_period_end"]),
             float(r["hours_regular"] or 0),
@@ -1069,12 +1548,14 @@ def add_payroll():
 @login_required
 @require_permission("can_manage_payroll")
 def delete_payroll_entry(payroll_id):
+    ensure_payroll_check_structure()
+
     conn = get_db_connection()
     cid = session["company_id"]
 
     row = conn.execute(
         """
-        SELECT id, ledger_entry_id
+        SELECT id, ledger_entry_id, check_id
         FROM payroll_entries
         WHERE id = %s AND company_id = %s
         """,
@@ -1090,6 +1571,12 @@ def delete_payroll_entry(payroll_id):
         conn.execute(
             "DELETE FROM ledger_entries WHERE id = %s AND company_id = %s",
             (row["ledger_entry_id"], cid),
+        )
+
+    if "check_id" in row.keys() and row["check_id"]:
+        conn.execute(
+            "DELETE FROM checks WHERE id = %s AND company_id = %s",
+            (row["check_id"], cid),
         )
 
     conn.execute(

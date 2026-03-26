@@ -3,6 +3,11 @@ from html import escape
 from datetime import date, datetime
 import csv
 import io
+from decimal import Decimal, ROUND_HALF_UP
+
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib.units import inch
 
 from db import get_db_connection, table_columns
 from decorators import login_required, require_permission, subscription_required
@@ -101,6 +106,17 @@ def _fmt_money(value, show_plus=False):
 
 def _normalize_text(value):
     return str(value or "").strip().lower()
+
+
+def _clean_text(value):
+    text = str(value or "").strip()
+    if text.lower() in {"none", "null", "n/a"}:
+        return ""
+    return text
+
+
+def _money(value):
+    return float(Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 def _table_exists(conn, table_name):
@@ -358,6 +374,373 @@ def _get_pl_bucket(entry_type="", description="", category="", source_type="", r
     return "Expense"
 
 
+def _ensure_bookkeeping_check_structure():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS checks (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            check_number INTEGER NOT NULL,
+            check_date DATE NOT NULL,
+            payee_name TEXT NOT NULL,
+            amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+            amount_written TEXT,
+            memo TEXT,
+            source_type TEXT NOT NULL,
+            source_id INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'Printed',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            printed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+    cur.execute("ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS payee_name TEXT")
+    cur.execute("ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS payment_method TEXT")
+    cur.execute("ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS check_id INTEGER")
+    cur.execute("ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS check_number INTEGER")
+
+    cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS next_check_number INTEGER DEFAULT 1001")
+    cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS company_check_name TEXT")
+    cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS check_address_line_1 TEXT")
+    cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS check_address_line_2 TEXT")
+    cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS check_city TEXT")
+    cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS check_state TEXT")
+    cur.execute("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS check_zip TEXT")
+
+    conn.commit()
+    conn.close()
+
+
+def _number_to_words_under_1000(n):
+    ones = [
+        "Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven",
+        "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen",
+        "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"
+    ]
+    tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"]
+
+    n = int(n)
+    if n < 20:
+        return ones[n]
+    if n < 100:
+        if n % 10 == 0:
+            return tens[n // 10]
+        return f"{tens[n // 10]} {ones[n % 10]}"
+    if n % 100 == 0:
+        return f"{ones[n // 100]} Hundred"
+    return f"{ones[n // 100]} Hundred {_number_to_words_under_1000(n % 100)}"
+
+
+def _number_to_words(n):
+    n = int(n)
+    if n == 0:
+        return "Zero"
+
+    parts = []
+
+    billions = n // 1_000_000_000
+    if billions:
+        parts.append(f"{_number_to_words_under_1000(billions)} Billion")
+        n %= 1_000_000_000
+
+    millions = n // 1_000_000
+    if millions:
+        parts.append(f"{_number_to_words_under_1000(millions)} Million")
+        n %= 1_000_000
+
+    thousands = n // 1000
+    if thousands:
+        parts.append(f"{_number_to_words_under_1000(thousands)} Thousand")
+        n %= 1000
+
+    if n:
+        parts.append(_number_to_words_under_1000(n))
+
+    return " ".join(parts)
+
+
+def _amount_to_words(amount):
+    amount = Decimal(str(amount or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    dollars = int(amount)
+    cents = int((amount - Decimal(dollars)) * 100)
+    return f"{_number_to_words(dollars)} and {cents:02d}/100"
+
+
+def _get_company_profile_row(company_id):
+    conn = get_db_connection()
+    try:
+        return conn.execute(
+            "SELECT * FROM company_profile WHERE company_id = %s",
+            (company_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+
+def _get_company_check_info(company_id):
+    profile = _get_company_profile_row(company_id) or {}
+
+    company_name = (
+        _clean_text(profile["company_check_name"]) if "company_check_name" in profile.keys() else ""
+    ) or (
+        _clean_text(profile["company_name"]) if "company_name" in profile.keys() else ""
+    ) or (
+        _clean_text(profile["name"]) if "name" in profile.keys() else ""
+    ) or "Company"
+
+    address_line_1 = (
+        _clean_text(profile["check_address_line_1"]) if "check_address_line_1" in profile.keys() else ""
+    ) or (
+        _clean_text(profile["address_line_1"]) if "address_line_1" in profile.keys() else ""
+    ) or (
+        _clean_text(profile["address"]) if "address" in profile.keys() else ""
+    )
+    address_line_2 = _clean_text(profile["check_address_line_2"]) if "check_address_line_2" in profile.keys() else ""
+    city = (_clean_text(profile["check_city"]) if "check_city" in profile.keys() else "") or (_clean_text(profile["city"]) if "city" in profile.keys() else "")
+    state = (_clean_text(profile["check_state"]) if "check_state" in profile.keys() else "") or (_clean_text(profile["state"]) if "state" in profile.keys() else "")
+    zip_code = (_clean_text(profile["check_zip"]) if "check_zip" in profile.keys() else "") or (_clean_text(profile["zip"]) if "zip" in profile.keys() else "")
+
+    city_state_zip = " ".join(part for part in [city, state, zip_code] if part).strip()
+    next_check_number = int(profile["next_check_number"] or 1001) if "next_check_number" in profile.keys() else 1001
+
+    return {
+        "company_name": company_name,
+        "address_line_1": address_line_1,
+        "address_line_2": address_line_2,
+        "city_state_zip": city_state_zip,
+        "next_check_number": next_check_number,
+    }
+
+
+def _build_ledger_check_pdf(company_info, ledger_row, check_number):
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+
+    amount = _money(ledger_row["amount"])
+    amount_written = _amount_to_words(amount)
+    check_date = _clean_text(ledger_row["entry_date"]) or date.today().isoformat()
+    payee_name = _clean_text(ledger_row["payee_name"]) or _clean_text(ledger_row["description"]) or "Payee"
+    memo = _clean_text(ledger_row["description"]) or (_clean_text(ledger_row["category"]) or "Bookkeeping Entry")
+
+    top_y = height - 0.75 * inch
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(0.7 * inch, top_y, company_info["company_name"])
+
+    c.setFont("Helvetica", 9)
+    line_y = top_y - 0.18 * inch
+    if company_info["address_line_1"]:
+        c.drawString(0.7 * inch, line_y, company_info["address_line_1"])
+        line_y -= 0.15 * inch
+    if company_info["address_line_2"]:
+        c.drawString(0.7 * inch, line_y, company_info["address_line_2"])
+        line_y -= 0.15 * inch
+    if company_info["city_state_zip"]:
+        c.drawString(0.7 * inch, line_y, company_info["city_state_zip"])
+
+    c.setFont("Helvetica-Bold", 11)
+    c.drawRightString(width - 0.7 * inch, top_y, f"Check #{check_number}")
+    c.setFont("Helvetica", 10)
+    c.drawRightString(width - 0.7 * inch, top_y - 0.24 * inch, f"Date: {check_date}")
+
+    c.setFont("Helvetica", 10)
+    c.drawString(0.7 * inch, height - 1.75 * inch, "Pay to the Order of:")
+    c.line(1.95 * inch, height - 1.79 * inch, width - 1.65 * inch, height - 1.79 * inch)
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(2.05 * inch, height - 1.72 * inch, payee_name[:60])
+
+    c.rect(width - 1.85 * inch, height - 1.97 * inch, 1.15 * inch, 0.33 * inch)
+    c.setFont("Helvetica-Bold", 11)
+    c.drawCentredString(width - 1.275 * inch, height - 1.84 * inch, f"${amount:,.2f}")
+
+    c.setFont("Helvetica", 10)
+    c.drawString(0.7 * inch, height - 2.35 * inch, amount_written)
+    c.line(0.7 * inch, height - 2.42 * inch, width - 1.05 * inch, height - 2.42 * inch)
+
+    c.setFont("Helvetica", 9)
+    c.drawString(0.7 * inch, height - 2.78 * inch, "Memo")
+    c.line(1.05 * inch, height - 2.82 * inch, 3.8 * inch, height - 2.82 * inch)
+    c.drawString(1.12 * inch, height - 2.75 * inch, memo[:40])
+
+    c.drawString(width - 2.55 * inch, height - 2.78 * inch, "Authorized Signature")
+    c.line(width - 2.65 * inch, height - 2.82 * inch, width - 0.7 * inch, height - 2.82 * inch)
+
+    divider_y = height - 3.45 * inch
+    c.setDash(4, 3)
+    c.line(0.5 * inch, divider_y, width - 0.5 * inch, divider_y)
+    c.setDash()
+
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(0.7 * inch, divider_y - 0.35 * inch, "Check Stub")
+
+    c.setFont("Helvetica", 10)
+    stub_y = divider_y - 0.65 * inch
+    c.drawString(0.7 * inch, stub_y, f"Payee: {payee_name[:55]}")
+    c.drawString(4.2 * inch, stub_y, f"Check #: {check_number}")
+
+    stub_y -= 0.22 * inch
+    c.drawString(0.7 * inch, stub_y, f"Date: {check_date}")
+    c.drawString(4.2 * inch, stub_y, f"Method: Check")
+
+    stub_y -= 0.22 * inch
+    c.drawString(0.7 * inch, stub_y, f"Category: {_clean_text(ledger_row['category']) or '-'}")
+
+    stub_y -= 0.22 * inch
+    c.drawString(0.7 * inch, stub_y, f"Description: {memo[:80]}")
+
+    stub_y -= 0.22 * inch
+    c.drawString(0.7 * inch, stub_y, f"Amount: ${amount:,.2f}")
+
+    notes = _clean_text(ledger_row["notes"])
+    if notes:
+        stub_y -= 0.30 * inch
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(0.7 * inch, stub_y, "Notes:")
+        c.setFont("Helvetica", 10)
+        c.drawString(1.1 * inch, stub_y, notes[:95])
+
+    c.showPage()
+    c.save()
+
+    pdf_data = buffer.getvalue()
+    buffer.close()
+    return pdf_data
+
+
+def _fetch_ledger_entry_by_id(conn, cid, entry_id):
+    ledger_cols = table_columns(conn, "ledger_entries")
+
+    def col_or(expr, alias):
+        return f"{expr} AS {alias}"
+
+    date_select = "entry_date" if "entry_date" in ledger_cols else ("date" if "date" in ledger_cols else "NULL")
+    entry_type_select = "entry_type" if "entry_type" in ledger_cols else "''"
+    category_select = "category" if "category" in ledger_cols else "''"
+    amount_select = "amount" if "amount" in ledger_cols else "0"
+
+    if "description" in ledger_cols and "memo" in ledger_cols:
+        description_select = "COALESCE(description, memo, '')"
+    elif "description" in ledger_cols:
+        description_select = "COALESCE(description, '')"
+    elif "memo" in ledger_cols:
+        description_select = "COALESCE(memo, '')"
+    else:
+        description_select = "''"
+
+    notes_select = "notes" if "notes" in ledger_cols else "''"
+    source_type_select = "source_type" if "source_type" in ledger_cols else "''"
+    reference_type_select = "reference_type" if "reference_type" in ledger_cols else "''"
+    source_id_select = "source_id" if "source_id" in ledger_cols else "NULL"
+    customer_id_select = "customer_id" if "customer_id" in ledger_cols else "NULL"
+    invoice_id_select = "invoice_id" if "invoice_id" in ledger_cols else "NULL"
+    job_id_select = "job_id" if "job_id" in ledger_cols else "NULL"
+    payee_name_select = "payee_name" if "payee_name" in ledger_cols else "''"
+    payment_method_select = "payment_method" if "payment_method" in ledger_cols else "''"
+    check_id_select = "check_id" if "check_id" in ledger_cols else "NULL"
+    check_number_select = "check_number" if "check_number" in ledger_cols else "NULL"
+
+    return conn.execute(
+        f"""
+        SELECT
+            id,
+            company_id,
+            {col_or(date_select, "entry_date")},
+            {col_or(entry_type_select, "entry_type")},
+            {col_or(category_select, "category")},
+            {col_or(amount_select, "amount")},
+            {col_or(description_select, "description")},
+            {col_or(notes_select, "notes")},
+            {col_or(source_type_select, "source_type")},
+            {col_or(reference_type_select, "reference_type")},
+            {col_or(source_id_select, "source_id")},
+            {col_or(customer_id_select, "customer_id")},
+            {col_or(invoice_id_select, "invoice_id")},
+            {col_or(job_id_select, "job_id")},
+            {col_or(payee_name_select, "payee_name")},
+            {col_or(payment_method_select, "payment_method")},
+            {col_or(check_id_select, "check_id")},
+            {col_or(check_number_select, "check_number")}
+        FROM ledger_entries
+        WHERE id = %s AND company_id = %s
+        """,
+        (entry_id, cid),
+    ).fetchone()
+
+
+def _create_or_get_ledger_check(conn, company_id, ledger_row):
+    existing_check_id = ledger_row["check_id"] if "check_id" in ledger_row.keys() else None
+    existing_check_number = ledger_row["check_number"] if "check_number" in ledger_row.keys() else None
+
+    if existing_check_id and existing_check_number:
+        check = conn.execute(
+            """
+            SELECT id, check_number
+            FROM checks
+            WHERE id = %s AND company_id = %s
+            """,
+            (existing_check_id, company_id),
+        ).fetchone()
+        if check:
+            return int(check["id"]), int(check["check_number"])
+
+    company_info = _get_company_check_info(company_id)
+    check_number = int(company_info["next_check_number"])
+
+    amount = abs(_money(ledger_row["amount"]))
+    amount_written = _amount_to_words(amount)
+    memo = _clean_text(ledger_row["description"]) or (_clean_text(ledger_row["category"]) or "Bookkeeping Entry")
+    payee_name = _clean_text(ledger_row["payee_name"]) or _clean_text(ledger_row["description"]) or "Payee"
+    check_date = _clean_text(ledger_row["entry_date"]) or date.today().isoformat()
+
+    inserted = conn.execute(
+        """
+        INSERT INTO checks (
+            company_id, check_number, check_date, payee_name, amount,
+            amount_written, memo, source_type, source_id, status
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, 'ledger', %s, 'Printed')
+        RETURNING id
+        """,
+        (
+            company_id,
+            check_number,
+            check_date,
+            payee_name,
+            amount,
+            amount_written,
+            memo,
+            ledger_row["id"],
+        ),
+    ).fetchone()
+
+    conn.execute(
+        """
+        UPDATE ledger_entries
+        SET payee_name = %s,
+            payment_method = 'Check',
+            check_id = %s,
+            check_number = %s
+        WHERE id = %s AND company_id = %s
+        """,
+        (payee_name, inserted["id"], check_number, ledger_row["id"], company_id),
+    )
+
+    conn.execute(
+        """
+        UPDATE company_profile
+        SET next_check_number = %s
+        WHERE company_id = %s
+        """,
+        (check_number + 1, company_id),
+    )
+
+    return int(inserted["id"]), check_number
+
+
 def _get_ledger_date_column(conn):
     ledger_cols = table_columns(conn, "ledger_entries")
     for possible in ["entry_date", "date", "posted_at", "created_at"]:
@@ -532,7 +915,7 @@ def _build_job_item_query(conn, start_date, end_date):
     return sql, params
 
 
-def _insert_manual_ledger_entry(conn, company_id, entry_date, entry_type, category, description, amount, notes):
+def _insert_manual_ledger_entry(conn, company_id, entry_date, entry_type, category, description, amount, notes, payee_name=""):
     ledger_cols = table_columns(conn, "ledger_entries")
 
     values = {}
@@ -555,6 +938,8 @@ def _insert_manual_ledger_entry(conn, company_id, entry_date, entry_type, catego
         values["amount"] = amount
     if "notes" in ledger_cols:
         values["notes"] = notes
+    if "payee_name" in ledger_cols:
+        values["payee_name"] = payee_name or description
     if "source_type" in ledger_cols:
         values["source_type"] = "manual"
     if "reference_type" in ledger_cols:
@@ -573,6 +958,7 @@ def _insert_manual_ledger_entry(conn, company_id, entry_date, entry_type, catego
         f"INSERT INTO ledger_entries ({cols_sql}) VALUES ({placeholders})",
         tuple(values.values()),
     )
+
 
 def _fetch_ledger_rows(conn, cid, start_date, end_date):
     select_parts = _get_ledger_select_parts(conn)
@@ -671,7 +1057,6 @@ def _normalize_ledger_rows(ledger_rows):
 
         raw_amount = _safe_float(_safe_get(r, "amount", 0))
 
-        # 🚫 HARD BLOCK: skip ALL invoice payment duplicates from ledger
         if (
             source_type in {"invoice_payment", "invoice_paid", "invoice_mark_paid", "payment"}
             or reference_type in {"invoice_payment", "invoice_paid", "invoice_mark_paid", "payment"}
@@ -872,6 +1257,7 @@ def _render_bookkeeping_page(conn, cid):
         description = (request.form.get("description") or "").strip()
         amount = abs(_safe_float(request.form.get("amount")))
         notes = (request.form.get("notes") or "").strip()
+        payee_name = (request.form.get("payee_name") or "").strip()
 
         if amount <= 0:
             flash("Amount must be greater than 0.")
@@ -893,6 +1279,7 @@ def _render_bookkeeping_page(conn, cid):
             description=description,
             amount=amount,
             notes=notes,
+            payee_name=payee_name,
         )
 
         conn.commit()
@@ -1026,16 +1413,24 @@ def _render_bookkeeping_page(conn, cid):
             except Exception:
                 source_html = "Payroll"
 
-        actions_html = "<span class='muted small'>Auto</span>"
+        actions = [
+            f"<a class='btn secondary small' href='{url_for('bookkeeping.view_bookkeeping_entry', entry_id=r.get('id'))}'>View</a>"
+            if isinstance(r.get("id"), int) else "<span class='muted small'>Auto</span>"
+        ]
+
         if r.get("can_delete") and isinstance(r.get("id"), int):
-            actions_html = f"""
-            <form method='post'
-                  action='{url_for("bookkeeping.delete_bookkeeping_entry", entry_id=r.get("id"))}'
-                  onsubmit="return confirm('Delete this bookkeeping entry?');"
-                  style='display:inline;'>
-                <button class='btn danger small' type='submit'>Delete</button>
-            </form>
-            """
+            actions.append(
+                f"""
+                <form method='post'
+                      action='{url_for("bookkeeping.delete_bookkeeping_entry", entry_id=r.get("id"))}'
+                      onsubmit="return confirm('Delete this bookkeeping entry?');"
+                      style='display:inline;'>
+                    <button class='btn danger small' type='submit'>Delete</button>
+                </form>
+                """
+            )
+
+        actions_html = "".join(actions)
 
         ledger_row_html.append(
             f"""
@@ -1048,7 +1443,7 @@ def _render_bookkeeping_page(conn, cid):
                     {'+' if r.get('entry_type') == 'Income' else '-'}${abs(_safe_float(r.get('amount'))):.2f}
                 </td>
                 <td>{source_html}</td>
-                <td>{actions_html}</td>
+                <td><div class='row-actions'>{actions_html}</div></td>
             </tr>
             """
         )
@@ -1139,6 +1534,10 @@ def _render_bookkeeping_page(conn, cid):
                 <div>
                     <label>Amount</label>
                     <input type='number' step='0.01' min='0.01' name='amount' placeholder='0.00' required>
+                </div>
+                <div>
+                    <label>Payee Name</label>
+                    <input type='text' name='payee_name' placeholder='Who the check would be payable to'>
                 </div>
                 <div style='grid-column:1 / -1;'>
                     <label>Description</label>
@@ -1270,10 +1669,150 @@ def _render_bookkeeping_page(conn, cid):
 @subscription_required
 @require_permission("can_manage_bookkeeping")
 def bookkeeping():
+    _ensure_bookkeeping_check_structure()
     conn = get_db_connection()
     cid = session["company_id"]
     try:
         return _render_bookkeeping_page(conn, cid)
+    finally:
+        conn.close()
+
+
+@bookkeeping_bp.route("/bookkeeping/<int:entry_id>")
+@bookkeeping_bp.route("/ledger/<int:entry_id>")
+@login_required
+@subscription_required
+@require_permission("can_manage_bookkeeping")
+def view_bookkeeping_entry(entry_id):
+    _ensure_bookkeeping_check_structure()
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    try:
+        row = _fetch_ledger_entry_by_id(conn, cid, entry_id)
+        if not row:
+            flash("Bookkeeping entry not found.")
+            return redirect(url_for("bookkeeping.bookkeeping"))
+
+        entry_type = _normalize_ledger_type(
+            _safe_get(row, "entry_type", ""),
+            _safe_get(row, "source_type", ""),
+            _safe_get(row, "amount", 0),
+        )
+        amount = abs(_safe_float(_safe_get(row, "amount", 0)))
+        payee_name = _clean_text(_safe_get(row, "payee_name", "")) or _clean_text(_safe_get(row, "description", ""))
+        can_print_check = (
+            entry_type == "Expense"
+            and amount > 0
+            and _normalize_text(_safe_get(row, "source_type", "")) != "payroll"
+        )
+
+        check_action_html = ""
+        if can_print_check:
+            if _safe_get(row, "check_number"):
+                check_action_html = f"""
+                <a class='btn success' href='{url_for("bookkeeping.print_bookkeeping_check", entry_id=entry_id)}' target='_blank'>
+                    View Check PDF
+                </a>
+                """
+            else:
+                check_action_html = f"""
+                <a class='btn success' href='{url_for("bookkeeping.print_bookkeeping_check", entry_id=entry_id)}' target='_blank'>
+                    Print Check
+                </a>
+                """
+
+        source_html = escape(_clean_text(_safe_get(row, "source_type", "")) or "-")
+        if _safe_get(row, "invoice_id"):
+            source_html = f"<a class='btn secondary' href='{url_for('invoices.view_invoice', invoice_id=_safe_get(row, 'invoice_id'))}'>Open Invoice</a>"
+        elif _safe_get(row, "job_id"):
+            source_html = f"<a class='btn secondary' href='{url_for('jobs.view_job', job_id=_safe_get(row, 'job_id'))}'>Open Job</a>"
+
+        content = f"""
+        <div class='card'>
+            <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
+                <div>
+                    <h1 style='margin-bottom:6px;'>Ledger Entry Detail</h1>
+                    <p class='muted' style='margin:0;'>Review this entry before printing a check.</p>
+                </div>
+                <div class='row-actions'>
+                    <a class='btn secondary' href='{url_for("bookkeeping.bookkeeping")}'>Back to Bookkeeping</a>
+                    {check_action_html}
+                </div>
+            </div>
+        </div>
+
+        <div class='card'>
+            <div class='grid'>
+                <div><strong>Date</strong><br>{escape(str(_safe_get(row, "entry_date", "") or "-"))}</div>
+                <div><strong>Type</strong><br>{escape(entry_type)}</div>
+                <div><strong>Category</strong><br>{escape(_clean_text(_safe_get(row, "category", "")) or "-")}</div>
+                <div><strong>Amount</strong><br>{escape(_fmt_money(amount))}</div>
+                <div><strong>Payee</strong><br>{escape(payee_name or "-")}</div>
+                <div><strong>Payment Method</strong><br>{escape(_clean_text(_safe_get(row, "payment_method", "")) or "-")}</div>
+                <div><strong>Check #</strong><br>{escape(str(_safe_get(row, "check_number", "") or "-"))}</div>
+                <div><strong>Source</strong><br>{source_html}</div>
+                <div style='grid-column:1 / -1;'><strong>Description</strong><br>{escape(_clean_text(_safe_get(row, "description", "")) or "-")}</div>
+                <div style='grid-column:1 / -1;'><strong>Notes</strong><br>{escape(_clean_text(_safe_get(row, "notes", "")) or "-")}</div>
+            </div>
+        </div>
+        """
+        return render_page(content, "Ledger Entry Detail")
+    finally:
+        conn.close()
+
+
+@bookkeeping_bp.route("/bookkeeping/<int:entry_id>/print-check")
+@bookkeeping_bp.route("/ledger/<int:entry_id>/print-check")
+@login_required
+@subscription_required
+@require_permission("can_manage_bookkeeping")
+def print_bookkeeping_check(entry_id):
+    _ensure_bookkeeping_check_structure()
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    try:
+        row = _fetch_ledger_entry_by_id(conn, cid, entry_id)
+        if not row:
+            flash("Bookkeeping entry not found.")
+            return redirect(url_for("bookkeeping.bookkeeping"))
+
+        entry_type = _normalize_ledger_type(
+            _safe_get(row, "entry_type", ""),
+            _safe_get(row, "source_type", ""),
+            _safe_get(row, "amount", 0),
+        )
+        amount = abs(_safe_float(_safe_get(row, "amount", 0)))
+
+        if entry_type != "Expense":
+            flash("Only expense-type entries can be printed as checks.")
+            return redirect(url_for("bookkeeping.view_bookkeeping_entry", entry_id=entry_id))
+
+        if amount <= 0:
+            flash("Cannot print a check for a zero or negative amount.")
+            return redirect(url_for("bookkeeping.view_bookkeeping_entry", entry_id=entry_id))
+
+        if _normalize_text(_safe_get(row, "source_type", "")) == "payroll":
+            flash("Payroll checks should be printed from the payroll screen.")
+            return redirect(url_for("bookkeeping.view_bookkeeping_entry", entry_id=entry_id))
+
+        check_id, check_number = _create_or_get_ledger_check(conn, cid, row)
+        conn.commit()
+
+        refreshed_row = _fetch_ledger_entry_by_id(conn, cid, entry_id)
+        company_info = _get_company_check_info(cid)
+
+        pdf_data = _build_ledger_check_pdf(
+            company_info=company_info,
+            ledger_row=refreshed_row,
+            check_number=check_number,
+        )
+
+        response = make_response(pdf_data)
+        response.headers["Content-Type"] = "application/pdf"
+        response.headers["Content-Disposition"] = f"inline; filename=ledger_check_{check_number}.pdf"
+        return response
     finally:
         conn.close()
 
@@ -1378,6 +1917,7 @@ def delete_bookkeeping_entry(entry_id):
     source_type_select = "source_type" if "source_type" in ledger_cols else "''"
     reference_type_select = "reference_type" if "reference_type" in ledger_cols else "''"
     source_id_select = "source_id" if "source_id" in ledger_cols else "NULL"
+    check_id_select = "check_id" if "check_id" in ledger_cols else "NULL"
 
     row = conn.execute(
         f"""
@@ -1392,7 +1932,8 @@ def delete_bookkeeping_entry(entry_id):
             {notes_select} AS notes,
             {source_type_select} AS source_type,
             {reference_type_select} AS reference_type,
-            {source_id_select} AS source_id
+            {source_id_select} AS source_id,
+            {check_id_select} AS check_id
         FROM ledger_entries
         WHERE id = %s AND company_id = %s
         """,
@@ -1413,6 +1954,22 @@ def delete_bookkeeping_entry(entry_id):
         conn.close()
         flash("Only manual bookkeeping entries can be deleted here.")
         return redirect(url_for("bookkeeping.bookkeeping"))
+
+    if _safe_get(row, "check_id"):
+        conn.execute(
+            "DELETE FROM checks WHERE id = %s AND company_id = %s",
+            (_safe_get(row, "check_id"), cid),
+        )
+
+    conn.execute(
+        "DELETE FROM ledger_entries WHERE id = %s AND company_id = %s",
+        (entry_id, cid),
+    )
+    conn.commit()
+    conn.close()
+
+    flash("Bookkeeping entry deleted.")
+    return redirect(url_for("bookkeeping.bookkeeping"))
 
 
 @bookkeeping_bp.route("/bookkeeping/pnl")

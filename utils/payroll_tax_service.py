@@ -68,12 +68,14 @@ def calculate_with_fallback_rules(
 
     state_withholding = calculate_state_withholding(
         gross_pay,
-        company_tax["state_rate"],
+        company_tax.get("state", ""),
+        filing_status=filing_status,
     )
 
     local_tax = calculate_local_withholding(
         gross_pay,
-        company_tax["local_rate"],
+        company_tax.get("state", ""),
+        company_tax.get("county", ""),
     )
 
     social_security = round(gross_pay * 0.062, 2)

@@ -5,6 +5,55 @@ def _safe_float(value):
         return 0.0
 
 
+# ---------------------------------------------------------
+# Basic US tax tables (starter set - expandable)
+# ---------------------------------------------------------
+
+US_STATE_TAX_TABLES = {
+    "IN": {
+        "type": "flat",
+        "rate": 0.0295,
+    },
+    "TX": {
+        "type": "none",
+        "rate": 0.0,
+    },
+    "FL": {
+        "type": "none",
+        "rate": 0.0,
+    },
+    "CA": {
+        "type": "progressive",
+        "brackets": [
+            (0, 0.01),
+            (10412, 0.02),
+            (24684, 0.04),
+            (38959, 0.06),
+            (54081, 0.08),
+            (68350, 0.093),
+        ],
+    },
+    "OH": {
+        "type": "flat",
+        "rate": 0.0,
+    },
+}
+
+US_LOCAL_TAX_TABLES = {
+    "IN": {
+        "tippecanoe": 0.0170,
+        "marion": 0.0202,
+        "hamilton": 0.0110,
+        "allen": 0.0148,
+        "lake": 0.0150,
+    },
+    "OH": {
+        "columbus": 0.0250,
+        "cleveland": 0.0250,
+    },
+}
+
+
 def recalc_quote(conn, quote_id):
     row = conn.execute(
         """
@@ -271,61 +320,139 @@ def calculate_federal_tax_annual(annual_income, filing_status="single"):
 def get_company_tax_rates(company_id, conn):
     profile = conn.execute(
         """
-        SELECT
-            state,
-            county,
-            city
+        SELECT state, county, city
         FROM company_profile
         WHERE company_id = %s
         """,
         (company_id,),
     ).fetchone()
 
-    state = ""
-    county = ""
-    city = ""
+    state = (profile["state"] or "").strip().upper() if profile else ""
+    county = (profile["county"] or "").strip().lower() if profile else ""
+    city = (profile["city"] or "").strip().lower() if profile else ""
 
-    if profile:
-        state = (profile["state"] or "").strip().upper()
-        county = (profile["county"] or "").strip()
-        city = (profile["city"] or "").strip()
+    county = county.replace(" county", "").replace("county", "").strip()
+    city = city.strip()
 
-    result = {
+    state_rate = 0.0
+    local_rate = 0.0
+    local_name = ""
+
+    state_table = US_STATE_TAX_TABLES.get(state)
+    if state_table:
+        if state_table["type"] == "flat":
+            state_rate = _safe_float(state_table.get("rate", 0.0))
+        elif state_table["type"] == "none":
+            state_rate = 0.0
+
+    local_table = US_LOCAL_TAX_TABLES.get(state, {})
+
+    if county and county in local_table:
+        local_rate = _safe_float(local_table.get(county, 0.0))
+        local_name = f"{county.title()} County Tax"
+    elif city and city in local_table:
+        local_rate = _safe_float(local_table.get(city, 0.0))
+        local_name = f"{city.title()} Local Tax"
+
+    return {
         "state": state,
         "county": county,
         "city": city,
-        "state_rate": 0.0,
-        "local_rate": 0.0,
-        "local_name": "",
+        "state_rate": state_rate,
+        "local_rate": local_rate,
+        "local_name": local_name,
     }
 
-    if state == "IN":
-        result["state_rate"] = 0.0295
 
-        indiana_county_rates = {
-            "Tippecanoe": 0.0170,
-            "Marion": 0.0202,
-            "Hamilton": 0.0110,
-            "Allen": 0.0148,
-            "Lake": 0.0150,
-        }
-
-        county_key = county.replace(" County", "").strip().title()
-        if county_key in indiana_county_rates:
-            result["local_rate"] = indiana_county_rates[county_key]
-            result["local_name"] = f"{county_key} County Income Tax"
-
-    return result
-
-
-def calculate_state_withholding(gross_pay, state_rate=0.0):
+def _calculate_progressive_state_tax(gross_pay, brackets):
     gross_pay = max(_safe_float(gross_pay), 0.0)
-    return round(gross_pay * _safe_float(state_rate), 2)
+    tax = 0.0
+    previous_limit = 0
+
+    for limit, rate in brackets:
+        if gross_pay > limit:
+            taxable = limit - previous_limit
+        else:
+            taxable = gross_pay - previous_limit
+
+        if taxable > 0:
+            tax += taxable * rate
+
+        if gross_pay <= limit:
+            break
+
+        previous_limit = limit
+
+    return round(tax, 2)
 
 
-def calculate_local_withholding(gross_pay, local_rate=0.0):
+def calculate_state_withholding(gross_pay, state_or_rate, filing_status="Single"):
     gross_pay = max(_safe_float(gross_pay), 0.0)
-    return round(gross_pay * _safe_float(local_rate), 2)
+
+    # backward compatibility: if caller passes a numeric rate, use it directly
+    if isinstance(state_or_rate, (int, float)):
+        return round(gross_pay * _safe_float(state_or_rate), 2)
+
+    if isinstance(state_or_rate, str):
+        raw = state_or_rate.strip()
+
+        # backward compatibility: numeric string rate
+        try:
+            numeric_rate = float(raw)
+            return round(gross_pay * numeric_rate, 2)
+        except ValueError:
+            pass
+
+        state_code = raw.upper()
+    else:
+        state_code = ""
+
+    if not state_code:
+        return 0.0
+
+    table = US_STATE_TAX_TABLES.get(state_code)
+    if not table:
+        return 0.0
+
+    table_type = table.get("type", "none")
+
+    if table_type == "none":
+        return 0.0
+
+    if table_type == "flat":
+        return round(gross_pay * _safe_float(table.get("rate", 0.0)), 2)
+
+    if table_type == "progressive":
+        return _calculate_progressive_state_tax(gross_pay, table.get("brackets", []))
+
+    return 0.0
+
+
+def calculate_local_withholding(gross_pay, state_or_rate, county_or_city=None):
+    gross_pay = max(_safe_float(gross_pay), 0.0)
+
+    # backward compatibility: if only a numeric rate is passed, use it directly
+    if county_or_city is None:
+        if isinstance(state_or_rate, (int, float)):
+            return round(gross_pay * _safe_float(state_or_rate), 2)
+
+        if isinstance(state_or_rate, str):
+            raw = state_or_rate.strip()
+            try:
+                numeric_rate = float(raw)
+                return round(gross_pay * numeric_rate, 2)
+            except ValueError:
+                return 0.0
+
+        return 0.0
+
+    state = (state_or_rate or "").strip().upper()
+    locality = (county_or_city or "").strip().lower().replace(" county", "").strip()
+
+    state_table = US_LOCAL_TAX_TABLES.get(state, {})
+    rate = _safe_float(state_table.get(locality, 0.0))
+
+    return round(gross_pay * rate, 2)
 
 
 def calculate_payroll_taxes(
@@ -355,7 +482,7 @@ def calculate_payroll_taxes(
         step4c_extra_withholding=step4c_extra_withholding,
     )
 
-    state_tax = calculate_state_withholding(gross_pay, state_tax_rate)
+    state_tax = calculate_state_withholding(gross_pay, state_tax_rate, filing_status=filing_status)
     local_tax = calculate_local_withholding(gross_pay, local_tax_rate)
 
     social_security = gross_pay * 0.062 if include_social_security else 0
@@ -412,20 +539,53 @@ def calculate_payroll_taxes_for_employee(employee, gross_pay, company_id, conn):
         step4c_extra_withholding = _safe_float(employee["w4_step4c_extra_withholding"])
 
     tax_rates = get_company_tax_rates(company_id, conn)
-    state_tax_rate = _safe_float(tax_rates.get("state_rate", 0))
-    local_tax_rate = _safe_float(tax_rates.get("local_rate", 0))
 
-    return calculate_payroll_taxes(
-        gross_pay=gross_pay,
-        pay_schedule=pay_frequency,
+    state_tax = calculate_state_withholding(
+        gross_pay,
+        tax_rates.get("state", ""),
         filing_status=filing_status,
-        state_tax_rate=state_tax_rate,
-        local_tax_rate=local_tax_rate,
-        include_social_security=True,
-        include_medicare=True,
+    )
+
+    local_tax = calculate_local_withholding(
+        gross_pay,
+        tax_rates.get("state", ""),
+        tax_rates.get("county") or tax_rates.get("city") or "",
+    )
+
+    federal_tax = calculate_federal_withholding_2026(
+        gross_pay=gross_pay,
+        filing_status=filing_status,
+        pay_frequency=pay_frequency,
         step2_checked=step2_checked,
         step3_amount=step3_amount,
         step4a_other_income=step4a_other_income,
         step4b_deductions=step4b_deductions,
         step4c_extra_withholding=step4c_extra_withholding,
     )
+
+    social_security = round(gross_pay * 0.062, 2)
+    medicare = round(gross_pay * 0.0145, 2)
+
+    net_pay = round(
+        gross_pay
+        - federal_tax
+        - state_tax
+        - local_tax
+        - social_security
+        - medicare,
+        2,
+    )
+
+    return {
+        "annual_income": round(gross_pay * get_pay_periods_per_year(pay_frequency), 2),
+        "federal_tax": round(federal_tax, 2),
+        "federal_withholding": round(federal_tax, 2),
+        "state_tax": round(state_tax, 2),
+        "state_withholding": round(state_tax, 2),
+        "local_tax": round(local_tax, 2),
+        "social_security": round(social_security, 2),
+        "medicare": round(medicare, 2),
+        "net_pay": round(net_pay, 2),
+        "state_name": tax_rates.get("state", ""),
+        "local_name": tax_rates.get("local_name", ""),
+    }
