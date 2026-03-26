@@ -64,6 +64,49 @@ def _json_default(value):
     return str(value)
 
 
+def _get_rows_for_company(conn, table, company_id):
+    if table == "job_items":
+        return conn.execute(
+            """
+            SELECT ji.*
+            FROM job_items ji
+            JOIN jobs j ON ji.job_id = j.id
+            WHERE j.company_id = %s
+            ORDER BY ji.id
+            """,
+            (company_id,),
+        ).fetchall()
+
+    if table == "quote_items":
+        return conn.execute(
+            """
+            SELECT qi.*
+            FROM quote_items qi
+            JOIN quotes q ON qi.quote_id = q.id
+            WHERE q.company_id = %s
+            ORDER BY qi.id
+            """,
+            (company_id,),
+        ).fetchall()
+
+    if table == "invoice_items":
+        return conn.execute(
+            """
+            SELECT ii.*
+            FROM invoice_items ii
+            JOIN invoices i ON ii.invoice_id = i.id
+            WHERE i.company_id = %s
+            ORDER BY ii.id
+            """,
+            (company_id,),
+        ).fetchall()
+
+    return conn.execute(
+        f"SELECT * FROM {table} WHERE company_id = %s ORDER BY id",
+        (company_id,),
+    ).fetchall()
+
+
 def create_company_backup(company_id):
     conn = get_db_connection()
 
@@ -75,10 +118,7 @@ def create_company_backup(company_id):
 
     try:
         for table in BACKUP_TABLES:
-            rows = conn.execute(
-                f"SELECT * FROM {table} WHERE company_id = %s",
-                (company_id,),
-            ).fetchall()
+            rows = _get_rows_for_company(conn, table, company_id)
             data["tables"][table] = [dict(row) for row in rows]
     finally:
         conn.close()
@@ -103,10 +143,7 @@ def export_company_backup_data(company_id):
 
     try:
         for table in BACKUP_TABLES:
-            rows = conn.execute(
-                f"SELECT * FROM {table} WHERE company_id = %s",
-                (company_id,),
-            ).fetchall()
+            rows = _get_rows_for_company(conn, table, company_id)
             data["tables"][table] = [dict(row) for row in rows]
     finally:
         conn.close()
@@ -122,7 +159,50 @@ def load_backup_file(file_storage):
 
 
 def _delete_company_data(conn, company_id):
-    for table in RESTORE_DELETE_ORDER:
+    # child tables without company_id must be deleted through parent relationships first
+
+    conn.execute(
+        """
+        DELETE FROM invoice_items
+        WHERE invoice_id IN (
+            SELECT id FROM invoices WHERE company_id = %s
+        )
+        """,
+        (company_id,),
+    )
+
+    conn.execute(
+        """
+        DELETE FROM quote_items
+        WHERE quote_id IN (
+            SELECT id FROM quotes WHERE company_id = %s
+        )
+        """,
+        (company_id,),
+    )
+
+    conn.execute(
+        """
+        DELETE FROM job_items
+        WHERE job_id IN (
+            SELECT id FROM jobs WHERE company_id = %s
+        )
+        """,
+        (company_id,),
+    )
+
+    for table in [
+        "invoice_payments",
+        "payroll_entries",
+        "ledger_entries",
+        "invoices",
+        "quotes",
+        "jobs",
+        "employees",
+        "customers",
+        "company_profile",
+        "company_tax_settings",
+    ]:
         conn.execute(
             f"DELETE FROM {table} WHERE company_id = %s",
             (company_id,),
@@ -132,7 +212,6 @@ def _delete_company_data(conn, company_id):
 def _insert_row(conn, table, row, company_id):
     row = dict(row)
 
-    # Force restore into currently logged-in company
     if "company_id" in row:
         row["company_id"] = company_id
 
@@ -180,12 +259,12 @@ def restore_company_backup(company_id, backup_data):
     if not isinstance(tables, dict):
         raise ValueError("Backup file is missing table data.")
 
+    # safer to create the pre-restore backup before opening the restore transaction
+    pre_restore_path = create_company_backup(company_id)
+
     conn = get_db_connection()
 
     try:
-        # Safety backup before restore
-        pre_restore_path = create_company_backup(company_id)
-
         _delete_company_data(conn, company_id)
 
         for table in RESTORE_INSERT_ORDER:
