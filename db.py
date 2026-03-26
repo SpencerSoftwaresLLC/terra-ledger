@@ -1,14 +1,18 @@
 import os
 import re
 import sys
+from datetime import date
 from pathlib import Path
-from urllib.parse import urlparse
-from datetime import date, datetime
+from urllib.parse import parse_qs, urlparse
 
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
 
+
+# -------------------------------------------------------------------
+# Environment loading / DATABASE_URL validation
+# -------------------------------------------------------------------
 
 def _safe_database_url_preview(value: str) -> str:
     if not value:
@@ -53,8 +57,6 @@ def _get_database_url():
     return os.environ.get("DATABASE_URL", "").strip()
 
 
-from urllib.parse import urlparse, parse_qs
-
 def _validate_database_url(database_url: str):
     if not database_url:
         raise RuntimeError(
@@ -89,9 +91,8 @@ def _validate_database_url(database_url: str):
     sslmode = (qs.get("sslmode") or [""])[0].strip().lower()
     if sslmode != "require":
         raise RuntimeError("DATABASE_URL must include ?sslmode=require on Render.")
-    
+
     print("RAW DATABASE_URL FROM ENV:", repr(database_url), flush=True)
-    parsed = urlparse(database_url)
     print("PARSED HOSTNAME:", repr(parsed.hostname), flush=True)
     print("DATABASE_URL validated successfully", flush=True)
 
@@ -103,7 +104,15 @@ print("USING DATABASE_URL:", "set" if DATABASE_URL else "missing", flush=True)
 print("DATABASE_URL preview:", _safe_database_url_preview(DATABASE_URL), flush=True)
 
 
+# -------------------------------------------------------------------
+# Compatibility layer
+# -------------------------------------------------------------------
+
 def _convert_qmarks_to_percent_s(sql: str) -> str:
+    """
+    Compatibility layer so older routes using SQLite-style ? placeholders
+    still work while the rest of the app is migrated to PostgreSQL.
+    """
     parts = sql.split("?")
     if len(parts) <= 1:
         return sql
@@ -162,6 +171,7 @@ class DBCursor:
             row = self._prefetched_rows[0]
             self._prefetched_rows = self._prefetched_rows[1:]
             return DBRow(row)
+
         row = self._cursor.fetchone()
         return DBRow(row) if row else None
 
@@ -170,6 +180,7 @@ class DBCursor:
             rows = [DBRow(r) for r in self._prefetched_rows]
             self._prefetched_rows = []
             return rows
+
         rows = self._cursor.fetchall()
         return [DBRow(r) for r in rows]
 
@@ -214,10 +225,13 @@ def get_db_connection():
         return DBConnection(raw_conn)
     except psycopg2.OperationalError as e:
         raise RuntimeError(
-            "PostgreSQL connection failed. "
-            "Double-check that DATABASE_URL in your .env uses the full Render external hostname."
+            "PostgreSQL connection failed. Double-check that DATABASE_URL in your .env uses the full Render external hostname."
         ) from e
 
+
+# -------------------------------------------------------------------
+# Schema helpers
+# -------------------------------------------------------------------
 
 def table_exists(conn, table_name):
     row = conn.execute(
@@ -225,7 +239,7 @@ def table_exists(conn, table_name):
         SELECT EXISTS (
             SELECT 1
             FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_name = ?
+            WHERE table_schema = 'public' AND table_name = %s
         ) AS exists
         """,
         (table_name,),
@@ -236,11 +250,12 @@ def table_exists(conn, table_name):
 def table_columns(conn, table_name):
     if not table_exists(conn, table_name):
         return []
+
     rows = conn.execute(
         """
         SELECT column_name
         FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = ?
+        WHERE table_schema = 'public' AND table_name = %s
         ORDER BY ordinal_position
         """,
         (table_name,),
@@ -258,8 +273,8 @@ def safe_add_column(cur, table_name, col_name, col_def):
         SELECT 1
         FROM information_schema.columns
         WHERE table_schema = 'public'
-          AND table_name = ?
-          AND column_name = ?
+          AND table_name = %s
+          AND column_name = %s
         """,
         (table_name, col_name),
     )
@@ -267,6 +282,10 @@ def safe_add_column(cur, table_name, col_name, col_def):
     if not exists:
         cur.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{col_name}" {col_def}')
 
+
+# -------------------------------------------------------------------
+# Company / profile ensures
+# -------------------------------------------------------------------
 
 def ensure_company_profile_table():
     conn = get_db_connection()
@@ -386,18 +405,12 @@ def ensure_company_profile_location_columns():
 
 
 def ensure_company_profile_tax_location_columns():
-    ensure_company_profile_table()
+    ensure_company_profile_location_columns()
 
-    conn = get_db_connection()
-    cur = conn.cursor()
 
-    safe_add_column(cur, "company_profile", "city", "TEXT")
-    safe_add_column(cur, "company_profile", "state", "TEXT")
-    safe_add_column(cur, "company_profile", "county", "TEXT")
-
-    conn.commit()
-    conn.close()
-
+# -------------------------------------------------------------------
+# Employee / payroll ensures
+# -------------------------------------------------------------------
 
 def ensure_employee_status_column():
     conn = get_db_connection()
@@ -533,6 +546,10 @@ def ensure_company_tax_settings_table():
     conn.close()
 
 
+# -------------------------------------------------------------------
+# Users / customers / misc ensures
+# -------------------------------------------------------------------
+
 def ensure_user_permission_columns():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -570,7 +587,7 @@ def ensure_customer_name_columns():
 
     conn.commit()
 
-    rows = cur.execute("SELECT id, name FROM customers").fetchall()
+    rows = conn.execute("SELECT id, name FROM customers").fetchall()
 
     for r in rows:
         name = (r["name"] or "").strip()
@@ -581,11 +598,14 @@ def ensure_customer_name_columns():
         first = parts[0]
         last = parts[-1] if len(parts) > 1 else ""
 
-        cur.execute("""
+        cur.execute(
+            """
             UPDATE customers
-            SET first_name = ?, last_name = ?
-            WHERE id = ?
-        """, (first, last, r["id"]))
+            SET first_name = %s, last_name = %s
+            WHERE id = %s
+            """,
+            (first, last, r["id"]),
+        )
 
     conn.commit()
     conn.close()
@@ -728,6 +748,32 @@ def ensure_job_item_columns():
     conn.commit()
     conn.close()
 
+
+def ensure_password_reset_table():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS password_resets (
+            id SERIAL PRIMARY KEY,
+            email TEXT NOT NULL,
+            token TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL
+        )
+    """)
+
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_password_resets_token
+        ON password_resets (token)
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+# -------------------------------------------------------------------
+# Core schema init
+# -------------------------------------------------------------------
 
 def init_db():
     conn = get_db_connection()
@@ -1048,6 +1094,20 @@ def init_db():
         )
     """)
 
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS password_resets (
+            id SERIAL PRIMARY KEY,
+            email TEXT NOT NULL,
+            token TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL
+        )
+    """)
+
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_password_resets_token
+        ON password_resets (token)
+    """)
+
     conn.commit()
     conn.close()
 
@@ -1069,13 +1129,18 @@ def init_db():
     ensure_billing_tables()
     ensure_document_number_columns()
     ensure_job_item_columns()
+    ensure_password_reset_table()
 
+
+# -------------------------------------------------------------------
+# Billing helpers
+# -------------------------------------------------------------------
 
 def get_company_subscription(company_id):
     conn = get_db_connection()
     row = conn.execute(
-        "SELECT * FROM subscriptions WHERE company_id = ?",
-        (company_id,)
+        "SELECT * FROM subscriptions WHERE company_id = %s",
+        (company_id,),
     ).fetchone()
     conn.close()
     return row
@@ -1100,48 +1165,52 @@ def upsert_company_subscription(
 ):
     conn = get_db_connection()
     existing = conn.execute(
-        "SELECT id FROM subscriptions WHERE company_id = ?",
-        (company_id,)
+        "SELECT id FROM subscriptions WHERE company_id = %s",
+        (company_id,),
     ).fetchone()
 
     if existing:
-        conn.execute("""
+        conn.execute(
+            """
             UPDATE subscriptions
-            SET stripe_customer_id = COALESCE(?, stripe_customer_id),
-                stripe_subscription_id = COALESCE(?, stripe_subscription_id),
-                stripe_price_id = COALESCE(?, stripe_price_id),
-                plan_name = COALESCE(?, plan_name),
-                billing_interval = COALESCE(?, billing_interval),
-                amount_cents = COALESCE(?, amount_cents),
-                status = COALESCE(?, status),
-                auto_renew = ?,
-                cancel_at_period_end = ?,
-                current_period_start = COALESCE(?, current_period_start),
-                current_period_end = COALESCE(?, current_period_end),
-                payment_method_type = COALESCE(?, payment_method_type),
-                payment_method_last4 = COALESCE(?, payment_method_last4),
-                payment_method_label = COALESCE(?, payment_method_label),
+            SET stripe_customer_id = COALESCE(%s, stripe_customer_id),
+                stripe_subscription_id = COALESCE(%s, stripe_subscription_id),
+                stripe_price_id = COALESCE(%s, stripe_price_id),
+                plan_name = COALESCE(%s, plan_name),
+                billing_interval = COALESCE(%s, billing_interval),
+                amount_cents = COALESCE(%s, amount_cents),
+                status = COALESCE(%s, status),
+                auto_renew = %s,
+                cancel_at_period_end = %s,
+                current_period_start = COALESCE(%s, current_period_start),
+                current_period_end = COALESCE(%s, current_period_end),
+                payment_method_type = COALESCE(%s, payment_method_type),
+                payment_method_last4 = COALESCE(%s, payment_method_last4),
+                payment_method_label = COALESCE(%s, payment_method_label),
                 updated_at = CURRENT_TIMESTAMP
-            WHERE company_id = ?
-        """, (
-            stripe_customer_id,
-            stripe_subscription_id,
-            stripe_price_id,
-            plan_name,
-            billing_interval,
-            amount_cents,
-            status,
-            auto_renew,
-            cancel_at_period_end,
-            current_period_start,
-            current_period_end,
-            payment_method_type,
-            payment_method_last4,
-            payment_method_label,
-            company_id,
-        ))
+            WHERE company_id = %s
+            """,
+            (
+                stripe_customer_id,
+                stripe_subscription_id,
+                stripe_price_id,
+                plan_name,
+                billing_interval,
+                amount_cents,
+                status,
+                auto_renew,
+                cancel_at_period_end,
+                current_period_start,
+                current_period_end,
+                payment_method_type,
+                payment_method_last4,
+                payment_method_label,
+                company_id,
+            ),
+        )
     else:
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO subscriptions (
                 company_id,
                 stripe_customer_id,
@@ -1159,24 +1228,26 @@ def upsert_company_subscription(
                 payment_method_last4,
                 payment_method_label
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            company_id,
-            stripe_customer_id,
-            stripe_subscription_id,
-            stripe_price_id,
-            plan_name,
-            billing_interval,
-            amount_cents,
-            status,
-            auto_renew,
-            cancel_at_period_end,
-            current_period_start,
-            current_period_end,
-            payment_method_type,
-            payment_method_last4,
-            payment_method_label,
-        ))
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                company_id,
+                stripe_customer_id,
+                stripe_subscription_id,
+                stripe_price_id,
+                plan_name,
+                billing_interval,
+                amount_cents,
+                status,
+                auto_renew,
+                cancel_at_period_end,
+                current_period_start,
+                current_period_end,
+                payment_method_type,
+                payment_method_last4,
+                payment_method_label,
+            ),
+        )
 
     conn.commit()
     conn.close()
@@ -1196,7 +1267,8 @@ def insert_billing_event(
     notes=None,
 ):
     conn = get_db_connection()
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO billing_events (
             company_id,
             stripe_invoice_id,
@@ -1210,23 +1282,45 @@ def insert_billing_event(
             event_date,
             notes
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        company_id,
-        stripe_invoice_id,
-        stripe_event_id,
-        event_type,
-        amount_cents,
-        currency,
-        status,
-        hosted_invoice_url,
-        invoice_pdf,
-        event_date,
-        notes,
-    ))
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            company_id,
+            stripe_invoice_id,
+            stripe_event_id,
+            event_type,
+            amount_cents,
+            currency,
+            status,
+            hosted_invoice_url,
+            invoice_pdf,
+            event_date,
+            notes,
+        ),
+    )
     conn.commit()
     conn.close()
 
+
+def get_billing_history(company_id, limit=20):
+    conn = get_db_connection()
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM billing_events
+        WHERE company_id = %s
+        ORDER BY COALESCE(event_date, created_at::text) DESC, id DESC
+        LIMIT %s
+        """,
+        (company_id, limit),
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+# -------------------------------------------------------------------
+# Job / numbering helpers
+# -------------------------------------------------------------------
 
 def ensure_job_schedule_columns():
     conn = get_db_connection()
@@ -1257,7 +1351,7 @@ def get_next_invoice_number(company_id):
     cur = conn.cursor()
 
     row = cur.execute(
-        "SELECT next_invoice_number FROM companies WHERE id = ?",
+        "SELECT next_invoice_number FROM companies WHERE id = %s",
         (company_id,),
     ).fetchone()
 
@@ -1269,7 +1363,7 @@ def get_next_invoice_number(company_id):
             """
             SELECT invoice_number
             FROM invoices
-            WHERE company_id = ?
+            WHERE company_id = %s
             ORDER BY id DESC
             LIMIT 1
             """,
@@ -1279,7 +1373,7 @@ def get_next_invoice_number(company_id):
             next_number = _extract_numeric_suffix(latest["invoice_number"], 1000) + 1
 
     cur.execute(
-        "UPDATE companies SET next_invoice_number = ? WHERE id = ?",
+        "UPDATE companies SET next_invoice_number = %s WHERE id = %s",
         (next_number + 1, company_id),
     )
 
@@ -1295,7 +1389,7 @@ def get_next_quote_number(company_id):
     cur = conn.cursor()
 
     row = cur.execute(
-        "SELECT next_quote_number FROM companies WHERE id = ?",
+        "SELECT next_quote_number FROM companies WHERE id = %s",
         (company_id,),
     ).fetchone()
 
@@ -1307,7 +1401,7 @@ def get_next_quote_number(company_id):
             """
             SELECT quote_number
             FROM quotes
-            WHERE company_id = ?
+            WHERE company_id = %s
             ORDER BY id DESC
             LIMIT 1
             """,
@@ -1317,7 +1411,7 @@ def get_next_quote_number(company_id):
             next_number = _extract_numeric_suffix(latest["quote_number"], 1000) + 1
 
     cur.execute(
-        "UPDATE companies SET next_quote_number = ? WHERE id = ?",
+        "UPDATE companies SET next_quote_number = %s WHERE id = %s",
         (next_number + 1, company_id),
     )
 
@@ -1325,40 +1419,10 @@ def get_next_quote_number(company_id):
     conn.close()
     return str(next_number)
 
-def ensure_password_reset_table():
-    conn = get_db_connection()
-    cur = conn.cursor()
 
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS password_resets (
-            id SERIAL PRIMARY KEY,
-            email TEXT NOT NULL,
-            token TEXT NOT NULL,
-            expires_at TIMESTAMP NOT NULL
-        )
-    """)
-
-    cur.execute("""
-        CREATE INDEX IF NOT EXISTS idx_password_resets_token
-        ON password_resets (token)
-    """)
-
-    conn.commit()
-    conn.close()
-
-
-def get_billing_history(company_id, limit=20):
-    conn = get_db_connection()
-    rows = conn.execute("""
-        SELECT *
-        FROM billing_events
-        WHERE company_id = ?
-        ORDER BY COALESCE(event_date, created_at::text) DESC, id DESC
-        LIMIT ?
-    """, (company_id, limit)).fetchall()
-    conn.close()
-    return rows
-
+# -------------------------------------------------------------------
+# User helpers
+# -------------------------------------------------------------------
 
 def create_owner_user(company_id, name, email, password_hash):
     ensure_user_permission_columns()
@@ -1388,7 +1452,7 @@ def create_owner_user(company_id, name, email, password_hash):
             can_view_employees,
             can_manage_quotes
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             company_id,
@@ -1425,6 +1489,10 @@ def get_employee_columns():
     return cols
 
 
+# -------------------------------------------------------------------
+# Bookkeeping / ledger helpers
+# -------------------------------------------------------------------
+
 def add_bookkeeping_history_entry(
     company_id,
     entry_date,
@@ -1443,7 +1511,8 @@ def add_bookkeeping_history_entry(
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute("""
+    cur.execute(
+        """
         INSERT INTO bookkeeping_history (
             company_id,
             entry_date,
@@ -1457,20 +1526,22 @@ def add_bookkeeping_history_entry(
             reference_id,
             notes
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        company_id,
-        entry_date,
-        category,
-        entry_type,
-        description,
-        amount,
-        money_in,
-        money_out,
-        reference_type,
-        reference_id,
-        notes,
-    ))
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            company_id,
+            entry_date,
+            category,
+            entry_type,
+            description,
+            amount,
+            money_in,
+            money_out,
+            reference_type,
+            reference_id,
+            notes,
+        ),
+    )
 
     conn.commit()
     conn.close()
@@ -1486,7 +1557,8 @@ def backfill_payroll_bookkeeping_history():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    rows = conn.execute("""
+    rows = conn.execute(
+        """
         SELECT
             p.id,
             p.company_id,
@@ -1498,16 +1570,20 @@ def backfill_payroll_bookkeeping_history():
             e.full_name
         FROM payroll_entries p
         LEFT JOIN employees e ON p.employee_id = e.id
-    """).fetchall()
+        """
+    ).fetchall()
 
     for row in rows:
-        existing = conn.execute("""
+        existing = conn.execute(
+            """
             SELECT id
             FROM bookkeeping_history
-            WHERE company_id = ?
+            WHERE company_id = %s
               AND reference_type = 'payroll'
-              AND reference_id = ?
-        """, (row["company_id"], row["id"])).fetchone()
+              AND reference_id = %s
+            """,
+            (row["company_id"], row["id"]),
+        ).fetchone()
 
         if existing:
             continue
@@ -1524,7 +1600,8 @@ def backfill_payroll_bookkeeping_history():
 
         gross_pay = float(row["gross_pay"] or 0)
 
-        cur.execute("""
+        cur.execute(
+            """
             INSERT INTO bookkeeping_history (
                 company_id,
                 entry_date,
@@ -1538,27 +1615,30 @@ def backfill_payroll_bookkeeping_history():
                 reference_id,
                 notes
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            row["company_id"],
-            row["pay_date"],
-            "Payroll",
-            "Expense",
-            f"Payroll - {employee_name}",
-            gross_pay,
-            0,
-            gross_pay,
-            "payroll",
-            row["id"],
-            row["notes"],
-        ))
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                row["company_id"],
+                row["pay_date"],
+                "Payroll",
+                "Expense",
+                f"Payroll - {employee_name}",
+                gross_pay,
+                0,
+                gross_pay,
+                "payroll",
+                row["id"],
+                row["notes"],
+            ),
+        )
 
     conn.commit()
     conn.close()
 
 
 def ensure_payroll_ledger_entry(conn, payroll_id):
-    payroll = conn.execute("""
+    payroll = conn.execute(
+        """
         SELECT
             p.*,
             e.first_name,
@@ -1566,8 +1646,10 @@ def ensure_payroll_ledger_entry(conn, payroll_id):
             e.full_name
         FROM payroll_entries p
         LEFT JOIN employees e ON p.employee_id = e.id
-        WHERE p.id = ?
-    """, (payroll_id,)).fetchone()
+        WHERE p.id = %s
+        """,
+        (payroll_id,),
+    ).fetchone()
 
     if not payroll:
         return
@@ -1594,46 +1676,55 @@ def ensure_payroll_ledger_entry(conn, payroll_id):
     if pay_date:
         description += f" - {pay_date}"
 
-    existing = conn.execute("""
+    existing = conn.execute(
+        """
         SELECT id
         FROM ledger_entries
-        WHERE source_type = 'payroll' AND source_id = ?
-    """, (payroll_id,)).fetchone()
+        WHERE source_type = 'payroll' AND source_id = %s
+        """,
+        (payroll_id,),
+    ).fetchone()
 
     if existing:
-        conn.execute("""
+        conn.execute(
+            """
             UPDATE ledger_entries
-            SET company_id = ?,
-                entry_date = ?,
+            SET company_id = %s,
+                entry_date = %s,
                 entry_type = 'Expense',
                 category = 'Payroll',
-                description = ?,
-                amount = ?,
+                description = %s,
+                amount = %s,
                 source_type = 'payroll',
-                source_id = ?
-            WHERE id = ?
-        """, (
-            payroll["company_id"],
-            pay_date,
-            description,
-            gross_pay,
-            payroll_id,
-            existing["id"],
-        ))
+                source_id = %s
+            WHERE id = %s
+            """,
+            (
+                payroll["company_id"],
+                pay_date,
+                description,
+                gross_pay,
+                payroll_id,
+                existing["id"],
+            ),
+        )
     else:
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO ledger_entries (
                 company_id, entry_date, entry_type, category, description, amount,
                 source_type, source_id
             )
-            VALUES (?, ?, 'Expense', 'Payroll', ?, ?, 'payroll', ?)
-        """, (
-            payroll["company_id"],
-            pay_date,
-            description,
-            gross_pay,
-            payroll_id,
-        ))
+            VALUES (%s, %s, 'Expense', 'Payroll', %s, %s, 'payroll', %s)
+            """,
+            (
+                payroll["company_id"],
+                pay_date,
+                description,
+                gross_pay,
+                payroll_id,
+            ),
+        )
 
 
 def ensure_job_cost_ledger(conn, job_item_id):
@@ -1645,7 +1736,7 @@ def ensure_job_cost_ledger(conn, job_item_id):
             j.customer_id
         FROM job_items ji
         JOIN jobs j ON ji.job_id = j.id
-        WHERE ji.id = ?
+        WHERE ji.id = %s
         """,
         (job_item_id,),
     ).fetchone()
@@ -1720,7 +1811,7 @@ def ensure_job_cost_ledger(conn, job_item_id):
             """
             SELECT id
             FROM ledger_entries
-            WHERE id = ?
+            WHERE id = %s
             """,
             (existing_ledger_id,),
         ).fetchone()
@@ -1730,7 +1821,7 @@ def ensure_job_cost_ledger(conn, job_item_id):
             """
             SELECT id
             FROM ledger_entries
-            WHERE source_type = 'job_item' AND source_id = ?
+            WHERE source_type = 'job_item' AND source_id = %s
             ORDER BY id DESC
             LIMIT 1
             """,
@@ -1741,8 +1832,8 @@ def ensure_job_cost_ledger(conn, job_item_id):
         conn.execute(
             """
             UPDATE job_items
-            SET item_type = ?
-            WHERE id = ?
+            SET item_type = %s
+            WHERE id = %s
             """,
             (item_type, job_item_id),
         )
@@ -1754,18 +1845,18 @@ def ensure_job_cost_ledger(conn, job_item_id):
             """
             UPDATE ledger_entries
             SET
-                company_id = ?,
-                entry_date = ?,
+                company_id = %s,
+                entry_date = %s,
                 entry_type = 'Expense',
-                category = ?,
-                description = ?,
-                amount = ?,
+                category = %s,
+                description = %s,
+                amount = %s,
                 source_type = 'job_item',
-                source_id = ?,
-                customer_id = ?,
+                source_id = %s,
+                customer_id = %s,
                 invoice_id = NULL,
-                job_id = ?
-            WHERE id = ?
+                job_id = %s
+            WHERE id = %s
             """,
             (
                 item["company_id"],
@@ -1784,8 +1875,8 @@ def ensure_job_cost_ledger(conn, job_item_id):
             conn.execute(
                 """
                 UPDATE job_items
-                SET ledger_entry_id = ?
-                WHERE id = ?
+                SET ledger_entry_id = %s
+                WHERE id = %s
                 """,
                 (ledger_id, job_item_id),
             )
@@ -1806,7 +1897,7 @@ def ensure_job_cost_ledger(conn, job_item_id):
                 invoice_id,
                 job_id
             )
-            VALUES (?, ?, 'Expense', ?, ?, ?, 'job_item', ?, ?, NULL, ?)
+            VALUES (%s, %s, 'Expense', %s, %s, %s, 'job_item', %s, %s, NULL, %s)
             """,
             (
                 item["company_id"],
@@ -1824,8 +1915,8 @@ def ensure_job_cost_ledger(conn, job_item_id):
         conn.execute(
             """
             UPDATE job_items
-            SET ledger_entry_id = ?
-            WHERE id = ?
+            SET ledger_entry_id = %s
+            WHERE id = %s
             """,
             (new_ledger_id, job_item_id),
         )
@@ -1837,7 +1928,7 @@ def repair_all_job_item_ledgers(conn, company_id):
         SELECT ji.id
         FROM job_items ji
         JOIN jobs j ON ji.job_id = j.id
-        WHERE j.company_id = ?
+        WHERE j.company_id = %s
         ORDER BY ji.id
         """,
         (company_id,),
@@ -1852,7 +1943,11 @@ def repair_all_job_item_ledgers(conn, company_id):
 
 
 def create_income_ledger_for_payment(conn, invoice_id, payment_amount):
-    inv = conn.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
+    inv = conn.execute(
+        "SELECT * FROM invoices WHERE id = %s",
+        (invoice_id,),
+    ).fetchone()
+
     if not inv or payment_amount <= 0:
         return
 
@@ -1863,7 +1958,7 @@ def create_income_ledger_for_payment(conn, invoice_id, payment_amount):
             company_id, entry_date, entry_type, category, description, amount,
             source_type, source_id, customer_id, invoice_id, job_id
         )
-        VALUES (?, ?, 'Income', 'Invoice Payment', ?, ?, 'invoice_payment', ?, ?, ?, ?)
+        VALUES (%s, %s, 'Income', 'Invoice Payment', %s, %s, 'invoice_payment', %s, %s, %s, %s)
         """,
         (
             inv["company_id"],
@@ -1883,7 +1978,7 @@ def update_invoice_balance(invoice_id):
 
     try:
         invoice = conn.execute(
-            "SELECT id, total FROM invoices WHERE id = ?",
+            "SELECT id, total FROM invoices WHERE id = %s",
             (invoice_id,),
         ).fetchone()
 
@@ -1891,7 +1986,7 @@ def update_invoice_balance(invoice_id):
             return
 
         paid_row = conn.execute(
-            "SELECT COALESCE(SUM(amount), 0) AS paid_total FROM invoice_payments WHERE invoice_id = ?",
+            "SELECT COALESCE(SUM(amount), 0) AS paid_total FROM invoice_payments WHERE invoice_id = %s",
             (invoice_id,),
         ).fetchone()
 
@@ -1911,8 +2006,8 @@ def update_invoice_balance(invoice_id):
         conn.execute(
             """
             UPDATE invoices
-            SET amount_paid = ?, balance_due = ?, status = ?
-            WHERE id = ?
+            SET amount_paid = %s, balance_due = %s, status = %s
+            WHERE id = %s
             """,
             (paid_total, balance_due, status, invoice_id),
         )
@@ -1927,7 +2022,7 @@ def create_payroll_ledger_entry(conn, payroll_entry_id):
         SELECT pe.*, e.first_name, e.last_name
         FROM payroll_entries pe
         JOIN employees e ON pe.employee_id = e.id
-        WHERE pe.id = ?
+        WHERE pe.id = %s
         """,
         (payroll_entry_id,),
     ).fetchone()
@@ -1945,7 +2040,7 @@ def create_payroll_ledger_entry(conn, payroll_entry_id):
             company_id, entry_date, entry_type, category, description, amount,
             source_type, source_id
         )
-        VALUES (?, ?, 'Expense', 'Payroll', ?, ?, 'payroll', ?)
+        VALUES (%s, %s, 'Expense', 'Payroll', %s, %s, 'payroll', %s)
         """,
         (
             row["company_id"],
@@ -1958,6 +2053,6 @@ def create_payroll_ledger_entry(conn, payroll_entry_id):
     ledger_id = cur.lastrowid
 
     conn.execute(
-        "UPDATE payroll_entries SET ledger_entry_id = ? WHERE id = ?",
+        "UPDATE payroll_entries SET ledger_entry_id = %s WHERE id = %s",
         (ledger_id, payroll_entry_id),
     )

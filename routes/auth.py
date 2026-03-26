@@ -129,19 +129,11 @@ def _auth_styles():
         font-weight:800;
         cursor:pointer;
         box-shadow: 0 4px 10px rgba(79,127,43,0.18);
+        text-decoration:none;
     }
 
     .btn:hover{
         background:#2f4f1f;
-    }
-
-    .btn.secondary{
-        background:#6b4f2a;
-        color:#ffffff;
-    }
-
-    .btn.secondary:hover{
-        background:#4a3720;
     }
 
     .btn.secondary{
@@ -206,7 +198,7 @@ def register():
         conn = get_db_connection()
 
         exists = conn.execute(
-            "SELECT id FROM users WHERE email = ?",
+            "SELECT id FROM users WHERE email = %s",
             (email,),
         ).fetchone()
 
@@ -217,13 +209,18 @@ def register():
 
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO companies (name) VALUES (?)",
+            "INSERT INTO companies (name) VALUES (%s) RETURNING id",
             (company_name,),
         )
-        company_id = cur.lastrowid
+        row = cur.fetchone()
+        company_id = row["id"] if row and "id" in row else None
 
         conn.commit()
         conn.close()
+
+        if not company_id:
+            flash("Could not create company.")
+            return redirect(url_for("auth.register"))
 
         user_id = create_owner_user(
             company_id=company_id,
@@ -305,7 +302,7 @@ def login():
             SELECT u.*, c.name AS company_name
             FROM users u
             JOIN companies c ON u.company_id = c.id
-            WHERE u.email = ?
+            WHERE u.email = %s
             """,
             (email,),
         ).fetchone()
@@ -370,17 +367,33 @@ def login():
     """
     return render_public_page(content, "Login")
 
+
 @auth_bp.route("/forgot-password", methods=["GET", "POST"])
 def forgot_password():
     ensure_password_reset_table()
+
+    conn = get_db_connection()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS password_resets (
+            id SERIAL PRIMARY KEY,
+            email TEXT NOT NULL,
+            token TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_password_resets_token
+        ON password_resets (token)
+    """)
+    conn.commit()
+
     if request.method == "POST":
         email = (request.form.get("email") or "").strip().lower()
 
         if not email:
+            conn.close()
             flash("Enter your email.")
             return redirect(url_for("auth.forgot_password"))
-
-        conn = get_db_connection()
 
         user = conn.execute(
             "SELECT id FROM users WHERE email = %s",
@@ -410,6 +423,15 @@ def forgot_password():
                     """,
                     text_body=f"Reset your password: {reset_link}",
                 )
+            except TypeError:
+                try:
+                    send_company_email(
+                        email,
+                        "Reset Your TerraLedger Password",
+                        f"Reset your password: {reset_link}",
+                    )
+                except Exception as e:
+                    flash(f"Email failed: {e}")
             except Exception as e:
                 flash(f"Email failed: {e}")
 
@@ -417,6 +439,8 @@ def forgot_password():
 
         flash("If that email exists, a reset link has been sent.")
         return redirect(url_for("auth.login"))
+
+    conn.close()
 
     content = """
     <div class="auth-panel">
@@ -439,20 +463,56 @@ def forgot_password():
             </form>
         </div>
     </div>
-    """
+
+    """ + _auth_styles()
+
     return render_public_page(content, "Forgot Password")
+
 
 @auth_bp.route("/reset-password/<token>", methods=["GET", "POST"])
 def reset_password(token):
     ensure_password_reset_table()
+
     conn = get_db_connection()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS password_resets (
+            id SERIAL PRIMARY KEY,
+            email TEXT NOT NULL,
+            token TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_password_resets_token
+        ON password_resets (token)
+    """)
+    conn.commit()
 
     row = conn.execute(
         "SELECT * FROM password_resets WHERE token = %s",
         (token,),
     ).fetchone()
 
-    if not row or row["expires_at"] < datetime.utcnow():
+    if not row:
+        conn.close()
+        flash("Invalid or expired reset link.")
+        return redirect(url_for("auth.login"))
+
+    expires_at = row["expires_at"]
+    if isinstance(expires_at, str):
+        try:
+            expires_at = datetime.fromisoformat(expires_at)
+        except Exception:
+            conn.close()
+            flash("Invalid or expired reset link.")
+            return redirect(url_for("auth.login"))
+
+    if expires_at < datetime.utcnow():
+        conn.execute(
+            "DELETE FROM password_resets WHERE token = %s",
+            (token,),
+        )
+        conn.commit()
         conn.close()
         flash("Invalid or expired reset link.")
         return redirect(url_for("auth.login"))
@@ -461,6 +521,7 @@ def reset_password(token):
         password = request.form.get("password") or ""
 
         if not password:
+            conn.close()
             flash("Password required.")
             return redirect(url_for("auth.reset_password", token=token))
 
@@ -501,7 +562,9 @@ def reset_password(token):
             </form>
         </div>
     </div>
-    """
+
+    """ + _auth_styles()
+
     return render_public_page(content, "Reset Password")
 
 
