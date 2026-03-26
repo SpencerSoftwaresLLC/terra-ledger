@@ -822,6 +822,15 @@ def init_db():
     """)
 
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS password_resets (
+            id SERIAL PRIMARY KEY,
+            email TEXT NOT NULL,
+            token TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL
+        )
+    """)
+
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS job_items (
             id SERIAL PRIMARY KEY,
             job_id INTEGER NOT NULL,

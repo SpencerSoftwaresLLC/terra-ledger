@@ -1,8 +1,11 @@
 from flask import Blueprint, request, redirect, url_for, session, flash
 from werkzeug.security import generate_password_hash, check_password_hash
+import secrets
+from datetime import datetime, timedelta
 
 from db import get_db_connection, create_owner_user
 from page_helpers import render_public_page
+from utils.emailing import send_company_email
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -363,6 +366,138 @@ def login():
     {_auth_styles()}
     """
     return render_public_page(content, "Login")
+
+@auth_bp.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip().lower()
+
+        if not email:
+            flash("Enter your email.")
+            return redirect(url_for("auth.forgot_password"))
+
+        conn = get_db_connection()
+
+        user = conn.execute(
+            "SELECT id FROM users WHERE email = %s",
+            (email,),
+        ).fetchone()
+
+        if user:
+            token = secrets.token_urlsafe(32)
+            expires = datetime.utcnow() + timedelta(hours=1)
+
+            conn.execute(
+                "INSERT INTO password_resets (email, token, expires_at) VALUES (%s, %s, %s)",
+                (email, token, expires),
+            )
+            conn.commit()
+
+            reset_link = url_for("auth.reset_password", token=token, _external=True)
+
+            try:
+                send_company_email(
+                    to_email=email,
+                    subject="Reset Your TerraLedger Password",
+                    html_body=f"""
+                        Click below to reset your password:<br><br>
+                        <a href="{reset_link}">{reset_link}</a><br><br>
+                        This link expires in 1 hour.
+                    """,
+                    text_body=f"Reset your password: {reset_link}",
+                )
+            except Exception as e:
+                flash(f"Email failed: {e}")
+
+        conn.close()
+
+        flash("If that email exists, a reset link has been sent.")
+        return redirect(url_for("auth.login"))
+
+    content = """
+    <div class="auth-panel">
+        <div class="auth-card">
+            <h1>Forgot Password</h1>
+            <p class="auth-subtext">Enter your email to reset your password.</p>
+
+            <form method="post">
+                <div class="auth-grid">
+                    <div>
+                        <label>Email</label>
+                        <input type="email" name="email" required>
+                    </div>
+                </div>
+
+                <div class="auth-actions">
+                    <button class="btn">Send Reset Link</button>
+                    <a class="btn secondary" href="/login">Back to Login</a>
+                </div>
+            </form>
+        </div>
+    </div>
+    """
+    return render_public_page(content, "Forgot Password")
+
+@auth_bp.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    conn = get_db_connection()
+
+    row = conn.execute(
+        "SELECT * FROM password_resets WHERE token = %s",
+        (token,),
+    ).fetchone()
+
+    if not row or row["expires_at"] < datetime.utcnow():
+        conn.close()
+        flash("Invalid or expired reset link.")
+        return redirect(url_for("auth.login"))
+
+    if request.method == "POST":
+        password = request.form.get("password") or ""
+
+        if not password:
+            flash("Password required.")
+            return redirect(url_for("auth.reset_password", token=token))
+
+        conn.execute(
+            "UPDATE users SET password_hash = %s WHERE email = %s",
+            (generate_password_hash(password), row["email"]),
+        )
+
+        conn.execute(
+            "DELETE FROM password_resets WHERE email = %s",
+            (row["email"],),
+        )
+
+        conn.commit()
+        conn.close()
+
+        flash("Password reset successful. Please login.")
+        return redirect(url_for("auth.login"))
+
+    conn.close()
+
+    content = """
+    <div class="auth-panel">
+        <div class="auth-card">
+            <h1>Reset Password</h1>
+
+            <form method="post">
+                <div class="auth-grid">
+                    <div>
+                        <label>New Password</label>
+                        <input type="password" name="password" required>
+                    </div>
+                </div>
+
+                <div class="auth-actions">
+                    <button class="btn">Reset Password</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    """
+    return render_public_page(content, "Reset Password")
 
 
 @auth_bp.route("/logout")
