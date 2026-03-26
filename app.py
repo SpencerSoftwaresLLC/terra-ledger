@@ -19,7 +19,7 @@ from routes.jobs import jobs_bp
 from routes.quotes import quotes_bp
 from routes.invoices import invoices_bp
 from routes.payroll import payroll_bp, ensure_payroll_check_structure
-from routes.employees import employees_bp
+from routes.employees import employees_bp, ensure_employee_local_tax_columns
 from routes.users import users_bp
 from routes.settings import settings_bp
 from routes.billing import billing_bp
@@ -45,6 +45,9 @@ def run_startup_tasks():
 
     ensure_password_reset_table()
     print("ensure_password_reset_table SUCCESS", flush=True)
+
+    ensure_employee_local_tax_columns()
+    print("ensure_employee_local_tax_columns SUCCESS", flush=True)
 
     ensure_payroll_check_structure()
     print("ensure_payroll_check_structure SUCCESS", flush=True)

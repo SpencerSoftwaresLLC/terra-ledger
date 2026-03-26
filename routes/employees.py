@@ -1,4 +1,4 @@
-from flask import Blueprint, request, redirect, url_for, session, flash, render_template_string, abort
+from flask import Blueprint, request, redirect, url_for, session, flash, render_template_string
 from html import escape
 from datetime import datetime, date, timedelta
 
@@ -19,6 +19,64 @@ from utils.time_clock_emailing import send_pay_period_summary_emails_for_company
 
 
 employees_bp = Blueprint("employees", __name__)
+
+
+INDIANA_COUNTIES = [
+    "Adams", "Allen", "Bartholomew", "Benton", "Blackford", "Boone", "Brown",
+    "Carroll", "Cass", "Clark", "Clay", "Clinton", "Crawford", "Daviess",
+    "Dearborn", "Decatur", "DeKalb", "Delaware", "Dubois", "Elkhart", "Fayette",
+    "Floyd", "Fountain", "Franklin", "Fulton", "Gibson", "Grant", "Greene",
+    "Hamilton", "Hancock", "Harrison", "Hendricks", "Henry", "Howard",
+    "Huntington", "Jackson", "Jasper", "Jay", "Jefferson", "Jennings",
+    "Johnson", "Knox", "Kosciusko", "LaGrange", "Lake", "LaPorte", "Lawrence",
+    "Madison", "Marion", "Marshall", "Martin", "Miami", "Monroe", "Montgomery",
+    "Morgan", "Newton", "Noble", "Ohio", "Orange", "Owen", "Parke", "Perry",
+    "Pike", "Porter", "Posey", "Pulaski", "Putnam", "Randolph", "Ripley",
+    "Rush", "St. Joseph", "Scott", "Shelby", "Spencer", "Starke", "Steuben",
+    "Sullivan", "Switzerland", "Tippecanoe", "Tipton", "Union", "Vanderburgh",
+    "Vermillion", "Vigo", "Wabash", "Warren", "Warrick", "Washington", "Wayne",
+    "Wells", "White", "Whitley",
+]
+
+
+def _safe_float(value, default=0.0):
+    try:
+        return float(value or 0)
+    except Exception:
+        return default
+
+
+def _safe_int(value, default=0):
+    try:
+        return int(value or 0)
+    except Exception:
+        return default
+
+
+def _clean_text(value):
+    text = str(value or "").strip()
+    if text.lower() in {"none", "null", "n/a"}:
+        return ""
+    return text
+
+
+def ensure_employee_local_tax_columns():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS address_line_1 TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS address_line_2 TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS city TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS state TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS zip TEXT")
+
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS county_of_residence TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS county_of_principal_employment TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS county_tax_effective_year INTEGER")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS is_indiana_resident BOOLEAN DEFAULT TRUE")
+
+    conn.commit()
+    conn.close()
 
 
 def _employee_display_name(employee):
@@ -44,6 +102,15 @@ def _employee_display_name(employee):
     return f"Employee #{employee['id']}"
 
 
+def _county_options_html(selected_value=""):
+    selected_value = str(selected_value or "").strip()
+    options = ["<option value=''>Select county</option>"]
+    for county in INDIANA_COUNTIES:
+        sel = "selected" if county == selected_value else ""
+        options.append(f"<option value='{escape(county)}' {sel}>{escape(county)}</option>")
+    return "".join(options)
+
+
 def _employee_form_html(employee=None, form_action="", submit_label="Save Employee", page_title="Employee"):
     employee = employee or {}
 
@@ -61,17 +128,36 @@ def _employee_form_html(employee=None, form_action="", submit_label="Save Employ
             current = employee.get(key, default)
         return "selected" if str(current) == str(expected) else ""
 
-    def checked(key):
+    def checked(key, default=False):
         if hasattr(employee, "keys"):
-            return "checked" if key in employee.keys() and employee[key] else ""
-        return "checked" if employee.get(key) else ""
+            if key in employee.keys() and employee[key] is not None:
+                return "checked" if employee[key] else ""
+            return "checked" if default else ""
+        return "checked" if employee.get(key, default) else ""
+
+    county_of_residence = ""
+    county_of_principal_employment = ""
+    if hasattr(employee, "keys"):
+        county_of_residence = employee["county_of_residence"] if "county_of_residence" in employee.keys() and employee["county_of_residence"] else ""
+        county_of_principal_employment = employee["county_of_principal_employment"] if "county_of_principal_employment" in employee.keys() and employee["county_of_principal_employment"] else ""
+    else:
+        county_of_residence = employee.get("county_of_residence", "")
+        county_of_principal_employment = employee.get("county_of_principal_employment", "")
+
+    current_year = date.today().year
+    county_tax_year_default = current_year
+    if hasattr(employee, "keys"):
+        if "county_tax_effective_year" in employee.keys() and employee["county_tax_effective_year"] is not None:
+            county_tax_year_default = employee["county_tax_effective_year"]
+    else:
+        county_tax_year_default = employee.get("county_tax_effective_year", current_year)
 
     content = f"""
     <div class='card'>
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
             <div>
                 <h1 style='margin-bottom:6px;'>{escape(page_title)}</h1>
-                <p class='muted' style='margin:0;'>Manage employee information, payroll setup, and federal withholding details.</p>
+                <p class='muted' style='margin:0;'>Manage employee information, payroll setup, federal withholding, and Indiana local tax setup.</p>
             </div>
             <div class='row-actions'>
                 <a class='btn warning' href='{url_for("payroll.employee_payroll")}'>Payroll</a>
@@ -107,6 +193,32 @@ def _employee_form_html(employee=None, form_action="", submit_label="Save Employ
                 <div>
                     <label>Hire Date</label>
                     <input name='hire_date' type='date' value='{val("hire_date")}'>
+                </div>
+            </div>
+        </div>
+
+        <div class='card'>
+            <h2>Employee Address</h2>
+            <div class='grid'>
+                <div style='grid-column:1 / -1;'>
+                    <label>Address Line 1</label>
+                    <input name='address_line_1' value='{val("address_line_1")}'>
+                </div>
+                <div style='grid-column:1 / -1;'>
+                    <label>Address Line 2</label>
+                    <input name='address_line_2' value='{val("address_line_2")}'>
+                </div>
+                <div>
+                    <label>City</label>
+                    <input name='city' value='{val("city")}'>
+                </div>
+                <div>
+                    <label>State</label>
+                    <input name='state' value='{val("state", "IN")}'>
+                </div>
+                <div>
+                    <label>ZIP</label>
+                    <input name='zip' value='{val("zip")}'>
                 </div>
             </div>
         </div>
@@ -198,6 +310,42 @@ def _employee_form_html(employee=None, form_action="", submit_label="Save Employ
         </div>
 
         <div class='card'>
+            <h2>Indiana Local Tax Setup</h2>
+            <div class='grid'>
+                <div class='checkbox-field'>
+                    <label class='checkbox-label'>
+                        <input type='checkbox' name='is_indiana_resident' {checked("is_indiana_resident", True)}>
+                        Indiana Resident on January 1
+                    </label>
+                    <div class='muted small'>Residents usually use county of residence. Non-residents usually use county of principal employment.</div>
+                </div>
+
+                <div>
+                    <label>County Tax Effective Year</label>
+                    <input name='county_tax_effective_year' type='number' step='1' value='{escape(str(county_tax_year_default))}'>
+                </div>
+
+                <div>
+                    <label>County of Residence</label>
+                    <select name='county_of_residence'>
+                        {_county_options_html(county_of_residence)}
+                    </select>
+                </div>
+
+                <div>
+                    <label>County of Principal Employment</label>
+                    <select name='county_of_principal_employment'>
+                        {_county_options_html(county_of_principal_employment)}
+                    </select>
+                </div>
+            </div>
+
+            <div class='muted' style='margin-top:12px;'>
+                Store the January 1 county values here so payroll can calculate Indiana local withholding correctly.
+            </div>
+        </div>
+
+        <div class='card'>
             <div class='row-actions'>
                 <button class='btn success' type='submit'>{escape(submit_label)}</button>
                 <a class='btn secondary' href='{url_for("employees.employees")}'>Cancel</a>
@@ -274,6 +422,7 @@ def employees():
     ensure_employee_name_columns()
     ensure_employee_payroll_columns()
     ensure_employee_tax_columns()
+    ensure_employee_local_tax_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -408,6 +557,7 @@ def new_employee():
     ensure_employee_payroll_columns()
     ensure_employee_tax_columns()
     ensure_employee_status_column()
+    ensure_employee_local_tax_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -415,27 +565,38 @@ def new_employee():
     cols = get_employee_columns()
 
     if request.method == "POST":
-        first_name = (request.form.get("first_name") or "").strip()
-        last_name = (request.form.get("last_name") or "").strip()
-        phone = (request.form.get("phone") or "").strip()
-        email = (request.form.get("email") or "").strip()
-        position = (request.form.get("position") or "").strip()
-        hire_date = (request.form.get("hire_date") or "").strip()
-        pay_type = (request.form.get("pay_type") or "Hourly").strip()
+        first_name = _clean_text(request.form.get("first_name"))
+        last_name = _clean_text(request.form.get("last_name"))
+        phone = _clean_text(request.form.get("phone"))
+        email = _clean_text(request.form.get("email"))
+        position = _clean_text(request.form.get("position"))
+        hire_date = _clean_text(request.form.get("hire_date"))
+        pay_type = _clean_text(request.form.get("pay_type")) or "Hourly"
 
-        federal_filing_status = (request.form.get("federal_filing_status") or "Single").strip()
-        pay_frequency = (request.form.get("pay_frequency") or "Biweekly").strip()
+        address_line_1 = _clean_text(request.form.get("address_line_1"))
+        address_line_2 = _clean_text(request.form.get("address_line_2"))
+        city = _clean_text(request.form.get("city"))
+        state = _clean_text(request.form.get("state")) or "IN"
+        zip_code = _clean_text(request.form.get("zip"))
+
+        federal_filing_status = _clean_text(request.form.get("federal_filing_status")) or "Single"
+        pay_frequency = _clean_text(request.form.get("pay_frequency")) or "Biweekly"
         w4_step2_checked = 1 if request.form.get("w4_step2_checked") else 0
-        w4_step3_amount = float(request.form.get("w4_step3_amount") or 0)
-        w4_step4a_other_income = float(request.form.get("w4_step4a_other_income") or 0)
-        w4_step4b_deductions = float(request.form.get("w4_step4b_deductions") or 0)
-        w4_step4c_extra_withholding = float(request.form.get("w4_step4c_extra_withholding") or 0)
+        w4_step3_amount = _safe_float(request.form.get("w4_step3_amount"), 0)
+        w4_step4a_other_income = _safe_float(request.form.get("w4_step4a_other_income"), 0)
+        w4_step4b_deductions = _safe_float(request.form.get("w4_step4b_deductions"), 0)
+        w4_step4c_extra_withholding = _safe_float(request.form.get("w4_step4c_extra_withholding"), 0)
 
-        hourly_rate = float(request.form.get("hourly_rate") or 0)
-        overtime_rate = float(request.form.get("overtime_rate") or 0)
-        salary_amount = float(request.form.get("salary_amount") or 0)
-        default_hours = float(request.form.get("default_hours") or 0)
-        payroll_notes = (request.form.get("payroll_notes") or "").strip()
+        hourly_rate = _safe_float(request.form.get("hourly_rate"), 0)
+        overtime_rate = _safe_float(request.form.get("overtime_rate"), 0)
+        salary_amount = _safe_float(request.form.get("salary_amount"), 0)
+        default_hours = _safe_float(request.form.get("default_hours"), 0)
+        payroll_notes = _clean_text(request.form.get("payroll_notes"))
+
+        is_indiana_resident = 1 if request.form.get("is_indiana_resident") else 0
+        county_of_residence = _clean_text(request.form.get("county_of_residence"))
+        county_of_principal_employment = _clean_text(request.form.get("county_of_principal_employment"))
+        county_tax_effective_year = _safe_int(request.form.get("county_tax_effective_year"), date.today().year)
 
         if not first_name or not last_name:
             flash("First and last name are required.")
@@ -460,6 +621,11 @@ def new_employee():
             "email": email,
             "position": position,
             "hire_date": hire_date,
+            "address_line_1": address_line_1,
+            "address_line_2": address_line_2,
+            "city": city,
+            "state": state,
+            "zip": zip_code,
             "pay_type": pay_type,
             "hourly_rate": hourly_rate,
             "overtime_rate": overtime_rate,
@@ -474,6 +640,10 @@ def new_employee():
             "w4_step4a_other_income": w4_step4a_other_income,
             "w4_step4b_deductions": w4_step4b_deductions,
             "w4_step4c_extra_withholding": w4_step4c_extra_withholding,
+            "is_indiana_resident": is_indiana_resident,
+            "county_of_residence": county_of_residence,
+            "county_of_principal_employment": county_of_principal_employment,
+            "county_tax_effective_year": county_tax_effective_year,
         }
 
         insert_cols = []
@@ -488,6 +658,11 @@ def new_employee():
             "email",
             "position",
             "hire_date",
+            "address_line_1",
+            "address_line_2",
+            "city",
+            "state",
+            "zip",
             "pay_type",
             "hourly_rate",
             "overtime_rate",
@@ -502,6 +677,10 @@ def new_employee():
             "w4_step4a_other_income",
             "w4_step4b_deductions",
             "w4_step4c_extra_withholding",
+            "is_indiana_resident",
+            "county_of_residence",
+            "county_of_principal_employment",
+            "county_tax_effective_year",
         ]:
             if col in cols:
                 insert_cols.append(col)
@@ -537,6 +716,7 @@ def new_employee():
 def view_employee(employee_id):
     ensure_employee_payroll_columns()
     ensure_employee_tax_columns()
+    ensure_employee_local_tax_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -597,6 +777,12 @@ def view_employee(employee_id):
     salary_amount = employee["salary_amount"] if "salary_amount" in cols and employee["salary_amount"] is not None else 0
     status_text = "Active" if ("is_active" in cols and employee["is_active"]) else "Inactive"
 
+    address_line_1 = employee["address_line_1"] if "address_line_1" in cols and employee["address_line_1"] else "-"
+    address_line_2 = employee["address_line_2"] if "address_line_2" in cols and employee["address_line_2"] else "-"
+    city = employee["city"] if "city" in cols and employee["city"] else "-"
+    state = employee["state"] if "state" in cols and employee["state"] else "-"
+    zip_code = employee["zip"] if "zip" in cols and employee["zip"] else "-"
+
     federal_filing_status = (
         employee["federal_filing_status"]
         if "federal_filing_status" in cols and employee["federal_filing_status"]
@@ -612,6 +798,11 @@ def view_employee(employee_id):
     w4_step4a_other_income = float(employee["w4_step4a_other_income"]) if "w4_step4a_other_income" in cols and employee["w4_step4a_other_income"] is not None else 0.0
     w4_step4b_deductions = float(employee["w4_step4b_deductions"]) if "w4_step4b_deductions" in cols and employee["w4_step4b_deductions"] is not None else 0.0
     w4_step4c_extra_withholding = float(employee["w4_step4c_extra_withholding"]) if "w4_step4c_extra_withholding" in cols and employee["w4_step4c_extra_withholding"] is not None else 0.0
+
+    is_indiana_resident = "Yes" if "is_indiana_resident" in cols and employee["is_indiana_resident"] else "No"
+    county_of_residence = employee["county_of_residence"] if "county_of_residence" in cols and employee["county_of_residence"] else "-"
+    county_of_principal_employment = employee["county_of_principal_employment"] if "county_of_principal_employment" in cols and employee["county_of_principal_employment"] else "-"
+    county_tax_effective_year = employee["county_tax_effective_year"] if "county_tax_effective_year" in cols and employee["county_tax_effective_year"] else "-"
 
     if pay_type == "Salary":
         pay_display = f"${salary_amount:,.2f} / year"
@@ -663,6 +854,17 @@ def view_employee(employee_id):
     </div>
 
     <div class='card'>
+        <h2>Employee Address</h2>
+        <div class='grid'>
+            <div style='grid-column:1 / -1;'><strong>Address Line 1</strong><br>{escape(str(address_line_1))}</div>
+            <div style='grid-column:1 / -1;'><strong>Address Line 2</strong><br>{escape(str(address_line_2))}</div>
+            <div><strong>City</strong><br>{escape(str(city))}</div>
+            <div><strong>State</strong><br>{escape(str(state))}</div>
+            <div><strong>ZIP</strong><br>{escape(str(zip_code))}</div>
+        </div>
+    </div>
+
+    <div class='card'>
         <h2>Payroll Setup</h2>
         <div class='grid'>
             <div><strong>Pay Type</strong><br>{escape(str(pay_type))}</div>
@@ -687,6 +889,16 @@ def view_employee(employee_id):
             <div><strong>Step 4(a) Other Income</strong><br>${w4_step4a_other_income:,.2f}</div>
             <div><strong>Step 4(b) Deductions</strong><br>${w4_step4b_deductions:,.2f}</div>
             <div><strong>Step 4(c) Extra Withholding</strong><br>${w4_step4c_extra_withholding:,.2f}</div>
+        </div>
+    </div>
+
+    <div class='card'>
+        <h2>Indiana Local Tax Setup</h2>
+        <div class='grid'>
+            <div><strong>Indiana Resident on Jan 1</strong><br>{escape(is_indiana_resident)}</div>
+            <div><strong>County Tax Effective Year</strong><br>{escape(str(county_tax_effective_year))}</div>
+            <div><strong>County of Residence</strong><br>{escape(str(county_of_residence))}</div>
+            <div><strong>County of Principal Employment</strong><br>{escape(str(county_of_principal_employment))}</div>
         </div>
     </div>
 
@@ -720,6 +932,7 @@ def edit_employee(employee_id):
     ensure_employee_name_columns()
     ensure_employee_payroll_columns()
     ensure_employee_tax_columns()
+    ensure_employee_local_tax_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -735,32 +948,43 @@ def edit_employee(employee_id):
         return redirect(url_for("employees.employees"))
 
     if request.method == "POST":
-        first_name = (request.form.get("first_name") or "").strip()
-        last_name = (request.form.get("last_name") or "").strip()
-        phone = (request.form.get("phone") or "").strip()
-        email = (request.form.get("email") or "").strip()
-        position = (request.form.get("position") or "").strip()
-        hire_date = (request.form.get("hire_date") or "").strip()
+        first_name = _clean_text(request.form.get("first_name"))
+        last_name = _clean_text(request.form.get("last_name"))
+        phone = _clean_text(request.form.get("phone"))
+        email = _clean_text(request.form.get("email"))
+        position = _clean_text(request.form.get("position"))
+        hire_date = _clean_text(request.form.get("hire_date"))
 
         if not first_name or not last_name:
             conn.close()
             flash("First and last name are required.")
             return redirect(url_for("employees.edit_employee", employee_id=employee_id))
 
-        pay_type = (request.form.get("pay_type") or "Hourly").strip()
-        hourly_rate = float(request.form.get("hourly_rate") or 0)
-        overtime_rate = float(request.form.get("overtime_rate") or 0)
-        salary_amount = float(request.form.get("salary_amount") or 0)
-        default_hours = float(request.form.get("default_hours") or 0)
-        payroll_notes = (request.form.get("payroll_notes") or "").strip()
+        address_line_1 = _clean_text(request.form.get("address_line_1"))
+        address_line_2 = _clean_text(request.form.get("address_line_2"))
+        city = _clean_text(request.form.get("city"))
+        state = _clean_text(request.form.get("state")) or "IN"
+        zip_code = _clean_text(request.form.get("zip"))
 
-        federal_filing_status = (request.form.get("federal_filing_status") or "Single").strip()
-        pay_frequency = (request.form.get("pay_frequency") or "Biweekly").strip()
+        pay_type = _clean_text(request.form.get("pay_type")) or "Hourly"
+        hourly_rate = _safe_float(request.form.get("hourly_rate"), 0)
+        overtime_rate = _safe_float(request.form.get("overtime_rate"), 0)
+        salary_amount = _safe_float(request.form.get("salary_amount"), 0)
+        default_hours = _safe_float(request.form.get("default_hours"), 0)
+        payroll_notes = _clean_text(request.form.get("payroll_notes"))
+
+        federal_filing_status = _clean_text(request.form.get("federal_filing_status")) or "Single"
+        pay_frequency = _clean_text(request.form.get("pay_frequency")) or "Biweekly"
         w4_step2_checked = 1 if request.form.get("w4_step2_checked") else 0
-        w4_step3_amount = float(request.form.get("w4_step3_amount") or 0)
-        w4_step4a_other_income = float(request.form.get("w4_step4a_other_income") or 0)
-        w4_step4b_deductions = float(request.form.get("w4_step4b_deductions") or 0)
-        w4_step4c_extra_withholding = float(request.form.get("w4_step4c_extra_withholding") or 0)
+        w4_step3_amount = _safe_float(request.form.get("w4_step3_amount"), 0)
+        w4_step4a_other_income = _safe_float(request.form.get("w4_step4a_other_income"), 0)
+        w4_step4b_deductions = _safe_float(request.form.get("w4_step4b_deductions"), 0)
+        w4_step4c_extra_withholding = _safe_float(request.form.get("w4_step4c_extra_withholding"), 0)
+
+        is_indiana_resident = 1 if request.form.get("is_indiana_resident") else 0
+        county_of_residence = _clean_text(request.form.get("county_of_residence"))
+        county_of_principal_employment = _clean_text(request.form.get("county_of_principal_employment"))
+        county_tax_effective_year = _safe_int(request.form.get("county_tax_effective_year"), date.today().year)
 
         full_name = f"{first_name} {last_name}".strip()
 
@@ -774,6 +998,11 @@ def edit_employee(employee_id):
                 email = %s,
                 position = %s,
                 hire_date = %s,
+                address_line_1 = %s,
+                address_line_2 = %s,
+                city = %s,
+                state = %s,
+                zip = %s,
                 pay_type = %s,
                 hourly_rate = %s,
                 overtime_rate = %s,
@@ -786,7 +1015,11 @@ def edit_employee(employee_id):
                 w4_step3_amount = %s,
                 w4_step4a_other_income = %s,
                 w4_step4b_deductions = %s,
-                w4_step4c_extra_withholding = %s
+                w4_step4c_extra_withholding = %s,
+                is_indiana_resident = %s,
+                county_of_residence = %s,
+                county_of_principal_employment = %s,
+                county_tax_effective_year = %s
             WHERE id = %s AND company_id = %s
             """,
             (
@@ -797,6 +1030,11 @@ def edit_employee(employee_id):
                 email,
                 position,
                 hire_date,
+                address_line_1,
+                address_line_2,
+                city,
+                state,
+                zip_code,
                 pay_type,
                 hourly_rate,
                 overtime_rate,
@@ -810,6 +1048,10 @@ def edit_employee(employee_id):
                 w4_step4a_other_income,
                 w4_step4b_deductions,
                 w4_step4c_extra_withholding,
+                is_indiana_resident,
+                county_of_residence,
+                county_of_principal_employment,
+                county_tax_effective_year,
                 employee_id,
                 cid,
             ),
@@ -1480,6 +1722,7 @@ def time_clock_clock_out():
 
     flash(f"Employee clocked out successfully. Total hours: {total_hours:.2f}")
     return redirect(url_for("employees.time_clock"))
+
 
 @employees_bp.route("/employees/time-clock/send-summary", methods=["POST"])
 @login_required

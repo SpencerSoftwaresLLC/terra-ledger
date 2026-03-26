@@ -276,7 +276,6 @@ def build_payroll_check_pdf(company_info, payroll_row, employee_name, check_numb
     pay_date = clean_text_input(payroll_row["pay_date"]) or date.today().isoformat()
     memo = f"Payroll {clean_text_input(payroll_row['pay_period_start'])} to {clean_text_input(payroll_row['pay_period_end'])}"
 
-    # Check area
     top_y = height - 0.75 * inch
     c.setFont("Helvetica-Bold", 13)
     c.drawString(0.7 * inch, top_y, company_info["company_name"])
@@ -319,13 +318,11 @@ def build_payroll_check_pdf(company_info, payroll_row, employee_name, check_numb
     c.drawString(width - 2.55 * inch, height - 2.78 * inch, "Authorized Signature")
     c.line(width - 2.65 * inch, height - 2.82 * inch, width - 0.7 * inch, height - 2.82 * inch)
 
-    # Divider
     divider_y = height - 3.45 * inch
     c.setDash(4, 3)
     c.line(0.5 * inch, divider_y, width - 0.5 * inch, divider_y)
     c.setDash()
 
-    # Stub area
     c.setFont("Helvetica-Bold", 12)
     c.drawString(0.7 * inch, divider_y - 0.35 * inch, "Payroll Check Stub")
 
@@ -562,7 +559,12 @@ def payroll_preview():
             w4_step3_amount,
             w4_step4a_other_income,
             w4_step4b_deductions,
-            w4_step4c_extra_withholding
+            w4_step4c_extra_withholding,
+            state,
+            is_indiana_resident,
+            county_of_residence,
+            county_of_principal_employment,
+            county_tax_effective_year
         FROM employees
         WHERE id = %s AND company_id = %s
         """,
@@ -633,6 +635,9 @@ def payroll_preview():
         "provider": clean_text_input(taxes.get("provider", "internal")) or "internal",
         "state_name": clean_text_display(taxes.get("state_name", ""), "-"),
         "local_name": clean_text_display(taxes.get("local_name", ""), "-"),
+        "county_used": clean_text_display(taxes.get("county_used", ""), "-"),
+        "county_source": clean_text_display(taxes.get("county_source", ""), "-"),
+        "local_tax_rate": float(taxes.get("local_tax_rate", 0) or 0),
         "hours_regular": gross_data["hours_regular"],
         "hours_overtime": gross_data["hours_overtime"],
         "rate_regular": gross_data["rate_regular"],
@@ -702,7 +707,12 @@ def employee_payroll():
                 w4_step3_amount,
                 w4_step4a_other_income,
                 w4_step4b_deductions,
-                w4_step4c_extra_withholding
+                w4_step4c_extra_withholding,
+                state,
+                is_indiana_resident,
+                county_of_residence,
+                county_of_principal_employment,
+                county_tax_effective_year
             FROM employees
             WHERE id = %s AND company_id = %s
             """,
@@ -821,7 +831,12 @@ def employee_payroll():
             w4_step3_amount,
             w4_step4a_other_income,
             w4_step4b_deductions,
-            w4_step4c_extra_withholding
+            w4_step4c_extra_withholding,
+            state,
+            is_indiana_resident,
+            county_of_residence,
+            county_of_principal_employment,
+            county_tax_effective_year
         FROM employees
         WHERE company_id = %s AND is_active = 1
         ORDER BY first_name, last_name
@@ -853,6 +868,10 @@ def employee_payroll():
             "w4_step4a_other_income": 0,
             "w4_step4b_deductions": 0,
             "w4_step4c_extra_withholding": 0,
+            "is_indiana_resident": 1,
+            "county_of_residence": "Tippecanoe",
+            "county_of_principal_employment": "Tippecanoe",
+            "state": "IN",
         },
         gross_pay=0,
         company_id=cid,
@@ -879,6 +898,11 @@ def employee_payroll():
             data-step4a='{e["w4_step4a_other_income"] or 0}'
             data-step4b='{e["w4_step4b_deductions"] or 0}'
             data-step4c='{e["w4_step4c_extra_withholding"] or 0}'
+            data-state='{html_escape(clean_text_input(e["state"]) or "IN")}'
+            data-is-indiana-resident='{1 if (e["is_indiana_resident"] or 0) else 0}'
+            data-county-of-residence='{html_escape(clean_text_input(e["county_of_residence"]) or "")}'
+            data-county-of-principal-employment='{html_escape(clean_text_input(e["county_of_principal_employment"]) or "")}'
+            data-county-tax-effective-year='{e["county_tax_effective_year"] or ""}'
         >
             {html_escape((clean_text_display(e["first_name"], "").strip() + " " + clean_text_display(e["last_name"], "").strip()).strip())}
         </option>
@@ -1324,6 +1348,9 @@ async function runPayrollPreview() {{
             'Provider: ' + (data.provider || 'internal') +
             ' | State: ' + (data.state_name || '-') +
             ' | Local: ' + (data.local_name || '-') +
+            ' | County Used: ' + (data.county_used || '-') +
+            ' | Source: ' + (data.county_source || '-') +
+            ' | Local Rate: ' + (((parseFloat(data.local_tax_rate || 0)) * 100).toFixed(3)) + '%' +
             ' | Pay Type: ' + (data.pay_type || '-') +
             ' | Frequency: ' + (data.pay_frequency || '-') +
             ' | W-4 Step 3: ' + formatMoney(data.w4_step3_amount || 0);
