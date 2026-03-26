@@ -728,7 +728,7 @@ def new_employee():
 
         full_name = " ".join(part for part in [first_name, middle_name, last_name, suffix] if part).strip()
 
-        is_active = True
+        is_active = 1
         w4_step2_checked = bool(request.form.get("w4_step2_checked"))
         is_indiana_resident = bool(request.form.get("is_indiana_resident"))
 
@@ -1294,7 +1294,7 @@ def activate_employee(employee_id):
     conn.execute(
         """
         UPDATE employees
-        SET is_active = TRUE
+        SET is_active = 1
         WHERE id = %s AND company_id = %s
         """,
         (employee_id, cid),
@@ -1319,7 +1319,7 @@ def deactivate_employee(employee_id):
     conn.execute(
         """
         UPDATE employees
-        SET is_active = FALSE
+        SET is_active = 0
         WHERE id = %s AND company_id = %s
         """,
         (employee_id, cid),
@@ -1457,7 +1457,7 @@ def time_clock():
             ON t.employee_id = e.id
            AND t.company_id = e.company_id
            AND t.clock_out IS NULL
-        WHERE e.company_id = %s AND e.is_active = TRUE
+        WHERE e.company_id = %s AND e.is_active = 1
         ORDER BY
             COALESCE(NULLIF(e.last_name, ''), NULLIF(e.full_name, ''), NULLIF(e.first_name, ''), 'ZZZ'),
             COALESCE(NULLIF(e.first_name, ''), ''),
@@ -1832,7 +1832,7 @@ def time_clock_clock_in():
         """
         SELECT id, first_name, last_name, full_name
         FROM employees
-        WHERE id = %s AND company_id = %s AND is_active = TRUE
+        WHERE id = %s AND company_id = %s AND is_active = 1
         """,
         (employee_id, cid),
     ).fetchone()
