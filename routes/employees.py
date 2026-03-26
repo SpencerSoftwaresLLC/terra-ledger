@@ -627,7 +627,7 @@ def new_employee():
         default_hours = _safe_float(request.form.get("default_hours"), 0)
         payroll_notes = _clean_text(request.form.get("payroll_notes"))
 
-        is_indiana_resident = 1 if request.form.get("is_indiana_resident") else 0
+        is_indiana_resident = bool(request.form.get("is_indiana_resident"))
         county_of_residence = _clean_text(request.form.get("county_of_residence"))
         county_of_principal_employment = _clean_text(request.form.get("county_of_principal_employment"))
         county_tax_effective_year = _safe_int(request.form.get("county_tax_effective_year"), date.today().year)
@@ -666,10 +666,10 @@ def new_employee():
             "salary_amount": salary_amount,
             "default_hours": default_hours,
             "payroll_notes": payroll_notes,
-            "is_active": 1,
+            "is_active": True,
             "federal_filing_status": federal_filing_status,
             "pay_frequency": pay_frequency,
-            "w4_step2_checked": w4_step2_checked,
+            "w4_step2_checked": bool(request.form.get("w4_step2_checked")),
             "w4_step3_amount": w4_step3_amount,
             "w4_step4a_other_income": w4_step4a_other_income,
             "w4_step4b_deductions": w4_step4b_deductions,
@@ -1011,13 +1011,13 @@ def edit_employee(employee_id):
 
         federal_filing_status = _clean_text(request.form.get("federal_filing_status")) or "Single"
         pay_frequency = _clean_text(request.form.get("pay_frequency")) or "Biweekly"
-        w4_step2_checked = 1 if request.form.get("w4_step2_checked") else 0
+        w4_step2_checked = bool(request.form.get("w4_step2_checked"))
         w4_step3_amount = _safe_float(request.form.get("w4_step3_amount"), 0)
         w4_step4a_other_income = _safe_float(request.form.get("w4_step4a_other_income"), 0)
         w4_step4b_deductions = _safe_float(request.form.get("w4_step4b_deductions"), 0)
         w4_step4c_extra_withholding = _safe_float(request.form.get("w4_step4c_extra_withholding"), 0)
 
-        is_indiana_resident = 1 if request.form.get("is_indiana_resident") else 0
+        is_indiana_resident = bool(request.form.get("is_indiana_resident"))
         county_of_residence = _clean_text(request.form.get("county_of_residence"))
         county_of_principal_employment = _clean_text(request.form.get("county_of_principal_employment"))
         county_tax_effective_year = _safe_int(request.form.get("county_tax_effective_year"), date.today().year)
