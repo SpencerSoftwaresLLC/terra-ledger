@@ -60,6 +60,38 @@ def _clean_text(value):
     return text
 
 
+def ensure_employee_profile_columns():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS first_name TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS last_name TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS full_name TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS phone TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS email TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS position TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS hire_date DATE")
+
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS pay_type TEXT DEFAULT 'Hourly'")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC(12,2) DEFAULT 0")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS overtime_rate NUMERIC(12,2) DEFAULT 0")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS salary_amount NUMERIC(12,2) DEFAULT 0")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS default_hours NUMERIC(12,2) DEFAULT 0")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS payroll_notes TEXT")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE")
+
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS federal_filing_status TEXT DEFAULT 'Single'")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS pay_frequency TEXT DEFAULT 'Biweekly'")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS w4_step2_checked BOOLEAN DEFAULT FALSE")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS w4_step3_amount NUMERIC(12,2) DEFAULT 0")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS w4_step4a_other_income NUMERIC(12,2) DEFAULT 0")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS w4_step4b_deductions NUMERIC(12,2) DEFAULT 0")
+    cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS w4_step4c_extra_withholding NUMERIC(12,2) DEFAULT 0")
+
+    conn.commit()
+    conn.close()
+
+
 def ensure_employee_local_tax_columns():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -418,6 +450,7 @@ def _get_current_pay_period(start_day):
 @subscription_required
 @require_permission("can_manage_employees")
 def employees():
+    ensure_employee_profile_columns()
     ensure_employee_status_column()
     ensure_employee_name_columns()
     ensure_employee_payroll_columns()
@@ -553,6 +586,7 @@ def employees():
 @login_required
 @require_permission("can_manage_employees")
 def new_employee():
+    ensure_employee_profile_columns()
     ensure_employee_name_columns()
     ensure_employee_payroll_columns()
     ensure_employee_tax_columns()
@@ -714,6 +748,7 @@ def new_employee():
 @login_required
 @require_permission("can_view_employees")
 def view_employee(employee_id):
+    ensure_employee_profile_columns()
     ensure_employee_payroll_columns()
     ensure_employee_tax_columns()
     ensure_employee_local_tax_columns()
@@ -929,6 +964,7 @@ def view_employee(employee_id):
 @login_required
 @require_permission("can_manage_employees")
 def edit_employee(employee_id):
+    ensure_employee_profile_columns()
     ensure_employee_name_columns()
     ensure_employee_payroll_columns()
     ensure_employee_tax_columns()
@@ -1076,6 +1112,7 @@ def edit_employee(employee_id):
 @login_required
 @require_permission("can_manage_employees")
 def activate_employee(employee_id):
+    ensure_employee_profile_columns()
     ensure_employee_status_column()
 
     conn = get_db_connection()
@@ -1100,6 +1137,7 @@ def activate_employee(employee_id):
 @login_required
 @require_permission("can_manage_employees")
 def deactivate_employee(employee_id):
+    ensure_employee_profile_columns()
     ensure_employee_status_column()
 
     conn = get_db_connection()
@@ -1124,6 +1162,8 @@ def deactivate_employee(employee_id):
 @login_required
 @require_permission("can_manage_employees")
 def delete_employee(employee_id):
+    ensure_employee_profile_columns()
+
     conn = get_db_connection()
     cid = session["company_id"]
 
@@ -1197,6 +1237,7 @@ def delete_employee(employee_id):
 @login_required
 @require_permission("can_manage_employees")
 def time_clock():
+    ensure_employee_profile_columns()
     ensure_employee_time_entries_table()
     ensure_company_profile_table()
     ensure_company_time_clock_columns()
@@ -1601,6 +1642,7 @@ def update_time_clock_settings():
 @login_required
 @require_permission("can_manage_employees")
 def time_clock_clock_in():
+    ensure_employee_profile_columns()
     ensure_employee_time_entries_table()
 
     conn = get_db_connection()
@@ -1671,6 +1713,7 @@ def time_clock_clock_in():
 @login_required
 @require_permission("can_manage_employees")
 def time_clock_clock_out():
+    ensure_employee_profile_columns()
     ensure_employee_time_entries_table()
 
     conn = get_db_connection()
