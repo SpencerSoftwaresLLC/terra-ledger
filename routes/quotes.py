@@ -1049,6 +1049,7 @@ def send_quote_email(quote_id):
 
     conn = get_db_connection()
     cid = session["company_id"]
+    uid = session.get("user_id")
 
     quote = conn.execute(
         """
@@ -1095,23 +1096,41 @@ def send_quote_email(quote_id):
         return redirect(url_for("quotes.email_quote_preview", quote_id=quote_id))
 
     quote_number = quote["quote_number"] or quote["id"]
+    total_amount = float(quote["total"] or 0)
 
     try:
         pdf_data = build_quote_pdf(quote, items, company, profile)
 
+        text_body = (
+            f"Hello {quote['customer_name']},\n\n"
+            f"Please find attached Quote #{quote_number}.\n\n"
+            f"Total: ${total_amount:.2f}\n\n"
+            f"Thank you."
+        )
+
+        html_body = f"""
+            <div style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222;">
+                <p>Hello {quote['customer_name']},</p>
+
+                <p>Please find attached Quote #{quote_number}.</p>
+
+                <p>
+                    <strong>Total:</strong> ${total_amount:.2f}
+                </p>
+
+                <p>Thank you.</p>
+            </div>
+        """
+
         send_company_email(
             company_id=cid,
+            user_id=uid,
             to_email=recipient,
             subject=f"Quote #{quote_number}",
-            body=(
-                f"Hello {quote['customer_name']},\n\n"
-                f"Please find attached Quote #{quote_number}.\n\n"
-                f"Total: ${float(quote['total'] or 0):.2f}\n\n"
-                f"Thank you."
-            ),
+            html=html_body,
+            body=text_body,
             attachment_bytes=pdf_data,
             attachment_filename=f"Quote_{quote_number}.pdf",
-            user_id=session.get("user_id"),
         )
 
         flash("Quote emailed successfully as PDF.")

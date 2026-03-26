@@ -221,7 +221,7 @@ def build_job_update_email(job, update_type):
 
     text_parts.extend([
         "",
-        f"Thank you,",
+        "Thank you,",
         company_name,
     ])
 
@@ -230,39 +230,19 @@ def build_job_update_email(job, update_type):
     return subject, html_body, text_body
 
 
-def send_job_update_email(company_id, customer_email, job, update_type):
+def send_job_update_email(company_id, customer_email, job, update_type, user_id=None):
     subject, html_body, text_body = build_job_update_email(job, update_type)
 
     try:
         send_company_email(
             company_id=company_id,
+            user_id=user_id,
             to_email=customer_email,
             subject=subject,
-            html_body=html_body,
-            text_body=text_body,
+            html=html_body,
+            body=text_body,
         )
         return True, None
-    except TypeError:
-        try:
-            send_company_email(
-                to_email=customer_email,
-                subject=subject,
-                html_body=html_body,
-                text_body=text_body,
-            )
-            return True, None
-        except TypeError:
-            try:
-                send_company_email(
-                    customer_email,
-                    subject,
-                    text_body,
-                )
-                return True, None
-            except Exception as e:
-                return False, str(e)
-        except Exception as e:
-            return False, str(e)
     except Exception as e:
         return False, str(e)
 
@@ -1268,6 +1248,7 @@ def send_update_email(job_id):
 
     conn = get_db_connection()
     cid = session["company_id"]
+    uid = session.get("user_id")
 
     job = conn.execute(
         """
@@ -1302,6 +1283,7 @@ def send_update_email(job_id):
         customer_email=customer_email,
         job=job,
         update_type=update_type,
+        user_id=uid,
     )
 
     if success:
@@ -1318,12 +1300,14 @@ def send_update_email(job_id):
 
     return redirect(url_for("jobs.view_job", job_id=job_id))
 
+
 @jobs_bp.route("/jobs/<int:job_id>/send_custom_email", methods=["POST"])
 @login_required
 @require_permission("can_manage_jobs")
 def send_custom_email(job_id):
     conn = get_db_connection()
     cid = session["company_id"]
+    uid = session.get("user_id")
 
     job = conn.execute(
         """
@@ -1341,7 +1325,7 @@ def send_custom_email(job_id):
 
     to_email = clean_text_input(request.form.get("to_email", ""))
     subject = clean_text_input(request.form.get("subject", ""))
-    message = request.form.get("message", "") or ""
+    message = (request.form.get("message", "") or "").strip()
 
     if not to_email:
         flash("Recipient email is required.")
@@ -1351,30 +1335,20 @@ def send_custom_email(job_id):
         flash("Email subject is required.")
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
-    if not message.strip():
+    if not message:
         flash("Email message is required.")
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     try:
         send_company_email(
             company_id=cid,
+            user_id=uid,
             to_email=to_email,
             subject=subject,
-            html_body=message.replace("\n", "<br>"),
-            text_body=message,
+            html=message.replace("\n", "<br>"),
+            body=message,
         )
         flash("Custom job update email sent.")
-    except TypeError:
-        try:
-            send_company_email(
-                to_email=to_email,
-                subject=subject,
-                html_body=message.replace("\n", "<br>"),
-                text_body=message,
-            )
-            flash("Custom job update email sent.")
-        except Exception as e:
-            flash(f"Could not send email: {e}")
     except Exception as e:
         flash(f"Could not send email: {e}")
 

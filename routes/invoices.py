@@ -1704,6 +1704,7 @@ def send_invoice_email(invoice_id):
 
     conn = get_db_connection()
     cid = session["company_id"]
+    uid = session.get("user_id")
 
     invoice = conn.execute(
         """
@@ -1761,27 +1762,52 @@ def send_invoice_email(invoice_id):
 
         payment_url = create_invoice_checkout_session(invoice, cid)
 
-        payment_section = ""
+        payment_text_section = ""
+        payment_html_section = ""
         if payment_url:
-            payment_section = (
-                f"\n\nPay your invoice securely online:\n{payment_url}\n"
-            )
+            payment_text_section = f"\n\nPay your invoice securely online:\n{payment_url}\n"
+            payment_html_section = f"""
+                <p style="margin: 16px 0;">
+                    Pay your invoice securely online:<br>
+                    <a href="{payment_url}">{payment_url}</a>
+                </p>
+            """
+
+        text_body = (
+            f"Hello {invoice['customer_name']},\n\n"
+            f"Please find attached Invoice #{invoice_number}.\n\n"
+            f"Total: ${_safe_float(invoice['total']):.2f}\n"
+            f"Balance Due: ${_safe_float(invoice['balance_due']):.2f}"
+            f"{payment_text_section}\n"
+            f"Thank you."
+        )
+
+        html_body = f"""
+            <div style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222;">
+                <p>Hello {invoice['customer_name']},</p>
+
+                <p>Please find attached Invoice #{invoice_number}.</p>
+
+                <p>
+                    <strong>Total:</strong> ${_safe_float(invoice['total']):.2f}<br>
+                    <strong>Balance Due:</strong> ${_safe_float(invoice['balance_due']):.2f}
+                </p>
+
+                {payment_html_section}
+
+                <p>Thank you.</p>
+            </div>
+        """
 
         send_company_email(
             company_id=cid,
+            user_id=uid,
             to_email=recipient,
             subject=f"Invoice #{invoice_number}",
-            body=(
-                f"Hello {invoice['customer_name']},\n\n"
-                f"Please find attached Invoice #{invoice_number}.\n\n"
-                f"Total: ${_safe_float(invoice['total']):.2f}\n"
-                f"Balance Due: ${_safe_float(invoice['balance_due']):.2f}"
-                f"{payment_section}\n"
-                f"Thank you."
-            ),
+            html=html_body,
+            body=text_body,
             attachment_bytes=pdf_data,
             attachment_filename=f"Invoice_{invoice_number}.pdf",
-            user_id=session.get("user_id"),
         )
 
         flash("Invoice emailed successfully as PDF.")

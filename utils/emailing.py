@@ -1,9 +1,29 @@
 import os
 import base64
-import mimetypes
 import requests
 
 from db import get_db_connection
+
+
+def build_sender_name(company_name=None, configured_from_name=None):
+    """
+    Builds the display name shown in the recipient's inbox.
+
+    Examples:
+    - "Spencer Softwares LLC via TerraLedger"
+    - "Wrede Rocks via TerraLedger"
+    - "TerraLedger"
+    """
+    base_name = (configured_from_name or company_name or "").strip()
+
+    if not base_name:
+        return "TerraLedger"
+
+    lower_name = base_name.lower()
+    if "terraledger" in lower_name:
+        return base_name
+
+    return f"{base_name} via TerraLedger"
 
 
 def get_company_email_settings(company_id, user_id=None):
@@ -46,20 +66,21 @@ def get_company_email_settings(company_id, user_id=None):
 
     conn.close()
 
-    from_name = None
+    company_name = None
+    if company and company["name"]:
+        company_name = company["name"]
+
+    configured_from_name = None
     reply_to_email = None
     enabled = True
     reply_to_mode = "company"
 
     if profile:
-        from_name = profile["email_from_name"] or profile["display_name"]
-        reply_to_email = profile["reply_to_email"] or profile["email"]
+        configured_from_name = (profile["email_from_name"] or profile["display_name"] or "").strip() or None
+        reply_to_email = (profile["reply_to_email"] or profile["email"] or "").strip() or None
         enabled = bool(profile["platform_sender_enabled"])
         if "reply_to_mode" in profile.keys() and profile["reply_to_mode"]:
             reply_to_mode = profile["reply_to_mode"]
-
-    if not from_name and company:
-        from_name = company["name"]
 
     if not reply_to_email and company:
         reply_to_email = company["email"]
@@ -67,8 +88,13 @@ def get_company_email_settings(company_id, user_id=None):
     if reply_to_mode == "logged_in_user" and user and user["email"]:
         reply_to_email = user["email"]
 
+    from_name = build_sender_name(
+        company_name=company_name,
+        configured_from_name=configured_from_name,
+    )
+
     return {
-        "from_name": from_name or "TerraLedger",
+        "from_name": from_name,
         "reply_to_email": reply_to_email,
         "enabled": enabled,
     }
@@ -87,6 +113,7 @@ def send_company_email(
     attachment_filename=None,
 ):
     resend_api_key = os.environ.get("RESEND_API_KEY", "").strip()
+
     if "invoice" in subject.lower():
         from_email = os.environ.get("INVOICE_FROM_EMAIL") or os.environ.get("FROM_EMAIL")
     else:

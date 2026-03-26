@@ -1,9 +1,11 @@
 import os
 import uuid
+import json
 
-from flask import Blueprint, request, redirect, url_for, session, flash, render_template_string
+from flask import Blueprint, request, redirect, url_for, session, flash, render_template_string, make_response
 from markupsafe import escape
 from werkzeug.utils import secure_filename
+from datetime import datetime
 
 from db import (
     get_db_connection,
@@ -15,6 +17,7 @@ from db import (
 from decorators import login_required, require_permission
 from page_helpers import render_page
 from utils.emailing import send_company_email
+from utils.backups import create_company_backup, export_company_backup_data, load_backup_file, restore_company_backup
 
 settings_bp = Blueprint("settings", __name__)
 
@@ -203,6 +206,27 @@ def settings():
                 </div>
             </div>
 
+            <div class="card settings-card">
+                <div class="settings-card-head">
+                    <h3>Backups</h3>
+                    <span class="settings-badge">Safety</span>
+                </div>
+                <p class="muted">Download a full backup of your company data anytime.</p>
+                <div class="settings-actions">
+                    <a class="btn warning" href="/settings/backup/download">Download Backup</a>
+                </div>
+            </div>
+            
+            <div class="card settings-card">
+                <div class="settings-card-head">
+                    <h3>Restore Backup</h3>
+                    <span class="settings-badge">Recovery</span>
+                </div>
+                <p class="muted">Upload a backup file and restore your company data.</p>
+                <div class="settings-actions">
+                    <a class="btn warning" href="{url_for('settings.restore_backup')}">Open Restore</a>
+                </div>
+            </div>
         </div>
     </div>
     """
@@ -1265,3 +1289,88 @@ def test_email():
         flash(f"Test email failed: {e}")
 
     return redirect(url_for("settings.settings_email"))
+
+@settings_bp.route("/settings/backup/download")
+@login_required
+@require_permission("can_manage_settings")
+def download_backup():
+    cid = session["company_id"]
+
+    data = export_company_backup_data(cid)
+
+    filename = f"terraledger_backup_{cid}_{datetime.utcnow().strftime('%Y_%m_%d')}.json"
+
+    response = make_response(json.dumps(data, indent=2, default=str))
+    response.headers["Content-Disposition"] = f"attachment; filename={filename}"
+    response.headers["Content-Type"] = "application/json"
+
+    return response
+
+@settings_bp.route("/settings/backup/restore", methods=["GET", "POST"])
+@login_required
+@require_permission("can_manage_settings")
+def restore_backup():
+    if request.method == "POST":
+        cid = session["company_id"]
+        uploaded_file = request.files.get("backup_file")
+
+        if not uploaded_file or not uploaded_file.filename:
+            flash("Please choose a backup file.")
+            return redirect(url_for("settings.restore_backup"))
+
+        if not uploaded_file.filename.lower().endswith(".json"):
+            flash("Please upload a valid JSON backup file.")
+            return redirect(url_for("settings.restore_backup"))
+
+        try:
+            backup_data = load_backup_file(uploaded_file)
+            result = restore_company_backup(cid, backup_data)
+
+            flash(
+                "Backup restored successfully. "
+                f"A pre-restore backup was also saved locally at: {result['pre_restore_backup_path']}"
+            )
+            return redirect(url_for("settings.settings"))
+
+        except Exception as e:
+            flash(f"Restore failed: {e}")
+            return redirect(url_for("settings.restore_backup"))
+
+    content = f"""
+    <div class='card'>
+        <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
+            <div>
+                <h1 style='margin-bottom:6px;'>Restore Backup</h1>
+                <p class='muted' style='margin:0;'>
+                    Upload a TerraLedger backup file to replace your current company data.
+                </p>
+            </div>
+            <div class='row-actions'>
+                <a href='{url_for("settings.settings")}' class='btn secondary'>Back to Settings</a>
+            </div>
+        </div>
+    </div>
+
+    <div class='card'>
+        <h2>Important</h2>
+        <p class='muted'>
+            Restoring a backup will replace your current company data. TerraLedger will create a local
+            pre-restore backup automatically before the restore begins.
+        </p>
+
+        <form method='post' enctype='multipart/form-data'>
+            <div class='grid'>
+                <div>
+                    <label>Backup File (.json)</label>
+                    <input type='file' name='backup_file' accept='.json' required>
+                </div>
+            </div>
+
+            <div class='row-actions' style='margin-top:20px;'>
+                <button class='btn warning' type='submit'>Restore Backup</button>
+            </div>
+        </form>
+    </div>
+    """
+
+    return render_page(content, "Restore Backup")
