@@ -359,6 +359,9 @@ def login():
                     <button class="btn" type="submit">Login</button>
                     <a class="btn secondary" href="/register">Create Account</a>
                 </div>
+                <div style="margin-top:10px; text-align:center;">
+                    <a href="/forgot-password" class="muted small">Forgot password?</a>
+                </div>
             </form>
         </div>
     </div>

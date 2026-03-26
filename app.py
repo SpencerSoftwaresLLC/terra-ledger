@@ -9,6 +9,7 @@ from db import (
     init_db,
     ensure_company_profile_location_columns,
     ensure_company_profile_email_columns,
+    ensure_password_reset_table
 )
 
 from routes.auth import auth_bp
@@ -41,6 +42,9 @@ def run_startup_tasks():
 
     ensure_company_profile_email_columns()
     print("ensure_company_profile_email_columns SUCCESS", flush=True)
+
+    ensure_password_reset_table()
+    print("ensure_password_reset_table SUCCESS", flush=True)
 
 
 def create_app():

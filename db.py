@@ -822,15 +822,6 @@ def init_db():
     """)
 
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS password_resets (
-            id SERIAL PRIMARY KEY,
-            email TEXT NOT NULL,
-            token TEXT NOT NULL,
-            expires_at TIMESTAMP NOT NULL
-        )
-    """)
-
-    cur.execute("""
         CREATE TABLE IF NOT EXISTS job_items (
             id SERIAL PRIMARY KEY,
             job_id INTEGER NOT NULL,
@@ -1333,6 +1324,27 @@ def get_next_quote_number(company_id):
     conn.commit()
     conn.close()
     return str(next_number)
+
+def ensure_password_reset_table():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS password_resets (
+            id SERIAL PRIMARY KEY,
+            email TEXT NOT NULL,
+            token TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL
+        )
+    """)
+
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_password_resets_token
+        ON password_resets (token)
+    """)
+
+    conn.commit()
+    conn.close()
 
 
 def get_billing_history(company_id, limit=20):
