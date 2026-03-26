@@ -396,7 +396,7 @@ def forgot_password():
             return redirect(url_for("auth.forgot_password"))
 
         user = conn.execute(
-            "SELECT id FROM users WHERE email = %s",
+            "SELECT id, company_id FROM users WHERE email = %s",
             (email,),
         ).fetchone()
 
@@ -412,26 +412,30 @@ def forgot_password():
 
             reset_link = url_for("auth.reset_password", token=token, _external=True)
 
+            email_body = f"""Reset your TerraLedger password
+
+Use the link below to reset your password:
+
+{reset_link}
+
+This link expires in 1 hour.
+"""
+
+            email_html = f"""
+            <p>Reset your TerraLedger password</p>
+            <p>Use the link below to reset your password:</p>
+            <p><a href="{reset_link}">{reset_link}</a></p>
+            <p>This link expires in 1 hour.</p>
+            """
+
             try:
                 send_company_email(
                     to_email=email,
                     subject="Reset Your TerraLedger Password",
-                    html_body=f"""
-                        Click below to reset your password:<br><br>
-                        <a href="{reset_link}">{reset_link}</a><br><br>
-                        This link expires in 1 hour.
-                    """,
-                    text_body=f"Reset your password: {reset_link}",
+                    html=email_html,
+                    body=email_body,
+                    company_id=user["company_id"],
                 )
-            except TypeError:
-                try:
-                    send_company_email(
-                        email,
-                        "Reset Your TerraLedger Password",
-                        f"Reset your password: {reset_link}",
-                    )
-                except Exception as e:
-                    flash(f"Email failed: {e}")
             except Exception as e:
                 flash(f"Email failed: {e}")
 
