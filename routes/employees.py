@@ -615,11 +615,6 @@ def new_employee():
 
         federal_filing_status = _clean_text(request.form.get("federal_filing_status")) or "Single"
         pay_frequency = _clean_text(request.form.get("pay_frequency")) or "Biweekly"
-        w4_step2_checked = 1 if request.form.get("w4_step2_checked") else 0
-        w4_step3_amount = _safe_float(request.form.get("w4_step3_amount"), 0)
-        w4_step4a_other_income = _safe_float(request.form.get("w4_step4a_other_income"), 0)
-        w4_step4b_deductions = _safe_float(request.form.get("w4_step4b_deductions"), 0)
-        w4_step4c_extra_withholding = _safe_float(request.form.get("w4_step4c_extra_withholding"), 0)
 
         hourly_rate = _safe_float(request.form.get("hourly_rate"), 0)
         overtime_rate = _safe_float(request.form.get("overtime_rate"), 0)
@@ -627,10 +622,12 @@ def new_employee():
         default_hours = _safe_float(request.form.get("default_hours"), 0)
         payroll_notes = _clean_text(request.form.get("payroll_notes"))
 
-        is_indiana_resident = bool(request.form.get("is_indiana_resident"))
         county_of_residence = _clean_text(request.form.get("county_of_residence"))
         county_of_principal_employment = _clean_text(request.form.get("county_of_principal_employment"))
-        county_tax_effective_year = _safe_int(request.form.get("county_tax_effective_year"), date.today().year)
+        county_tax_effective_year = _safe_int(
+            request.form.get("county_tax_effective_year"),
+            date.today().year
+        )
 
         if not first_name or not last_name:
             flash("First and last name are required.")
@@ -645,6 +642,25 @@ def new_employee():
             )
 
         full_name = f"{first_name} {last_name}".strip()
+
+        # PostgreSQL-safe checkbox / flag normalization
+        # These are stored as 0/1 to avoid datatype mismatch when legacy columns
+        # are still INTEGER instead of BOOLEAN.
+        is_active = 1
+        w4_step2_checked = 1 if request.form.get("w4_step2_checked") else 0
+        is_indiana_resident = 1 if request.form.get("is_indiana_resident") else 0
+
+        w4_step3_amount = _safe_float(request.form.get("w4_step3_amount"), 0)
+        w4_step4a_other_income = _safe_float(request.form.get("w4_step4a_other_income"), 0)
+        w4_step4b_deductions = _safe_float(request.form.get("w4_step4b_deductions"), 0)
+        w4_step4c_extra_withholding = _safe_float(request.form.get("w4_step4c_extra_withholding"), 0)
+
+        # Keep pay fields clean based on pay type
+        if pay_type.lower() == "salary":
+            hourly_rate = 0
+            overtime_rate = 0
+        else:
+            salary_amount = 0
 
         data = {
             "company_id": cid,
@@ -666,10 +682,10 @@ def new_employee():
             "salary_amount": salary_amount,
             "default_hours": default_hours,
             "payroll_notes": payroll_notes,
-            "is_active": True,
+            "is_active": is_active,
             "federal_filing_status": federal_filing_status,
             "pay_frequency": pay_frequency,
-            "w4_step2_checked": bool(request.form.get("w4_step2_checked")),
+            "w4_step2_checked": w4_step2_checked,
             "w4_step3_amount": w4_step3_amount,
             "w4_step4a_other_income": w4_step4a_other_income,
             "w4_step4b_deductions": w4_step4b_deductions,
@@ -680,10 +696,7 @@ def new_employee():
             "county_tax_effective_year": county_tax_effective_year,
         }
 
-        insert_cols = []
-        insert_vals = []
-
-        for col in [
+        ordered_columns = [
             "company_id",
             "first_name",
             "last_name",
@@ -715,13 +728,13 @@ def new_employee():
             "county_of_residence",
             "county_of_principal_employment",
             "county_tax_effective_year",
-        ]:
-            if col in cols:
-                insert_cols.append(col)
-                insert_vals.append(data[col])
+        ]
 
-        placeholders = ",".join(["%s"] * len(insert_cols))
-        col_sql = ",".join(insert_cols)
+        insert_cols = [col for col in ordered_columns if col in cols]
+        insert_vals = [data[col] for col in insert_cols]
+
+        placeholders = ", ".join(["%s"] * len(insert_cols))
+        col_sql = ", ".join(insert_cols)
 
         conn.execute(
             f"INSERT INTO employees ({col_sql}) VALUES ({placeholders})",
@@ -1009,18 +1022,31 @@ def edit_employee(employee_id):
         default_hours = _safe_float(request.form.get("default_hours"), 0)
         payroll_notes = _clean_text(request.form.get("payroll_notes"))
 
+        # Clean pay logic
+        if pay_type.lower() == "salary":
+            hourly_rate = 0
+            overtime_rate = 0
+        else:
+            salary_amount = 0
+
         federal_filing_status = _clean_text(request.form.get("federal_filing_status")) or "Single"
         pay_frequency = _clean_text(request.form.get("pay_frequency")) or "Biweekly"
-        w4_step2_checked = bool(request.form.get("w4_step2_checked"))
+
+        # ✅ FIXED: PostgreSQL-safe flags (0/1 instead of True/False)
+        w4_step2_checked = 1 if request.form.get("w4_step2_checked") else 0
+        is_indiana_resident = 1 if request.form.get("is_indiana_resident") else 0
+
         w4_step3_amount = _safe_float(request.form.get("w4_step3_amount"), 0)
         w4_step4a_other_income = _safe_float(request.form.get("w4_step4a_other_income"), 0)
         w4_step4b_deductions = _safe_float(request.form.get("w4_step4b_deductions"), 0)
         w4_step4c_extra_withholding = _safe_float(request.form.get("w4_step4c_extra_withholding"), 0)
 
-        is_indiana_resident = bool(request.form.get("is_indiana_resident"))
         county_of_residence = _clean_text(request.form.get("county_of_residence"))
         county_of_principal_employment = _clean_text(request.form.get("county_of_principal_employment"))
-        county_tax_effective_year = _safe_int(request.form.get("county_tax_effective_year"), date.today().year)
+        county_tax_effective_year = _safe_int(
+            request.form.get("county_tax_effective_year"),
+            date.today().year
+        )
 
         full_name = f"{first_name} {last_name}".strip()
 
@@ -1092,6 +1118,7 @@ def edit_employee(employee_id):
                 cid,
             ),
         )
+
         conn.commit()
         conn.close()
 

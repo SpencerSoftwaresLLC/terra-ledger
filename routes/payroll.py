@@ -578,6 +578,10 @@ def payroll_preview():
             "message": "Employee not found.",
         }), 404
 
+    employee = dict(employee)
+    employee["w4_step2_checked"] = 1 if employee.get("w4_step2_checked") else 0
+    employee["is_indiana_resident"] = 1 if employee.get("is_indiana_resident") else 0
+
     hours_regular = safe_float(request.form.get("hours_regular"), 0)
     hours_overtime = safe_float(request.form.get("hours_overtime"), 0)
     rate_regular = safe_float(request.form.get("rate_regular"), 0)
@@ -642,12 +646,12 @@ def payroll_preview():
         "hours_overtime": gross_data["hours_overtime"],
         "rate_regular": gross_data["rate_regular"],
         "rate_overtime": gross_data["rate_overtime"],
-        "w4_filing_status": clean_text_input(employee["w4_filing_status"]) or clean_text_input(employee["federal_filing_status"]) or "Single",
-        "w4_step2_checked": 1 if (employee["w4_step2_checked"] or 0) else 0,
-        "w4_step3_amount": float(employee["w4_step3_amount"] or 0),
-        "w4_step4a_other_income": float(employee["w4_step4a_other_income"] or 0),
-        "w4_step4b_deductions": float(employee["w4_step4b_deductions"] or 0),
-        "w4_step4c_extra_withholding": float(employee["w4_step4c_extra_withholding"] or 0),
+        "w4_filing_status": clean_text_input(employee.get("w4_filing_status")) or clean_text_input(employee.get("federal_filing_status")) or "Single",
+        "w4_step2_checked": 1 if (employee.get("w4_step2_checked") or 0) else 0,
+        "w4_step3_amount": float(employee.get("w4_step3_amount") or 0),
+        "w4_step4a_other_income": float(employee.get("w4_step4a_other_income") or 0),
+        "w4_step4b_deductions": float(employee.get("w4_step4b_deductions") or 0),
+        "w4_step4c_extra_withholding": float(employee.get("w4_step4c_extra_withholding") or 0),
     })
 
 
@@ -723,6 +727,10 @@ def employee_payroll():
             flash("Employee not found.")
             conn.close()
             return redirect(url_for("payroll.employee_payroll"))
+
+        employee = dict(employee)
+        employee["w4_step2_checked"] = 1 if employee.get("w4_step2_checked") else 0
+        employee["is_indiana_resident"] = 1 if employee.get("is_indiana_resident") else 0
 
         gross_data = build_gross_pay(
             employee=employee,
