@@ -565,7 +565,7 @@ def employees():
             f"""
             SELECT *
             FROM employees
-            WHERE company_id = %s AND is_active = TRUE
+            WHERE company_id = %s AND is_active = 1
             ORDER BY {name_col} ASC, id DESC
             """,
             (cid,),
@@ -1432,7 +1432,7 @@ def time_clock():
             email,
             is_active
         FROM employees
-        WHERE company_id = %s AND is_active = TRUE
+        WHERE company_id = %s AND is_active = 1
         ORDER BY
             COALESCE(NULLIF(last_name, ''), NULLIF(full_name, ''), NULLIF(first_name, ''), 'ZZZ'),
             COALESCE(NULLIF(first_name, ''), ''),
