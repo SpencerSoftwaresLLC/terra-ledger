@@ -1952,6 +1952,36 @@ def ensure_employee_time_entries_table():
     conn.commit()
     conn.close()
 
+def get_company_profile_row(company_id):
+    ensure_company_profile_table()
+    conn = get_db_connection()
+    row = conn.execute(
+        """
+        SELECT *
+        FROM company_profile
+        WHERE company_id = %s
+        """,
+        (company_id,),
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def get_company_users(company_id):
+    conn = get_db_connection()
+    rows = conn.execute(
+        """
+        SELECT id, name, email, role
+        FROM users
+        WHERE company_id = %s
+          AND is_active = 1
+        ORDER BY id
+        """,
+        (company_id,),
+    ).fetchall()
+    conn.close()
+    return rows
+
 
 def repair_all_job_item_ledgers(conn, company_id):
     rows = conn.execute(

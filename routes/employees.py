@@ -15,6 +15,7 @@ from db import (
 )
 from decorators import login_required, require_permission, subscription_required
 from page_helpers import render_page
+from utils.time_clock_emailing import send_pay_period_summary_emails_for_company
 
 
 employees_bp = Blueprint("employees", __name__)
@@ -1224,7 +1225,17 @@ def time_clock():
     </div>
 
     <div class='card'>
-        <h2>Recent Time Entries</h2>
+        <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px;'>
+            <div>
+                <h2 style='margin-bottom:4px;'>Recent Time Entries</h2>
+                <div class='muted'>Review recent punches and send the current hours summary email manually.</div>
+            </div>
+
+            <form method='post' action='{{ url_for("employees.send_time_clock_summary_now") }}' style='margin:0;'>
+                <button class='btn warning' type='submit'>Send Last Pay Period Summary</button>
+            </form>
+        </div>
+
         {% if recent_entries %}
             <div style='overflow-x:auto;'>
                 <table class='table'>
@@ -1239,7 +1250,7 @@ def time_clock():
                     </thead>
                     <tbody>
                         {% for row in recent_entries %}
-                            {% set entry_name = ((row["first_name"] or "") ~ " " ~ (row["last_name"] or "")).strip() or (row["full_name"] or "") or ("Employee #" ~ row["employee_id"]) %}
+                        {% set entry_name = ((row["first_name"] or "") ~ " " ~ (row["last_name"] or "")).strip() or (row["full_name"] or "") or ("Employee #" ~ row["employee_id"]) %}
                             <tr>
                                 <td>{{ entry_name }}</td>
                                 <td>{{ row["clock_in"] }}</td>
@@ -1468,4 +1479,18 @@ def time_clock_clock_out():
     conn.close()
 
     flash(f"Employee clocked out successfully. Total hours: {total_hours:.2f}")
+    return redirect(url_for("employees.time_clock"))
+
+@employees_bp.route("/employees/time-clock/send-summary", methods=["POST"])
+@login_required
+@require_permission("can_manage_employees")
+def send_time_clock_summary_now():
+    cid = session["company_id"]
+
+    try:
+        result = send_pay_period_summary_emails_for_company(cid)
+        flash(f"Hours summary email sent. Emails delivered: {result['sent']}")
+    except Exception as e:
+        flash(f"Could not send hours summary email: {e}")
+
     return redirect(url_for("employees.time_clock"))

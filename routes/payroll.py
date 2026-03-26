@@ -1,4 +1,4 @@
-from flask import Blueprint, request, redirect, url_for, session, flash, render_template, make_response, jsonify
+from flask import Blueprint, request, redirect, url_for, session, flash, make_response, jsonify
 from datetime import date
 import io
 import csv
@@ -8,10 +8,12 @@ from db import (
     ensure_employee_payroll_columns,
     ensure_bookkeeping_history_table,
     ensure_payroll_table_structure,
+    get_company_profile_row,
 )
 from decorators import login_required, require_permission, subscription_required
 from utils.payroll_tax_service import calculate_payroll_taxes_for_employee
-from page_helpers import *
+from utils.time_clock import get_company_time_clock_start_day, get_current_pay_period
+from page_helpers import render_page
 
 payroll_bp = Blueprint("payroll", __name__)
 
@@ -95,6 +97,84 @@ def build_gross_pay(employee, hours_regular, hours_overtime, rate_regular, rate_
     }
 
 
+def get_employee_time_clock_hours(conn, company_id, employee_id, start_date, end_date):
+    row = conn.execute(
+        """
+        SELECT COALESCE(SUM(total_hours), 0) AS total_hours
+        FROM employee_time_entries
+        WHERE company_id = %s
+          AND employee_id = %s
+          AND DATE(clock_in) >= %s
+          AND DATE(clock_in) <= %s
+        """,
+        (company_id, employee_id, start_date, end_date),
+    ).fetchone()
+
+    total_hours = float(row["total_hours"] or 0)
+    regular = min(total_hours, 40.0)
+    overtime = max(total_hours - 40.0, 0.0)
+
+    return round(regular, 2), round(overtime, 2)
+
+
+@payroll_bp.route("/api/time-clock/hours", methods=["POST"])
+@login_required
+@require_permission("can_manage_payroll")
+def get_time_clock_hours_api():
+    ensure_employee_payroll_columns()
+    ensure_bookkeeping_history_table()
+    ensure_payroll_table_structure()
+
+    data = request.get_json(silent=True) or {}
+
+    employee_id_raw = clean_text_input(data.get("employee_id", ""))
+    start_date = clean_text_input(data.get("start_date", ""))
+    end_date = clean_text_input(data.get("end_date", ""))
+
+    if not employee_id_raw.isdigit() or not start_date or not end_date:
+        return jsonify({
+            "ok": False,
+            "message": "Missing employee or pay period.",
+        }), 400
+
+    employee_id = int(employee_id_raw)
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    employee = conn.execute(
+        """
+        SELECT id
+        FROM employees
+        WHERE id = %s AND company_id = %s AND is_active = 1
+        """,
+        (employee_id, cid),
+    ).fetchone()
+
+    if not employee:
+        conn.close()
+        return jsonify({
+            "ok": False,
+            "message": "Employee not found.",
+        }), 404
+
+    regular, overtime = get_employee_time_clock_hours(
+        conn=conn,
+        company_id=cid,
+        employee_id=employee_id,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    conn.close()
+
+    return jsonify({
+        "ok": True,
+        "regular": regular,
+        "overtime": overtime,
+    })
+
+
 @payroll_bp.route("/employees/payroll/preview", methods=["POST"])
 @login_required
 @require_permission("can_manage_payroll")
@@ -136,7 +216,7 @@ def payroll_preview():
             w4_step4b_deductions,
             w4_step4c_extra_withholding
         FROM employees
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (employee_id, cid),
     ).fetchone()
@@ -230,6 +310,12 @@ def employee_payroll():
     conn = get_db_connection()
     cid = session["company_id"]
 
+    profile = get_company_profile_row(cid)
+    start_day = get_company_time_clock_start_day(profile)
+    pay_period_start, pay_period_end = get_current_pay_period(start_day)
+    pay_period_start_default = pay_period_start.isoformat()
+    pay_period_end_default = pay_period_end.isoformat()
+
     if request.method == "POST":
         employee_id_raw = clean_text_input(request.form.get("employee_id", ""))
         if not employee_id_raw.isdigit():
@@ -239,8 +325,8 @@ def employee_payroll():
 
         employee_id = int(employee_id_raw)
         pay_date = clean_text_input(request.form.get("pay_date", "")) or date.today().isoformat()
-        pay_period_start = clean_text_input(request.form.get("pay_period_start", ""))
-        pay_period_end = clean_text_input(request.form.get("pay_period_end", ""))
+        pay_period_start = clean_text_input(request.form.get("pay_period_start", "")) or pay_period_start_default
+        pay_period_end = clean_text_input(request.form.get("pay_period_end", "")) or pay_period_end_default
         hours_regular = safe_float(request.form.get("hours_regular"), 0)
         hours_overtime = safe_float(request.form.get("hours_overtime"), 0)
         rate_regular = safe_float(request.form.get("rate_regular"), 0)
@@ -268,7 +354,7 @@ def employee_payroll():
                 w4_step4b_deductions,
                 w4_step4c_extra_withholding
             FROM employees
-            WHERE id = ? AND company_id = ?
+            WHERE id = %s AND company_id = %s
             """,
             (employee_id, cid),
         ).fetchone()
@@ -326,7 +412,7 @@ def employee_payroll():
                 gross_pay, federal_withholding, state_withholding, social_security,
                 medicare, local_tax, other_deductions, net_pay, notes
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 cid,
@@ -378,7 +464,7 @@ def employee_payroll():
             w4_step4b_deductions,
             w4_step4c_extra_withholding
         FROM employees
-        WHERE company_id = ? AND is_active = 1
+        WHERE company_id = %s AND is_active = 1
         ORDER BY first_name, last_name
         """,
         (cid,),
@@ -389,7 +475,7 @@ def employee_payroll():
         SELECT p.*, e.first_name, e.last_name
         FROM payroll_entries p
         JOIN employees e ON p.employee_id = e.id
-        WHERE p.company_id = ?
+        WHERE p.company_id = %s
         ORDER BY p.pay_date DESC, p.id DESC
         """,
         (cid,),
@@ -511,12 +597,12 @@ def employee_payroll():
 
                 <div>
                     <label>Pay Period Start</label>
-                    <input type='date' name='pay_period_start'>
+                    <input type='date' name='pay_period_start' id='pay_period_start' value='{pay_period_start_default}'>
                 </div>
 
                 <div>
                     <label>Pay Period End</label>
-                    <input type='date' name='pay_period_end'>
+                    <input type='date' name='pay_period_end' id='pay_period_end' value='{pay_period_end_default}'>
                 </div>
 
                 <div>
@@ -625,6 +711,7 @@ def employee_payroll():
             </tr>
             {payroll_rows or "<tr><td colspan='12' class='muted'>No payroll entries yet.</td></tr>"}
         </table>
+        </div>
     </div>
 
 <script>
@@ -633,6 +720,40 @@ let payrollPreviewTimeout = null;
 function formatMoney(value) {{
     const num = parseFloat(value || 0);
     return '$' + num.toFixed(2);
+}}
+
+async function autoFillHoursFromTimeClock() {{
+    const employeeId = document.getElementById('employee_id').value;
+    const start = document.getElementById('pay_period_start').value;
+    const end = document.getElementById('pay_period_end').value;
+    const payType = (document.getElementById('pay_type_display').value || '').trim();
+
+    if (!employeeId || !start || !end) return;
+    if (payType === 'Salary') return;
+
+    try {{
+        const response = await fetch("{url_for('payroll.get_time_clock_hours_api')}", {{
+            method: "POST",
+            headers: {{
+                "Content-Type": "application/json"
+            }},
+            body: JSON.stringify({{
+                employee_id: employeeId,
+                start_date: start,
+                end_date: end
+            }})
+        }});
+
+        const data = await response.json();
+
+        if (data.ok) {{
+            document.getElementById('hours_regular').value = data.regular;
+            document.getElementById('hours_overtime').value = data.overtime;
+            triggerPayrollPreview();
+        }}
+    }} catch (err) {{
+        console.log("Auto-fill failed", err);
+    }}
 }}
 
 function fillEmployeePayrollInfo() {{
@@ -754,6 +875,8 @@ function fillEmployeePayrollInfo() {{
         rateRegular.value = hourlyRate.toFixed(2);
         rateOvertime.value = overtimeRate.toFixed(2);
     }}
+
+    autoFillHoursFromTimeClock();
 }}
 
 function resetPayrollPreview(message) {{
@@ -822,6 +945,23 @@ function triggerPayrollPreview() {{
 }}
 
 document.addEventListener('DOMContentLoaded', function() {{
+    const payPeriodStart = document.getElementById('pay_period_start');
+    const payPeriodEnd = document.getElementById('pay_period_end');
+
+    if (payPeriodStart) {{
+        payPeriodStart.addEventListener('change', function() {{
+            autoFillHoursFromTimeClock();
+            triggerPayrollPreview();
+        }});
+    }}
+
+    if (payPeriodEnd) {{
+        payPeriodEnd.addEventListener('change', function() {{
+            autoFillHoursFromTimeClock();
+            triggerPayrollPreview();
+        }});
+    }}
+
     fillEmployeePayrollInfo();
     triggerPayrollPreview();
 }});
@@ -849,7 +989,7 @@ def export_payroll():
             e.last_name
         FROM payroll_entries p
         JOIN employees e ON p.employee_id = e.id
-        WHERE p.company_id = ?
+        WHERE p.company_id = %s
         ORDER BY p.pay_date DESC, p.id DESC
         """,
         (cid,),
@@ -936,7 +1076,7 @@ def delete_payroll_entry(payroll_id):
         """
         SELECT id, ledger_entry_id
         FROM payroll_entries
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (payroll_id, cid),
     ).fetchone()
@@ -948,14 +1088,14 @@ def delete_payroll_entry(payroll_id):
 
     if "ledger_entry_id" in row.keys() and row["ledger_entry_id"]:
         conn.execute(
-            "DELETE FROM ledger_entries WHERE id = ? AND company_id = ?",
+            "DELETE FROM ledger_entries WHERE id = %s AND company_id = %s",
             (row["ledger_entry_id"], cid),
         )
 
     conn.execute(
         """
         DELETE FROM payroll_entries
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (payroll_id, cid),
     )
