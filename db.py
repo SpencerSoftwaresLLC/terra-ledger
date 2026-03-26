@@ -1132,6 +1132,7 @@ def init_db():
     ensure_password_reset_table()
     ensure_employee_time_entries_table()
     ensure_company_time_clock_columns()
+    migrate_employee_flags_to_boolean()
 
 
 # -------------------------------------------------------------------
@@ -1250,6 +1251,23 @@ def upsert_company_subscription(
                 payment_method_label,
             ),
         )
+
+    conn.commit()
+    conn.close()
+
+def migrate_employee_flags_to_boolean():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        ALTER TABLE employees
+        ALTER COLUMN is_active TYPE BOOLEAN USING is_active::boolean;
+    """)
+
+    cur.execute("""
+        ALTER TABLE employees
+        ALTER COLUMN w4_step2_checked TYPE BOOLEAN USING w4_step2_checked::boolean;
+    """)
 
     conn.commit()
     conn.close()
