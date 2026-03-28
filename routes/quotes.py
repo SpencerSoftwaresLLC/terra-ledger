@@ -445,6 +445,7 @@ def quotes():
                           action='{url_for("quotes.delete_quote", quote_id=r["id"])}'
                           style='display:inline;'
                           onsubmit="return confirm('Delete this quote?');">
+                        {{{{ csrf_input() }}}}
                         <button class='btn danger small' type='submit'>Delete</button>
                     </form>
                 </div>
@@ -507,6 +508,7 @@ def quotes():
         </div>
 
         <form method='post'>
+            {{{{ csrf_input() }}}}
             <div class='grid'>
                 <div class='customer-search-wrap'>
                     <label>Customer</label>
@@ -738,6 +740,7 @@ def view_quote(quote_id):
                       action="{url_for('quotes.delete_quote_item', quote_id=quote_id, item_id=i['id'])}"
                       style="display:inline;"
                       onsubmit="return confirm('Delete this line item?');">
+                    {{{{ csrf_input() }}}}
                     <button class="btn danger small" type="submit">Delete</button>
                 </form>
             </td>
@@ -772,6 +775,7 @@ def view_quote(quote_id):
 
             <h2>Add Quote Item</h2>
             <form method='post'>
+                {{{{ csrf_input() }}}}
                 <div class='grid'>
                     <div>
                         <label>Item Type</label>
@@ -978,6 +982,7 @@ def email_quote_preview(quote_id):
         {"<div class='notice warning'>This customer does not have an email address yet. Add one before sending.</div>" if not recipient else ""}
 
         <form method='post' action='{send_url}' onsubmit="return confirm('Send this quote by email now?');">
+            {{{{ csrf_input() }}}}
             <button class='btn' type='submit' {"disabled" if not recipient else ""}>Send Email Now</button>
         </form>
     </div>

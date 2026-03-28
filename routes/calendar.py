@@ -1,11 +1,11 @@
 # TerraLedger/routes/calendar.py
 
-from flask import Blueprint, request, session, render_template_string, url_for
+from flask import Blueprint, request, session, render_template_string, url_for, redirect, flash
 from datetime import date, datetime, timedelta
 import calendar as pycalendar
 
 from db import get_db_connection
-from decorators import login_required
+from decorators import login_required, require_permission, subscription_required
 
 calendar_bp = Blueprint("calendar", __name__)
 
@@ -24,35 +24,45 @@ def _dict_row(row):
             return {}
 
 
+def _safe_text(value, default=""):
+    if value is None:
+        return default
+    text = str(value).strip()
+    return text if text else default
+
+
 def ensure_job_schedule_columns():
     conn = get_db_connection()
     cur = conn.cursor()
 
     try:
-        cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_date DATE")
-        cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_start_time TIME")
-        cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_end_time TIME")
-        cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS assigned_to TEXT")
-        conn.commit()
-        conn.close()
-        return
-    except Exception:
-        conn.rollback()
+        try:
+            cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_date DATE")
+            cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_start_time TIME")
+            cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_end_time TIME")
+            cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS assigned_to TEXT")
+            conn.commit()
+            return
+        except Exception:
+            conn.rollback()
 
-    try:
-        cur.execute("PRAGMA table_info(jobs)")
-        cols = [row[1] for row in cur.fetchall()]
+        try:
+            cur.execute("PRAGMA table_info(jobs)")
+            cols = [row[1] for row in cur.fetchall()]
 
-        if "scheduled_date" not in cols:
-            cur.execute("ALTER TABLE jobs ADD COLUMN scheduled_date TEXT")
-        if "scheduled_start_time" not in cols:
-            cur.execute("ALTER TABLE jobs ADD COLUMN scheduled_start_time TEXT")
-        if "scheduled_end_time" not in cols:
-            cur.execute("ALTER TABLE jobs ADD COLUMN scheduled_end_time TEXT")
-        if "assigned_to" not in cols:
-            cur.execute("ALTER TABLE jobs ADD COLUMN assigned_to TEXT")
+            if "scheduled_date" not in cols:
+                cur.execute("ALTER TABLE jobs ADD COLUMN scheduled_date TEXT")
+            if "scheduled_start_time" not in cols:
+                cur.execute("ALTER TABLE jobs ADD COLUMN scheduled_start_time TEXT")
+            if "scheduled_end_time" not in cols:
+                cur.execute("ALTER TABLE jobs ADD COLUMN scheduled_end_time TEXT")
+            if "assigned_to" not in cols:
+                cur.execute("ALTER TABLE jobs ADD COLUMN assigned_to TEXT")
 
-        conn.commit()
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
     finally:
         conn.close()
 
@@ -60,8 +70,8 @@ def ensure_job_schedule_columns():
 def _parse_month_year():
     today = date.today()
 
-    year_raw = (request.args.get("year") or "").strip()
-    month_raw = (request.args.get("month") or "").strip()
+    year_raw = _safe_text(request.args.get("year"))
+    month_raw = _safe_text(request.args.get("month"))
 
     try:
         year = int(year_raw) if year_raw else today.year
@@ -82,12 +92,12 @@ def _parse_month_year():
 
 
 def _parse_view_mode():
-    view = (request.args.get("view") or "month").strip().lower()
+    view = _safe_text(request.args.get("view"), "month").lower()
     return "week" if view == "week" else "month"
 
 
 def _parse_focus_date():
-    raw = (request.args.get("date") or "").strip()
+    raw = _safe_text(request.args.get("date"))
     if raw:
         try:
             return datetime.strptime(raw, "%Y-%m-%d").date()
@@ -109,7 +119,6 @@ def _next_month(year, month):
 
 
 def _sunday_start(day):
-    # Python Monday=0 ... Sunday=6
     days_since_sunday = (day.weekday() + 1) % 7
     return day - timedelta(days=days_since_sunday)
 
@@ -265,7 +274,7 @@ def _build_time_range(start_value, end_value):
 
 
 def _status_class(status):
-    value = (status or "").strip().lower()
+    value = _safe_text(status).lower()
 
     if value == "scheduled":
         return "status-scheduled"
@@ -311,10 +320,10 @@ def _job_payload(row):
     end_minutes = _time_to_minutes(end_time) if end_time else None
 
     if start_minutes is None:
-        start_minutes = 360  # default to 6:00 AM
+        start_minutes = 360
 
     if end_minutes is None or end_minutes <= start_minutes:
-        end_minutes = start_minutes + 60  # default to 1 hour
+        end_minutes = start_minutes + 60
 
     return {
         "id": job_id,
@@ -377,6 +386,7 @@ def _build_week_time_rows(start_hour=6, end_hour=20):
         })
     return rows
 
+
 def _jobs_overlap(job_a, job_b):
     return (
         job_a["start_minutes"] < job_b["end_minutes"]
@@ -385,9 +395,6 @@ def _jobs_overlap(job_a, job_b):
 
 
 def _layout_day_jobs(day_jobs):
-    """
-    Assign each overlapping job a lane within the day column.
-    """
     if not day_jobs:
         return []
 
@@ -398,7 +405,6 @@ def _layout_day_jobs(day_jobs):
     current_group = []
 
     for job in jobs:
-        # Remove finished jobs from active list
         active = [a for a in active if a["end_minutes"] > job["start_minutes"]]
 
         if not active and current_group:
@@ -417,7 +423,6 @@ def _layout_day_jobs(day_jobs):
     if current_group:
         groups.append(current_group)
 
-    # Set lane_count for each overlap group
     for group in groups:
         lane_count = max(j["lane_index"] for j in group) + 1
         for job in group:
@@ -428,12 +433,15 @@ def _layout_day_jobs(day_jobs):
 
 @calendar_bp.route("/calendar", methods=["GET"])
 @login_required
+@subscription_required
+@require_permission("can_manage_jobs")
 def calendar_page():
     ensure_job_schedule_columns()
 
     company_id = session.get("company_id")
     if not company_id:
-        return "Missing company session.", 400
+        flash("Missing company session.")
+        return redirect(url_for("dashboard.dashboard"))
 
     today = date.today()
     today_iso = today.isoformat()
@@ -1092,7 +1100,7 @@ def calendar_page():
             }
         </style>
     </head>
-        <body>
+    <body>
         <div class="wrap">
             <div class="topbar">
                 <div class="title-block">

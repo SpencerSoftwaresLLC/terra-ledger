@@ -1,17 +1,19 @@
 import os
+from datetime import timedelta
+
 from dotenv import load_dotenv
 from flask import Flask
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 load_dotenv()
 
-from extensions import mail
+from extensions import mail, csrf
 from db import (
     init_db,
     ensure_company_profile_location_columns,
     ensure_company_profile_email_columns,
-    ensure_password_reset_table
+    ensure_password_reset_table,
 )
-
 from routes.auth import auth_bp
 from routes.dashboard import dashboard_bp
 from routes.customers import customers_bp
@@ -34,6 +36,23 @@ from routes.bookkeeping import bookkeeping_bp, _ensure_bookkeeping_check_structu
 from routes.help_assistant import help_assistant_bp
 from routes.mobile import mobile_bp
 from routes.legal import legal_bp
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None or str(value).strip() == "":
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def run_startup_tasks():
@@ -66,36 +85,71 @@ def run_startup_tasks():
 def create_app():
     app = Flask(__name__)
 
-    app.secret_key = os.environ.get("SECRET_KEY", "change-this-in-production")
+    # Trust Render / reverse proxy headers so Flask knows the request is HTTPS.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
-    app.config["SESSION_COOKIE_HTTPONLY"] = True
-    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-    app.config["SESSION_COOKIE_SECURE"] = str(
-        os.environ.get("SESSION_COOKIE_SECURE", "false")
-    ).lower() == "true"
+    is_production = _env_bool("FLASK_ENV_PRODUCTION", False) or (
+        os.environ.get("RENDER") is not None
+    )
 
-    app.config["MAIL_SERVER"] = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
-    app.config["MAIL_PORT"] = int(os.environ.get("MAIL_PORT", 587))
-    app.config["MAIL_USE_TLS"] = str(
-        os.environ.get("MAIL_USE_TLS", "true")
-    ).lower() == "true"
-    app.config["MAIL_USE_SSL"] = str(
-        os.environ.get("MAIL_USE_SSL", "false")
-    ).lower() == "true"
-    app.config["MAIL_USERNAME"] = os.environ.get(
-        "MAIL_USERNAME",
-        "yourplatformsender@gmail.com",
+    secret_key = os.environ.get("SECRET_KEY", "").strip()
+    if not secret_key or secret_key == "change-this-in-production":
+        if is_production:
+            raise RuntimeError(
+                "SECRET_KEY is missing or insecure. Set a strong SECRET_KEY in production."
+            )
+        secret_key = "dev-only-local-secret-key-change-me"
+
+    app.secret_key = secret_key
+
+    app.config.update(
+        # Core security / session settings
+        SECRET_KEY=secret_key,
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=_env_bool("SESSION_COOKIE_SECURE", is_production),
+        PERMANENT_SESSION_LIFETIME=timedelta(
+            minutes=_env_int("SESSION_LIFETIME_MINUTES", 60)
+        ),
+
+        # Helps prevent oversized file uploads / abuse
+        MAX_CONTENT_LENGTH=_env_int("MAX_CONTENT_LENGTH_MB", 16) * 1024 * 1024,
+
+        # CSRF setup
+        WTF_CSRF_ENABLED=True,
+        WTF_CSRF_TIME_LIMIT=_env_int("WTF_CSRF_TIME_LIMIT", 3600),
+
+        # Mail config
+        MAIL_SERVER=os.environ.get("MAIL_SERVER", "smtp.gmail.com"),
+        MAIL_PORT=_env_int("MAIL_PORT", 587),
+        MAIL_USE_TLS=_env_bool("MAIL_USE_TLS", True),
+        MAIL_USE_SSL=_env_bool("MAIL_USE_SSL", False),
+        MAIL_USERNAME=os.environ.get("MAIL_USERNAME", "").strip(),
+        MAIL_PASSWORD=os.environ.get("MAIL_PASSWORD", "").strip(),
+        MAIL_DEFAULT_SENDER=os.environ.get("MAIL_DEFAULT_SENDER", "").strip(),
+
+        # Flask hardening
+        JSON_SORT_KEYS=False,
+        TEMPLATES_AUTO_RELOAD=not is_production,
     )
-    app.config["MAIL_PASSWORD"] = os.environ.get(
-        "MAIL_PASSWORD",
-        "your_app_password_here",
-    )
-    app.config["MAIL_DEFAULT_SENDER"] = os.environ.get(
-        "MAIL_DEFAULT_SENDER",
-        "yourplatformsender@gmail.com",
-    )
+
+    if is_production:
+        if not app.config["MAIL_USERNAME"]:
+            print("WARNING: MAIL_USERNAME is not set in production.", flush=True)
+        if not app.config["MAIL_PASSWORD"]:
+            print("WARNING: MAIL_PASSWORD is not set in production.", flush=True)
+        if not app.config["MAIL_DEFAULT_SENDER"]:
+            print("WARNING: MAIL_DEFAULT_SENDER is not set in production.", flush=True)
 
     mail.init_app(app)
+    csrf.init_app(app)
+
+    # Exempt JSON API routes from CSRF only if needed.
+    # Keep these minimal. Regular form POST routes should stay protected.
+    try:
+        csrf.exempt(help_assistant_bp)
+    except Exception:
+        pass
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -116,6 +170,36 @@ def create_app():
     app.register_blueprint(messages_bp)
     app.register_blueprint(legal_bp)
 
+    @app.before_request
+    def make_session_permanent():
+        from flask import session
+        session.permanent = True
+
+    @app.after_request
+    def add_security_headers(response):
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+
+        if is_production and app.config["SESSION_COOKIE_SECURE"]:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+        # Start with a safer CSP that still allows inline styles/scripts if your templates rely on them.
+        # Later you can tighten this further.
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "img-src 'self' data: https:; "
+            "style-src 'self' 'unsafe-inline' https:; "
+            "script-src 'self' 'unsafe-inline' https:; "
+            "font-src 'self' data: https:; "
+            "connect-src 'self' https:; "
+            "frame-ancestors 'self'; "
+            "base-uri 'self'; "
+            "form-action 'self';"
+        )
+        return response
+
     @app.get("/healthz")
     def healthz():
         return "ok", 200
@@ -126,8 +210,12 @@ def create_app():
 
 app = create_app()
 
-if os.environ.get("RUN_STARTUP_TASKS", "false").lower() == "true":
+if _env_bool("RUN_STARTUP_TASKS", False):
     run_startup_tasks()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000)),
+        debug=_env_bool("FLASK_DEBUG", False),
+    )

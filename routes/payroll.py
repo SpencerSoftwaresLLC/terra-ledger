@@ -934,6 +934,7 @@ def employee_payroll():
                   action='{url_for("payroll.delete_payroll_entry", payroll_id=r["id"])}'
                   onsubmit="return confirm('Delete this payroll entry?');"
                   style='margin:0;'>
+                {{{{ csrf_input() }}}}
                 <button class='btn danger small' type='submit'>Delete</button>
             </form>
             """
@@ -996,6 +997,7 @@ def employee_payroll():
     <div class='card'>
         <h2>New Payroll Entry</h2>
         <form method='post' id='payroll_form'>
+            {{{{ csrf_input() }}}}
             <div class='grid'>
                 <div>
                     <label>Employee</label>
@@ -1145,6 +1147,11 @@ def employee_payroll():
 <script>
 let payrollPreviewTimeout = null;
 
+function getCsrfToken() {{
+    const tokenInput = document.querySelector("input[name='csrf_token']");
+    return tokenInput ? tokenInput.value : "";
+}}
+
 function formatMoney(value) {{
     const num = parseFloat(value || 0);
     return '$' + num.toFixed(2);
@@ -1163,7 +1170,8 @@ async function autoFillHoursFromTimeClock() {{
         const response = await fetch("{url_for('payroll.get_time_clock_hours_api')}", {{
             method: "POST",
             headers: {{
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "X-CSRFToken": getCsrfToken()
             }},
             body: JSON.stringify({{
                 employee_id: employeeId,
@@ -1333,6 +1341,9 @@ async function runPayrollPreview() {{
     try {{
         const response = await fetch("{url_for('payroll.payroll_preview')}", {{
             method: 'POST',
+            headers: {{
+                "X-CSRFToken": getCsrfToken()
+            }},
             body: formData
         }});
 

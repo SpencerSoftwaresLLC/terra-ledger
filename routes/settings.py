@@ -637,6 +637,7 @@ def settings_company():
 
     <div class='card'>
         <form method='post'>
+            {{ csrf_input() }}
             <div class='grid'>
                 <div>
                     <label>Company Name</label>
@@ -846,6 +847,7 @@ def settings_taxes():
     <div class='card'>
         <h2>Edit Tax Defaults</h2>
         <form method='post'>
+            {{{{ csrf_input() }}}}
             <div style='display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px; align-items:end;'>
 
                 <div>
@@ -858,10 +860,10 @@ def settings_taxes():
 
                 <div>
                     <label>State Withholding %</label>
-                    <input type="number" steps="0.01" min="0"
+                    <input type="number" step="0.01" min="0"
                         name="state_withholding_rate"
                         value="{{ settings['state_withholding_rate'] if settings and settings['state_withholding_rate'] is not none else '' }}"
-                        placeholder="Auto"
+                        placeholder="Auto">
                 </div>
 
                 <div>
@@ -923,7 +925,6 @@ def settings_w2():
     profile = get_company_profile(cid)
     values = get_company_profile_values(profile)
 
-    # ✅ USE NEW SERVICE
     company_readiness = get_company_w2_readiness(values)
 
     conn = get_db_connection()
@@ -933,7 +934,6 @@ def settings_w2():
 
     conn.close()
 
-    # totals
     total_wages = year_summary["total_wages"]
     total_federal = year_summary["total_federal_withholding"]
     total_ss = year_summary["total_social_security_tax"]
@@ -941,7 +941,6 @@ def settings_w2():
     total_state = year_summary["total_state_withholding"]
     total_local = year_summary["total_local_tax"]
 
-    # rows
     rows = ""
     for row in employee_summaries:
         print_button = (
@@ -963,7 +962,6 @@ def settings_w2():
         </tr>
         """
 
-    # readiness UI
     if company_readiness["missing"]:
         missing_html = "".join(f"<li>{escape(item)}</li>" for item in company_readiness["missing"])
         readiness_card = f"""
@@ -1221,6 +1219,7 @@ def settings_w2_company():
     <div class='card'>
         <h2>W-2 Filing Details</h2>
         <form method='post'>
+            {{{{ csrf_input() }}}}
             <div class='grid'>
                 <div>
                     <label>Legal Business Name</label>
@@ -1694,6 +1693,7 @@ def settings_branding():
     <div class='card'>
         <h2>Branding Details</h2>
         <form method='post' enctype='multipart/form-data'>
+            {{{{ csrf_input() }}}}
             <div style='display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px;'>
 
                 <div>
@@ -1975,6 +1975,7 @@ def settings_email():
     <div class='card'>
         <h2>Email Delivery Identity</h2>
         <form method='post'>
+            {{{{ csrf_input() }}}}
             <div style='display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px;'>
 
                 <div>
@@ -2020,6 +2021,7 @@ def settings_email():
         <p class='muted'>Use this to confirm your platform email sending is working before testing quote or invoice emails.</p>
 
         <form method='post' action='{url_for("settings.test_email")}'>
+            {{{{ csrf_input() }}}}
             <div class='grid'>
                 <div>
                     <label>Send Test To</label>
@@ -2143,6 +2145,7 @@ def restore_backup():
         </p>
 
         <form method='post' enctype='multipart/form-data'>
+            {{{{ csrf_input() }}}}
             <div class='grid'>
                 <div>
                     <label>Backup File (.json)</label>

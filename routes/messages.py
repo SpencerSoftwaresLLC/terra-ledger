@@ -1,146 +1,183 @@
 import os
+import re
 
 from flask import Blueprint, request, redirect, url_for, flash, session, render_template_string
 
 from db import get_db_connection
-from decorators import login_required, require_permission
+from decorators import login_required, require_permission, subscription_required
 from page_helpers import render_page
 
 
 messages_bp = Blueprint("messages", __name__)
+
+MAX_MESSAGE_LENGTH = 1600
+
+
+def _safe_text(value, default=""):
+    if value is None:
+        return default
+    text = str(value).strip()
+    return text if text else default
+
+
+def _safe_int(value, default=None):
+    try:
+        if value is None or str(value).strip() == "":
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalize_phone(value):
+    text = _safe_text(value)
+    if not text:
+        return ""
+
+    allowed = re.sub(r"[^0-9+()\-.\s]", "", text).strip()
+    return allowed
+
+
+def _is_reasonable_phone(value):
+    if not value:
+        return False
+    digits = re.sub(r"\D", "", value)
+    return 10 <= len(digits) <= 15
 
 
 def ensure_messaging_tables():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS messaging_settings (
-            id SERIAL PRIMARY KEY,
-            company_id INTEGER NOT NULL UNIQUE,
-            messaging_enabled INTEGER NOT NULL DEFAULT 0,
-            send_job_updates INTEGER NOT NULL DEFAULT 1,
-            send_invoice_reminders INTEGER NOT NULL DEFAULT 0,
-            send_manual_messages INTEGER NOT NULL DEFAULT 1,
-            default_on_the_way_template TEXT,
-            default_job_started_template TEXT,
-            default_job_completed_template TEXT,
-            default_invoice_reminder_template TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS messaging_settings (
+                id SERIAL PRIMARY KEY,
+                company_id INTEGER NOT NULL UNIQUE,
+                messaging_enabled INTEGER NOT NULL DEFAULT 0,
+                send_job_updates INTEGER NOT NULL DEFAULT 1,
+                send_invoice_reminders INTEGER NOT NULL DEFAULT 0,
+                send_manual_messages INTEGER NOT NULL DEFAULT 1,
+                default_on_the_way_template TEXT,
+                default_job_started_template TEXT,
+                default_job_completed_template TEXT,
+                default_invoice_reminder_template TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS message_log (
-            id SERIAL PRIMARY KEY,
-            company_id INTEGER NOT NULL,
-            customer_id INTEGER,
-            job_id INTEGER,
-            invoice_id INTEGER,
-            phone_number TEXT,
-            direction TEXT NOT NULL DEFAULT 'outbound',
-            message_body TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'queued',
-            provider TEXT DEFAULT 'email',
-            provider_message_id TEXT,
-            sent_by_user_id INTEGER,
-            error_message TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            sent_at TIMESTAMP
-        )
-    """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS message_log (
+                id SERIAL PRIMARY KEY,
+                company_id INTEGER NOT NULL,
+                customer_id INTEGER,
+                job_id INTEGER,
+                invoice_id INTEGER,
+                phone_number TEXT,
+                direction TEXT NOT NULL DEFAULT 'outbound',
+                message_body TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued',
+                provider TEXT DEFAULT 'email',
+                provider_message_id TEXT,
+                sent_by_user_id INTEGER,
+                error_message TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                sent_at TIMESTAMP
+            )
+        """)
 
-    cur.execute("""
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_name = 'messaging_settings'
-    """)
-    existing_cols = [row["column_name"] for row in cur.fetchall()]
+        cur.execute("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'messaging_settings'
+        """)
+        existing_cols = [row["column_name"] for row in cur.fetchall()]
 
-    required_columns = {
-        "messaging_enabled": "INTEGER NOT NULL DEFAULT 0",
-        "send_job_updates": "INTEGER NOT NULL DEFAULT 1",
-        "send_invoice_reminders": "INTEGER NOT NULL DEFAULT 0",
-        "send_manual_messages": "INTEGER NOT NULL DEFAULT 1",
-        "default_on_the_way_template": "TEXT",
-        "default_job_started_template": "TEXT",
-        "default_job_completed_template": "TEXT",
-        "default_invoice_reminder_template": "TEXT",
-        "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-        "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-    }
+        required_columns = {
+            "messaging_enabled": "INTEGER NOT NULL DEFAULT 0",
+            "send_job_updates": "INTEGER NOT NULL DEFAULT 1",
+            "send_invoice_reminders": "INTEGER NOT NULL DEFAULT 0",
+            "send_manual_messages": "INTEGER NOT NULL DEFAULT 1",
+            "default_on_the_way_template": "TEXT",
+            "default_job_started_template": "TEXT",
+            "default_job_completed_template": "TEXT",
+            "default_invoice_reminder_template": "TEXT",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        }
 
-    for col_name, col_def in required_columns.items():
-        if col_name not in existing_cols:
-            cur.execute(f"ALTER TABLE messaging_settings ADD COLUMN {col_name} {col_def}")
+        for col_name, col_def in required_columns.items():
+            if col_name not in existing_cols:
+                cur.execute(f"ALTER TABLE messaging_settings ADD COLUMN {col_name} {col_def}")
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def get_messaging_settings(company_id):
     conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT *
-        FROM messaging_settings
-        WHERE company_id = %s
-    """, (company_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT *
+            FROM messaging_settings
+            WHERE company_id = %s
+        """, (company_id,))
+        return cur.fetchone()
+    finally:
+        conn.close()
 
 
 def get_message_history(company_id, limit=100):
     conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT
-            ml.*,
-            c.name AS customer_name,
-            j.title AS job_title,
-            i.invoice_number AS invoice_number
-        FROM message_log ml
-        LEFT JOIN customers c ON ml.customer_id = c.id
-        LEFT JOIN jobs j ON ml.job_id = j.id
-        LEFT JOIN invoices i ON ml.invoice_id = i.id
-        WHERE ml.company_id = %s
-        ORDER BY ml.created_at DESC, ml.id DESC
-        LIMIT %s
-    """, (company_id, limit))
-    rows = cur.fetchall()
-    conn.close()
-    return rows
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                ml.*,
+                c.name AS customer_name,
+                j.title AS job_title,
+                i.invoice_number AS invoice_number
+            FROM message_log ml
+            LEFT JOIN customers c ON ml.customer_id = c.id
+            LEFT JOIN jobs j ON ml.job_id = j.id
+            LEFT JOIN invoices i ON ml.invoice_id = i.id
+            WHERE ml.company_id = %s
+            ORDER BY ml.created_at DESC, ml.id DESC
+            LIMIT %s
+        """, (company_id, limit))
+        return cur.fetchall()
+    finally:
+        conn.close()
 
 
 def get_customers_for_messages(company_id):
     conn = get_db_connection()
     cur = conn.cursor()
 
-    customer_rows = []
     try:
-        cur.execute("""
-            SELECT id, name, phone
-            FROM customers
-            WHERE company_id = %s
-            ORDER BY name ASC
-        """, (company_id,))
-        customer_rows = cur.fetchall()
-    except Exception:
         try:
+            cur.execute("""
+                SELECT id, name, phone
+                FROM customers
+                WHERE company_id = %s
+                ORDER BY name ASC
+            """, (company_id,))
+            return cur.fetchall()
+        except Exception:
             cur.execute("""
                 SELECT id, name, phone_number AS phone
                 FROM customers
                 WHERE company_id = %s
                 ORDER BY name ASC
             """, (company_id,))
-            customer_rows = cur.fetchall()
-        except Exception:
-            customer_rows = []
-
-    conn.close()
-    return customer_rows
+            return cur.fetchall()
+    except Exception:
+        return []
+    finally:
+        conn.close()
 
 
 def insert_message_log(
@@ -157,39 +194,41 @@ def insert_message_log(
     error_message=None,
 ):
     conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO message_log (
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO message_log (
+                company_id,
+                customer_id,
+                job_id,
+                invoice_id,
+                phone_number,
+                direction,
+                message_body,
+                status,
+                provider,
+                provider_message_id,
+                sent_by_user_id,
+                error_message,
+                sent_at
+            )
+            VALUES (%s, %s, %s, %s, %s, 'outbound', %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+        """, (
             company_id,
             customer_id,
             job_id,
             invoice_id,
             phone_number,
-            direction,
             message_body,
             status,
             provider,
             provider_message_id,
             sent_by_user_id,
             error_message,
-            sent_at
-        )
-        VALUES (%s, %s, %s, %s, %s, 'outbound', %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
-    """, (
-        company_id,
-        customer_id,
-        job_id,
-        invoice_id,
-        phone_number,
-        message_body,
-        status,
-        provider,
-        provider_message_id,
-        sent_by_user_id,
-        error_message,
-    ))
-    conn.commit()
-    conn.close()
+        ))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def send_text_message(to_number, message_body, settings_row=None):
@@ -198,6 +237,7 @@ def send_text_message(to_number, message_body, settings_row=None):
 
 @messages_bp.route("/messages")
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def messages_page():
     ensure_messaging_tables()
@@ -210,7 +250,7 @@ def messages_page():
     settings = get_messaging_settings(company_id)
     history = get_message_history(company_id, limit=100)
     customers = get_customers_for_messages(company_id)
-    from_number = (os.environ.get("TWILIO_FROM_NUMBER") or "").strip()
+    from_number = _safe_text(os.environ.get("TWILIO_FROM_NUMBER"))
 
     page_html = """
     <div class="card">
@@ -231,6 +271,7 @@ def messages_page():
         <div class="card">
             <h3>Send Message</h3>
             <form method="post" action="{{ url_for('messages.send_message') }}">
+                {{ csrf_input() }}
                 <div style="margin-bottom:14px;">
                     <label>Customer</label>
                     <select id="customerSelect" onchange="fillCustomerPhoneFromDropdown()">
@@ -450,6 +491,7 @@ def messages_page():
 
 @messages_bp.route("/messages/send", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def send_message():
     ensure_messaging_tables()
@@ -461,11 +503,35 @@ def send_message():
         flash("Company session not found.")
         return redirect(url_for("messages.messages_page"))
 
-    customer_id = request.form.get("customer_id") or None
-    phone_number = (request.form.get("phone_number") or "").strip()
-    message_body = (request.form.get("message_body") or "").strip()
+    customer_id = _safe_int(request.form.get("customer_id"), None)
+    phone_number = _normalize_phone(request.form.get("phone_number"))
+    message_body = _safe_text(request.form.get("message_body"))
+
+    if not phone_number:
+        flash("Phone number is required.")
+        return redirect(url_for("messages.messages_page"))
+
+    if not _is_reasonable_phone(phone_number):
+        flash("Please enter a valid phone number.")
+        return redirect(url_for("messages.messages_page"))
+
+    if not message_body:
+        flash("Message is required.")
+        return redirect(url_for("messages.messages_page"))
+
+    if len(message_body) > MAX_MESSAGE_LENGTH:
+        flash(f"Message is too long. Keep it under {MAX_MESSAGE_LENGTH} characters.")
+        return redirect(url_for("messages.messages_page"))
 
     settings = get_messaging_settings(company_id)
+
+    if settings and not settings["messaging_enabled"]:
+        flash("Messaging is not enabled for this company.")
+        return redirect(url_for("messages.messages_page"))
+
+    if settings and not settings["send_manual_messages"]:
+        flash("Manual messaging is disabled in messaging settings.")
+        return redirect(url_for("messages.messages_page"))
 
     success, provider_message_id, error_message = send_text_message(
         to_number=phone_number,
@@ -503,6 +569,7 @@ def send_message():
 
 @messages_bp.route("/messaging/configuration", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def messaging_configuration():
     ensure_messaging_tables()
@@ -515,46 +582,59 @@ def messaging_configuration():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    if request.method == "POST":
-        messaging_enabled = 1 if request.form.get("messaging_enabled") == "on" else 0
-        send_job_updates = 1 if request.form.get("send_job_updates") == "on" else 0
-        send_invoice_reminders = 1 if request.form.get("send_invoice_reminders") == "on" else 0
-        send_manual_messages = 1 if request.form.get("send_manual_messages") == "on" else 0
+    try:
+        if request.method == "POST":
+            messaging_enabled = 1 if request.form.get("messaging_enabled") == "on" else 0
+            send_job_updates = 1 if request.form.get("send_job_updates") == "on" else 0
+            send_invoice_reminders = 1 if request.form.get("send_invoice_reminders") == "on" else 0
+            send_manual_messages = 1 if request.form.get("send_manual_messages") == "on" else 0
 
-        default_on_the_way_template = (request.form.get("default_on_the_way_template") or "").strip()
-        default_job_started_template = (request.form.get("default_job_started_template") or "").strip()
-        default_job_completed_template = (request.form.get("default_job_completed_template") or "").strip()
-        default_invoice_reminder_template = (request.form.get("default_invoice_reminder_template") or "").strip()
+            default_on_the_way_template = _safe_text(request.form.get("default_on_the_way_template"))
+            default_job_started_template = _safe_text(request.form.get("default_job_started_template"))
+            default_job_completed_template = _safe_text(request.form.get("default_job_completed_template"))
+            default_invoice_reminder_template = _safe_text(request.form.get("default_invoice_reminder_template"))
 
-        existing = get_messaging_settings(company_id)
+            existing = get_messaging_settings(company_id)
 
-        if existing:
-            cur.execute("""
-                UPDATE messaging_settings
-                SET messaging_enabled = %s,
-                    send_job_updates = %s,
-                    send_invoice_reminders = %s,
-                    send_manual_messages = %s,
-                    default_on_the_way_template = %s,
-                    default_job_started_template = %s,
-                    default_job_completed_template = %s,
-                    default_invoice_reminder_template = %s,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE company_id = %s
-            """, (
-                messaging_enabled,
-                send_job_updates,
-                send_invoice_reminders,
-                send_manual_messages,
-                default_on_the_way_template,
-                default_job_started_template,
-                default_job_completed_template,
-                default_invoice_reminder_template,
-                company_id,
-            ))
-        else:
-            cur.execute("""
-                INSERT INTO messaging_settings (
+            if existing:
+                cur.execute("""
+                    UPDATE messaging_settings
+                    SET messaging_enabled = %s,
+                        send_job_updates = %s,
+                        send_invoice_reminders = %s,
+                        send_manual_messages = %s,
+                        default_on_the_way_template = %s,
+                        default_job_started_template = %s,
+                        default_job_completed_template = %s,
+                        default_invoice_reminder_template = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE company_id = %s
+                """, (
+                    messaging_enabled,
+                    send_job_updates,
+                    send_invoice_reminders,
+                    send_manual_messages,
+                    default_on_the_way_template,
+                    default_job_started_template,
+                    default_job_completed_template,
+                    default_invoice_reminder_template,
+                    company_id,
+                ))
+            else:
+                cur.execute("""
+                    INSERT INTO messaging_settings (
+                        company_id,
+                        messaging_enabled,
+                        send_job_updates,
+                        send_invoice_reminders,
+                        send_manual_messages,
+                        default_on_the_way_template,
+                        default_job_started_template,
+                        default_job_completed_template,
+                        default_invoice_reminder_template
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
                     company_id,
                     messaging_enabled,
                     send_job_updates,
@@ -563,30 +643,17 @@ def messaging_configuration():
                     default_on_the_way_template,
                     default_job_started_template,
                     default_job_completed_template,
-                    default_invoice_reminder_template
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (
-                company_id,
-                messaging_enabled,
-                send_job_updates,
-                send_invoice_reminders,
-                send_manual_messages,
-                default_on_the_way_template,
-                default_job_started_template,
-                default_job_completed_template,
-                default_invoice_reminder_template,
-            ))
+                    default_invoice_reminder_template,
+                ))
 
-        conn.commit()
+            conn.commit()
+            flash("Messaging configuration saved.")
+            return redirect(url_for("messages.messaging_configuration"))
+    finally:
         conn.close()
 
-        flash("Messaging configuration saved.")
-        return redirect(url_for("messages.messaging_configuration"))
-
-    conn.close()
     settings = get_messaging_settings(company_id)
-    from_number = (os.environ.get("TWILIO_FROM_NUMBER") or "").strip()
+    from_number = _safe_text(os.environ.get("TWILIO_FROM_NUMBER"))
 
     page_html = """
     <div class="card">
@@ -603,6 +670,7 @@ def messaging_configuration():
 
     <div class="card">
         <form method="post">
+            {{ csrf_input() }}
             <div class="card" style="margin-top:0; margin-bottom:18px;">
                 <h3>Platform Messaging</h3>
 

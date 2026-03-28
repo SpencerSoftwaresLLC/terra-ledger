@@ -90,7 +90,9 @@ JOB_COST_CATEGORY_MAP = {
 
 def _safe_float(value, default=0.0):
     try:
-        return float(value or 0)
+        if value is None or value == "":
+            return default
+        return float(value)
     except (TypeError, ValueError):
         return default
 
@@ -135,7 +137,7 @@ def _has_col(conn, table_name, col_name):
 
 def _safe_get(row, key, default=None):
     try:
-        if key in row.keys():
+        if row is not None and key in row.keys():
             value = row[key]
             return default if value is None else value
     except Exception:
@@ -521,11 +523,11 @@ def _build_ledger_check_pdf(company_info, ledger_row, check_number):
     c = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
 
-    amount = _money(ledger_row["amount"])
+    amount = _money(_safe_get(ledger_row, "amount", 0))
     amount_written = _amount_to_words(amount)
-    check_date = _clean_text(ledger_row["entry_date"]) or date.today().isoformat()
-    payee_name = _clean_text(ledger_row["payee_name"]) or _clean_text(ledger_row["description"]) or "Payee"
-    memo = _clean_text(ledger_row["description"]) or (_clean_text(ledger_row["category"]) or "Bookkeeping Entry")
+    check_date = _clean_text(_safe_get(ledger_row, "entry_date", "")) or date.today().isoformat()
+    payee_name = _clean_text(_safe_get(ledger_row, "payee_name", "")) or _clean_text(_safe_get(ledger_row, "description", "")) or "Payee"
+    memo = _clean_text(_safe_get(ledger_row, "description", "")) or (_clean_text(_safe_get(ledger_row, "category", "")) or "Bookkeeping Entry")
 
     top_y = height - 0.75 * inch
     c.setFont("Helvetica-Bold", 13)
@@ -587,7 +589,7 @@ def _build_ledger_check_pdf(company_info, ledger_row, check_number):
     c.drawString(4.2 * inch, stub_y, f"Method: Check")
 
     stub_y -= 0.22 * inch
-    c.drawString(0.7 * inch, stub_y, f"Category: {_clean_text(ledger_row['category']) or '-'}")
+    c.drawString(0.7 * inch, stub_y, f"Category: {_clean_text(_safe_get(ledger_row, 'category', '')) or '-'}")
 
     stub_y -= 0.22 * inch
     c.drawString(0.7 * inch, stub_y, f"Description: {memo[:80]}")
@@ -595,7 +597,7 @@ def _build_ledger_check_pdf(company_info, ledger_row, check_number):
     stub_y -= 0.22 * inch
     c.drawString(0.7 * inch, stub_y, f"Amount: ${amount:,.2f}")
 
-    notes = _clean_text(ledger_row["notes"])
+    notes = _clean_text(_safe_get(ledger_row, "notes", ""))
     if notes:
         stub_y -= 0.30 * inch
         c.setFont("Helvetica-Bold", 10)
@@ -672,8 +674,8 @@ def _fetch_ledger_entry_by_id(conn, cid, entry_id):
 
 
 def _create_or_get_ledger_check(conn, company_id, ledger_row):
-    existing_check_id = ledger_row["check_id"] if "check_id" in ledger_row.keys() else None
-    existing_check_number = ledger_row["check_number"] if "check_number" in ledger_row.keys() else None
+    existing_check_id = _safe_get(ledger_row, "check_id")
+    existing_check_number = _safe_get(ledger_row, "check_number")
 
     if existing_check_id and existing_check_number:
         check = conn.execute(
@@ -687,14 +689,25 @@ def _create_or_get_ledger_check(conn, company_id, ledger_row):
         if check:
             return int(check["id"]), int(check["check_number"])
 
-    company_info = _get_company_check_info(company_id)
-    check_number = int(company_info["next_check_number"])
+    profile = conn.execute(
+        """
+        SELECT *
+        FROM company_profile
+        WHERE company_id = %s
+        FOR UPDATE
+        """,
+        (company_id,),
+    ).fetchone()
 
-    amount = abs(_money(ledger_row["amount"]))
+    current_next_check_number = 1001
+    if profile and "next_check_number" in profile.keys() and profile["next_check_number"] is not None:
+        current_next_check_number = int(profile["next_check_number"])
+
+    amount = abs(_money(_safe_get(ledger_row, "amount", 0)))
     amount_written = _amount_to_words(amount)
-    memo = _clean_text(ledger_row["description"]) or (_clean_text(ledger_row["category"]) or "Bookkeeping Entry")
-    payee_name = _clean_text(ledger_row["payee_name"]) or _clean_text(ledger_row["description"]) or "Payee"
-    check_date = _clean_text(ledger_row["entry_date"]) or date.today().isoformat()
+    memo = _clean_text(_safe_get(ledger_row, "description", "")) or (_clean_text(_safe_get(ledger_row, "category", "")) or "Bookkeeping Entry")
+    payee_name = _clean_text(_safe_get(ledger_row, "payee_name", "")) or _clean_text(_safe_get(ledger_row, "description", "")) or "Payee"
+    check_date = _clean_text(_safe_get(ledger_row, "entry_date", "")) or date.today().isoformat()
 
     inserted = conn.execute(
         """
@@ -707,13 +720,13 @@ def _create_or_get_ledger_check(conn, company_id, ledger_row):
         """,
         (
             company_id,
-            check_number,
+            current_next_check_number,
             check_date,
             payee_name,
             amount,
             amount_written,
             memo,
-            ledger_row["id"],
+            _safe_get(ledger_row, "id"),
         ),
     ).fetchone()
 
@@ -726,7 +739,13 @@ def _create_or_get_ledger_check(conn, company_id, ledger_row):
             check_number = %s
         WHERE id = %s AND company_id = %s
         """,
-        (payee_name, inserted["id"], check_number, ledger_row["id"], company_id),
+        (
+            payee_name,
+            inserted["id"],
+            current_next_check_number,
+            _safe_get(ledger_row, "id"),
+            company_id,
+        ),
     )
 
     conn.execute(
@@ -735,10 +754,10 @@ def _create_or_get_ledger_check(conn, company_id, ledger_row):
         SET next_check_number = %s
         WHERE company_id = %s
         """,
-        (check_number + 1, company_id),
+        (current_next_check_number + 1, company_id),
     )
 
-    return int(inserted["id"]), check_number
+    return int(inserted["id"]), int(current_next_check_number)
 
 
 def _get_ledger_date_column(conn):
@@ -1425,6 +1444,7 @@ def _render_bookkeeping_page(conn, cid):
                       action='{url_for("bookkeeping.delete_bookkeeping_entry", entry_id=r.get("id"))}'
                       onsubmit="return confirm('Delete this bookkeeping entry?');"
                       style='display:inline;'>
+                    {{{{ csrf_input() }}}}
                     <button class='btn danger small' type='submit'>Delete</button>
                 </form>
                 """
@@ -1490,6 +1510,7 @@ def _render_bookkeeping_page(conn, cid):
     <div class='card'>
         <h2>Add Manual Bookkeeping Entry</h2>
         <form method='post'>
+            {{{{ csrf_input() }}}}
             <div class='grid'>
                 <div>
                     <label>Date</label>

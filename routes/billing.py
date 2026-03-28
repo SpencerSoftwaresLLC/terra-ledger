@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+
 from flask import Blueprint, request, redirect, url_for, session, flash, render_template_string
 
 from db import (
@@ -60,7 +61,7 @@ def _get_company(company_id):
     conn = get_db_connection()
     row = conn.execute(
         "SELECT * FROM companies WHERE id = ?",
-        (company_id,)
+        (company_id,),
     ).fetchone()
     conn.close()
     return row
@@ -276,7 +277,10 @@ def subscription_required_page():
                 </p>
 
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                    <a class="btn secondary" href="{refresh_url}">Refresh Access</a>
+                    <form method="post" action="{refresh_url}" style="display:inline;">
+                        {{ csrf_input() }}
+                        <button class="btn secondary" type="submit">Refresh Access</button>
+                    </form>
                     <a class="btn secondary" href="{billing_url}">View Billing Page</a>
                 </div>
             </div>
@@ -306,6 +310,12 @@ def billing_page():
         billing_notice = "Stripe is not installed yet."
     elif not cfg["secret_key"]:
         billing_notice = "Stripe secret key is missing."
+
+    checkout_status = (request.args.get("checkout") or "").strip().lower()
+    if checkout_status == "success":
+        flash("Checkout completed. Billing status may take a moment to update. Use Refresh Status if needed.")
+    elif checkout_status == "cancelled":
+        flash("Checkout was cancelled.")
 
     status_text = _normalize_status(sub["status"]) if sub else "Inactive"
     status_css = _get_subscription_css_class(sub["status"] if sub else "inactive")
@@ -375,7 +385,11 @@ def billing_page():
                 {% if stripe_enabled %}
                     <a class="btn" href="{{ url_for('billing.create_checkout_session', plan='monthly') }}">Start Monthly</a>
                     <a class="btn secondary" href="{{ url_for('billing.create_checkout_session', plan='yearly') }}">Start Yearly</a>
-                    <a class="btn secondary" href="{{ url_for('billing.refresh_billing_status') }}">Refresh Status</a>
+
+                    <form method="post" action="{{ url_for('billing.refresh_billing_status') }}" style="display:inline;">
+                        {{ csrf_input() }}
+                        <button class="btn secondary" type="submit">Refresh Status</button>
+                    </form>
                 {% endif %}
                 {% if stripe_enabled and sub and sub['stripe_customer_id'] %}
                     <a class="btn secondary" href="{{ url_for('billing.customer_portal') }}">Customer Portal</a>
@@ -455,7 +469,7 @@ def billing_page():
     return render_page(content, title="Billing")
 
 
-@billing_bp.route("/settings/billing/refresh")
+@billing_bp.route("/settings/billing/refresh", methods=["POST"])
 @login_required
 def refresh_billing_status():
     cid = session["company_id"]
@@ -480,12 +494,15 @@ def customer_portal():
         flash("No Stripe customer is linked to this account yet.")
         return redirect(url_for("billing.billing_page"))
 
-    portal_session = stripe.billing_portal.Session.create(
-        customer=sub["stripe_customer_id"],
-        return_url=f"{cfg['app_base_url']}/settings/billing",
-    )
-
-    return redirect(portal_session.url)
+    try:
+        portal_session = stripe.billing_portal.Session.create(
+            customer=sub["stripe_customer_id"],
+            return_url=f"{cfg['app_base_url']}/settings/billing",
+        )
+        return redirect(portal_session.url)
+    except Exception as e:
+        flash(f"Could not open customer portal: {e}")
+        return redirect(url_for("billing.billing_page"))
 
 
 @billing_bp.route("/settings/billing/checkout")
@@ -526,7 +543,7 @@ def create_checkout_session():
         elif cfg["owner_coupon_id"]:
             discounts.append({"coupon": cfg["owner_coupon_id"]})
 
-        metadata = {
+    metadata = {
         "company_id": str(cid),
         "company_name": company["name"] if company and "name" in company.keys() else "",
         "user_email": user_email,

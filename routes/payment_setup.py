@@ -14,7 +14,7 @@ from flask import (
 )
 
 from db import get_db_connection
-from decorators import login_required, require_permission
+from decorators import login_required, require_permission, subscription_required
 from page_helpers import render_page
 
 try:
@@ -62,47 +62,49 @@ def ensure_company_payment_settings_table():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS company_payment_settings (
-            id SERIAL PRIMARY KEY,
-            company_id INTEGER NOT NULL UNIQUE,
-            provider VARCHAR(50) NOT NULL DEFAULT 'stripe',
-            stripe_account_id VARCHAR(255),
-            stripe_account_email VARCHAR(255),
-            charges_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-            payouts_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-            details_submitted BOOLEAN NOT NULL DEFAULT FALSE,
-            payments_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-            allow_partial_online_payments BOOLEAN NOT NULL DEFAULT FALSE,
-            default_payment_message TEXT,
-            onboarding_complete BOOLEAN NOT NULL DEFAULT FALSE,
-            last_status_sync_at TIMESTAMP,
-            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    try:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS company_payment_settings (
+                id SERIAL PRIMARY KEY,
+                company_id INTEGER NOT NULL UNIQUE,
+                provider VARCHAR(50) NOT NULL DEFAULT 'stripe',
+                stripe_account_id VARCHAR(255),
+                stripe_account_email VARCHAR(255),
+                charges_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                payouts_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                details_submitted BOOLEAN NOT NULL DEFAULT FALSE,
+                payments_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                allow_partial_online_payments BOOLEAN NOT NULL DEFAULT FALSE,
+                default_payment_message TEXT,
+                onboarding_complete BOOLEAN NOT NULL DEFAULT FALSE,
+                last_status_sync_at TIMESTAMP,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
         )
-        """
-    )
-
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def get_company(company_id):
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        SELECT id, name, email
-        FROM companies
-        WHERE id = %s
-        """,
-        (company_id,),
-    )
-    row = cur.fetchone()
-    conn.close()
-    return row
+    try:
+        cur.execute(
+            """
+            SELECT id, name, email
+            FROM companies
+            WHERE id = %s
+            """,
+            (company_id,),
+        )
+        return cur.fetchone()
+    finally:
+        conn.close()
 
 
 def get_payment_settings(company_id):
@@ -111,17 +113,18 @@ def get_payment_settings(company_id):
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        SELECT *
-        FROM company_payment_settings
-        WHERE company_id = %s
-        """,
-        (company_id,),
-    )
-    row = cur.fetchone()
-    conn.close()
-    return row
+    try:
+        cur.execute(
+            """
+            SELECT *
+            FROM company_payment_settings
+            WHERE company_id = %s
+            """,
+            (company_id,),
+        )
+        return cur.fetchone()
+    finally:
+        conn.close()
 
 
 def upsert_payment_settings(
@@ -179,60 +182,61 @@ def upsert_payment_settings(
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        INSERT INTO company_payment_settings (
-            company_id,
-            provider,
-            stripe_account_id,
-            stripe_account_email,
-            charges_enabled,
-            payouts_enabled,
-            details_submitted,
-            payments_enabled,
-            allow_partial_online_payments,
-            default_payment_message,
-            onboarding_complete,
-            last_status_sync_at,
-            created_at,
-            updated_at
+    try:
+        cur.execute(
+            """
+            INSERT INTO company_payment_settings (
+                company_id,
+                provider,
+                stripe_account_id,
+                stripe_account_email,
+                charges_enabled,
+                payouts_enabled,
+                details_submitted,
+                payments_enabled,
+                allow_partial_online_payments,
+                default_payment_message,
+                onboarding_complete,
+                last_status_sync_at,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT (company_id)
+            DO UPDATE SET
+                provider = EXCLUDED.provider,
+                stripe_account_id = EXCLUDED.stripe_account_id,
+                stripe_account_email = EXCLUDED.stripe_account_email,
+                charges_enabled = EXCLUDED.charges_enabled,
+                payouts_enabled = EXCLUDED.payouts_enabled,
+                details_submitted = EXCLUDED.details_submitted,
+                payments_enabled = EXCLUDED.payments_enabled,
+                allow_partial_online_payments = EXCLUDED.allow_partial_online_payments,
+                default_payment_message = EXCLUDED.default_payment_message,
+                onboarding_complete = EXCLUDED.onboarding_complete,
+                last_status_sync_at = EXCLUDED.last_status_sync_at,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                company_id,
+                provider_val,
+                stripe_account_id_val,
+                stripe_account_email_val,
+                charges_enabled_val,
+                payouts_enabled_val,
+                details_submitted_val,
+                payments_enabled_val,
+                allow_partial_online_payments_val,
+                default_payment_message_val,
+                onboarding_complete_val,
+                last_status_sync_at_val,
+            ),
         )
-        VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-        )
-        ON CONFLICT (company_id)
-        DO UPDATE SET
-            provider = EXCLUDED.provider,
-            stripe_account_id = EXCLUDED.stripe_account_id,
-            stripe_account_email = EXCLUDED.stripe_account_email,
-            charges_enabled = EXCLUDED.charges_enabled,
-            payouts_enabled = EXCLUDED.payouts_enabled,
-            details_submitted = EXCLUDED.details_submitted,
-            payments_enabled = EXCLUDED.payments_enabled,
-            allow_partial_online_payments = EXCLUDED.allow_partial_online_payments,
-            default_payment_message = EXCLUDED.default_payment_message,
-            onboarding_complete = EXCLUDED.onboarding_complete,
-            last_status_sync_at = EXCLUDED.last_status_sync_at,
-            updated_at = CURRENT_TIMESTAMP
-        """,
-        (
-            company_id,
-            provider_val,
-            stripe_account_id_val,
-            stripe_account_email_val,
-            charges_enabled_val,
-            payouts_enabled_val,
-            details_submitted_val,
-            payments_enabled_val,
-            allow_partial_online_payments_val,
-            default_payment_message_val,
-            onboarding_complete_val,
-            last_status_sync_at_val,
-        ),
-    )
-
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _normalize_external_base_url(raw_url):
@@ -366,11 +370,16 @@ def sync_stripe_status(company_id, stripe_account_id=None):
 
 @payment_setup_bp.route("/payment-setup", methods=["GET"])
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def payment_setup():
     ensure_company_payment_settings_table()
 
-    company_id = session["company_id"]
+    company_id = session.get("company_id")
+    if not company_id:
+        flash("Company session not found.")
+        return redirect(url_for("dashboard.dashboard"))
+
     company = get_company(company_id)
 
     if not company:
@@ -651,19 +660,23 @@ def payment_setup():
                     <div class="btn-row">
                         {% if not stripe_connected %}
                             <form method="POST" action="{{ url_for('payment_setup.connect_stripe_account') }}" style="display:inline;">
+                                {{ csrf_input() }}
                                 <button type="submit" class="btn-tl btn-primary-tl">Connect Stripe</button>
                             </form>
                         {% elif not onboarding_complete %}
                             <form method="POST" action="{{ url_for('payment_setup.connect_stripe_account') }}" style="display:inline;">
+                                {{ csrf_input() }}
                                 <button type="submit" class="btn-tl btn-warning-tl">Continue Setup</button>
                             </form>
                         {% else %}
                             <form method="POST" action="{{ url_for('payment_setup.connect_stripe_account') }}" style="display:inline;">
+                                {{ csrf_input() }}
                                 <button type="submit" class="btn-tl btn-secondary-tl">Reconnect Stripe</button>
                             </form>
                         {% endif %}
 
-                        <form method="GET" action="{{ url_for('payment_setup.payment_setup_refresh') }}" style="display:inline;">
+                        <form method="POST" action="{{ url_for('payment_setup.payment_setup_refresh') }}" style="display:inline;">
+                            {{ csrf_input() }}
                             <button type="submit" class="btn-tl btn-secondary-tl">Refresh Status</button>
                         </form>
                     </div>
@@ -678,6 +691,7 @@ def payment_setup():
                     <h3>Invoice Payment Settings</h3>
 
                     <form method="POST" action="{{ url_for('payment_setup.save_payment_preferences') }}">
+                        {{ csrf_input() }}
                         <div class="form-section">
                             <label class="form-label">Default payment message for invoice emails</label>
                             <textarea
@@ -787,11 +801,16 @@ def payment_setup():
 
 @payment_setup_bp.route("/payment-setup/save", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def save_payment_preferences():
     ensure_company_payment_settings_table()
 
-    company_id = session["company_id"]
+    company_id = session.get("company_id")
+    if not company_id:
+        flash("Company session not found.")
+        return redirect(url_for("dashboard.dashboard"))
+
     settings_row = get_payment_settings(company_id)
 
     onboarding_complete = bool(_row_value(settings_row, "onboarding_complete", False))
@@ -817,11 +836,16 @@ def save_payment_preferences():
 
 @payment_setup_bp.route("/payment-setup/connect", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def connect_stripe_account():
     ensure_company_payment_settings_table()
 
-    company_id = session["company_id"]
+    company_id = session.get("company_id")
+    if not company_id:
+        flash("Company session not found.")
+        return redirect(url_for("dashboard.dashboard"))
+
     company = get_company(company_id)
 
     if not company:
@@ -867,9 +891,13 @@ def connect_stripe_account():
 
 @payment_setup_bp.route("/payment-setup/return", methods=["GET"])
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def payment_setup_return():
-    company_id = session["company_id"]
+    company_id = session.get("company_id")
+    if not company_id:
+        flash("Company session not found.")
+        return redirect(url_for("dashboard.dashboard"))
 
     try:
         settings_row = get_payment_settings(company_id)
@@ -893,11 +921,15 @@ def payment_setup_return():
     return redirect(url_for("payment_setup.payment_setup"))
 
 
-@payment_setup_bp.route("/payment-setup/refresh", methods=["GET"])
+@payment_setup_bp.route("/payment-setup/refresh", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def payment_setup_refresh():
-    company_id = session["company_id"]
+    company_id = session.get("company_id")
+    if not company_id:
+        flash("Company session not found.")
+        return redirect(url_for("dashboard.dashboard"))
 
     try:
         settings_row = get_payment_settings(company_id)

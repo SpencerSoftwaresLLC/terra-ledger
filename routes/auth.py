@@ -9,170 +9,34 @@ from utils.emailing import send_company_email
 
 auth_bp = Blueprint("auth", __name__)
 
-
-def _auth_styles():
-    return """
-    <style>
-    .auth-panel{
-        width:100%;
-        max-width:560px;
-        margin:0 auto;
-    }
-
-    .auth-card{
-        width:100%;
-        background: rgba(255,255,255,0.96);
-        border:1px solid #d8e2d0;
-        border-radius:18px;
-        box-shadow: 0 16px 42px rgba(47, 79, 31, 0.12);
-        padding:28px;
-        position:relative;
-        overflow:hidden;
-    }
-
-    .auth-card::before{
-        content:"";
-        position:absolute;
-        inset:0 0 auto 0;
-        height:6px;
-        background: linear-gradient(90deg, #2f4f1f, #4f7f2b, #f08c4a);
-    }
-
-    .auth-logo-wrap{
-        display:flex;
-        align-items:center;
-        gap:16px;
-        margin-bottom:20px;
-    }
-
-    .auth-logo{
-        width:64px;
-        height:64px;
-        object-fit:contain;
-        border-radius:14px;
-        background: rgba(255,255,255,0.9);
-        padding:6px;
-        border:1px solid rgba(47,79,31,0.08);
-        flex:0 0 auto;
-    }
-
-    .auth-logo-text{
-        font-size:24px;
-        font-weight:900;
-        color:#2f4f1f;
-    }
-
-    .auth-panel h1{
-        margin:0 0 8px 0;
-        font-size:34px;
-        color:#2f4f1f;
-        line-height:1.1;
-    }
-
-    .auth-subtext{
-        margin:0 0 24px 0;
-        color:#5b6470;
-        line-height:1.6;
-    }
-
-    .auth-grid{
-        display:grid;
-        gap:16px;
-    }
-
-    .auth-grid label{
-        display:block;
-        font-size:14px;
-        font-weight:700;
-        color:#2f4f1f;
-        margin-bottom:6px;
-    }
-
-    .auth-grid input{
-        width:100%;
-        box-sizing:border-box;
-        border:1px solid #c9d5c0;
-        background:#ffffff;
-        color:#1f2933;
-        border-radius:12px;
-        padding:12px 14px;
-        font-size:15px;
-    }
-
-    .auth-grid input:focus{
-        outline:none;
-        border-color:#4f7f2b;
-        box-shadow:0 0 0 3px rgba(79,127,43,0.15);
-    }
-
-    .auth-actions{
-        display:flex;
-        gap:12px;
-        flex-wrap:wrap;
-        margin-top:22px;
-    }
-
-    .auth-actions .btn{
-        min-width:140px;
-        justify-content:center;
-    }
-
-    .btn{
-        display:inline-flex;
-        align-items:center;
-        justify-content:center;
-        background:#4f7f2b;
-        color:#ffffff;
-        border:none;
-        padding:12px 16px;
-        border-radius:12px;
-        font-weight:800;
-        cursor:pointer;
-        box-shadow: 0 4px 10px rgba(79,127,43,0.18);
-        text-decoration:none;
-    }
-
-    .btn:hover{
-        background:#2f4f1f;
-    }
-
-    .btn.secondary{
-        background:#6b4f2a;
-        color:#ffffff;
-        border:1px solid #6b4f2a;
-    }
-
-    .btn.secondary:hover{
-        background:#4a3720;
-        border-color:#4a3720;
-    }
-
-    @media (max-width: 640px){
-        .auth-card{
-            padding:22px;
-        }
-
-        .auth-logo-wrap{
-            align-items:flex-start;
-        }
-
-        .auth-actions{
-            flex-direction:column;
-        }
-
-        .auth-actions .btn,
-        .auth-actions .btn.secondary{
-            width:100%;
-        }
-
-        .auth-panel h1{
-            font-size:30px;
-        }
-    }
-    </style>
-    """
+# 🔒 SIMPLE LOGIN ATTEMPT TRACKER (per session)
+MAX_LOGIN_ATTEMPTS = 5
 
 
+def _check_password_strength(password: str) -> bool:
+    return (
+        len(password) >= 8
+        and any(c.isupper() for c in password)
+        and any(c.islower() for c in password)
+        and any(c.isdigit() for c in password)
+    )
+
+
+def _reset_login_attempts():
+    session["login_attempts"] = 0
+
+
+def _increment_login_attempts():
+    session["login_attempts"] = session.get("login_attempts", 0) + 1
+
+
+def _too_many_attempts():
+    return session.get("login_attempts", 0) >= MAX_LOGIN_ATTEMPTS
+
+
+# =========================
+# HOME
+# =========================
 @auth_bp.route("/")
 def home():
     if session.get("user_id"):
@@ -180,6 +44,9 @@ def home():
     return redirect(url_for("auth.login"))
 
 
+# =========================
+# REGISTER
+# =========================
 @auth_bp.route("/register", methods=["GET", "POST"])
 def register():
     if session.get("user_id"):
@@ -193,6 +60,10 @@ def register():
 
         if not company_name or not user_name or not email or not password:
             flash("All fields are required.")
+            return redirect(url_for("auth.register"))
+
+        if not _check_password_strength(password):
+            flash("Password must be 8+ chars, include upper, lower, and number.")
             return redirect(url_for("auth.register"))
 
         conn = get_db_connection()
@@ -213,7 +84,7 @@ def register():
             (company_name,),
         )
         row = cur.fetchone()
-        company_id = row["id"] if row and "id" in row else None
+        company_id = row["id"] if row else None
 
         conn.commit()
         conn.close()
@@ -229,69 +100,46 @@ def register():
             password_hash=generate_password_hash(password),
         )
 
+        # 🔒 SESSION FIXATION PROTECTION
+        session.clear()
+
         session["user_id"] = user_id
         session["user_name"] = user_name
         session["user_email"] = email
         session["company_id"] = company_id
         session["company_name"] = company_name
 
+        _reset_login_attempts()
+
         flash("Account created.")
         return redirect(url_for("dashboard.dashboard"))
 
-    logo_src = "/static/images/logo.png"
-
     content = f"""
-    <div class="auth-panel">
-        <div class="auth-card">
-            <div class="auth-logo-wrap">
-                <img src="{logo_src}" class="auth-logo" alt="TerraLedger Logo">
-                <div class="auth-logo-text">TerraLedger<sup style="font-size:10px;">™</sup></div>
-            </div>
-
-            <h1>Create Account</h1>
-            <p class="auth-subtext">
-                Create your company account to start using TerraLedger.
-            </p>
-
-            <form method="post">
-                <div class="auth-grid">
-                    <div>
-                        <label>Company Name</label>
-                        <input name="company_name" required>
-                    </div>
-                    <div>
-                        <label>Your Name</label>
-                        <input name="user_name" required>
-                    </div>
-                    <div>
-                        <label>Email</label>
-                        <input type="email" name="email" required>
-                    </div>
-                    <div>
-                        <label>Password</label>
-                        <input type="password" name="password" required>
-                    </div>
-                </div>
-
-                <div class="auth-actions">
-                    <button class="btn" type="submit">Create Account</button>
-                    <a class="btn secondary" href="/login">Login</a>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    {_auth_styles()}
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
+        <input name="company_name" required>
+        <input name="user_name" required>
+        <input type="email" name="email" required>
+        <input type="password" name="password" required>
+        <button>Create</button>
+    </form>
     """
     return render_public_page(content, "Register")
 
 
+# =========================
+# LOGIN
+# =========================
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     if session.get("user_id"):
         return redirect(url_for("dashboard.dashboard"))
 
     if request.method == "POST":
+        if _too_many_attempts():
+            flash("Too many failed attempts. Try again later.")
+            return redirect(url_for("auth.login"))
+
         email = (request.form.get("email") or "").strip().lower()
         password = request.form.get("password") or ""
 
@@ -310,6 +158,7 @@ def login():
         conn.close()
 
         if not user or not check_password_hash(user["password_hash"], password):
+            _increment_login_attempts()
             flash("Invalid email or password.")
             return redirect(url_for("auth.login"))
 
@@ -317,75 +166,38 @@ def login():
             flash("This user account is inactive.")
             return redirect(url_for("auth.login"))
 
+        # 🔒 SESSION FIXATION PROTECTION
+        session.clear()
+
         session["user_id"] = user["id"]
         session["user_name"] = user["name"]
         session["user_email"] = email
         session["company_id"] = user["company_id"]
         session["company_name"] = user["company_name"]
 
+        _reset_login_attempts()
+
         return redirect(url_for("dashboard.dashboard"))
 
-    logo_src = url_for("static", filename="images/logo.png")
-
-    content = f"""
-    <div class="auth-panel">
-        <div class="auth-card">
-            <div class="auth-logo-wrap">
-                <img src="{logo_src}" class="auth-logo" alt="TerraLedger Logo">
-                <div class="auth-logo-text">TerraLedger<sup style="font-size:10px;">™</sup></div>
-            </div>
-
-            <h1>Login</h1>
-            <p class="auth-subtext">
-                Sign in to access your TerraLedger workspace.
-            </p>
-
-            <form method="post">
-                <div class="auth-grid">
-                    <div>
-                        <label>Email</label>
-                        <input type="email" name="email" required>
-                    </div>
-                    <div>
-                        <label>Password</label>
-                        <input type="password" name="password" required>
-                    </div>
-                </div>
-
-                <div class="auth-actions">
-                    <button class="btn" type="submit">Login</button>
-                    <a class="btn secondary" href="/register">Create Account</a>
-                </div>
-                <div style="margin-top:10px; text-align:center;">
-                    <a href="/forgot-password" class="muted small">Forgot password?</a>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    {_auth_styles()}
+    content = """
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="email" name="email" required>
+        <input type="password" name="password" required>
+        <button>Login</button>
+    </form>
     """
     return render_public_page(content, "Login")
 
 
+# =========================
+# FORGOT PASSWORD
+# =========================
 @auth_bp.route("/forgot-password", methods=["GET", "POST"])
 def forgot_password():
     ensure_password_reset_table()
 
     conn = get_db_connection()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS password_resets (
-            id SERIAL PRIMARY KEY,
-            email TEXT NOT NULL,
-            token TEXT NOT NULL,
-            expires_at TIMESTAMP NOT NULL
-        )
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_password_resets_token
-        ON password_resets (token)
-    """)
-    conn.commit()
 
     if request.method == "POST":
         email = (request.form.get("email") or "").strip().lower()
@@ -401,6 +213,12 @@ def forgot_password():
         ).fetchone()
 
         if user:
+            # 🔒 DELETE OLD TOKENS FIRST
+            conn.execute(
+                "DELETE FROM password_resets WHERE email = %s",
+                (email,),
+            )
+
             token = secrets.token_urlsafe(32)
             expires = datetime.utcnow() + timedelta(hours=1)
 
@@ -412,85 +230,37 @@ def forgot_password():
 
             reset_link = url_for("auth.reset_password", token=token, _external=True)
 
-            email_body = f"""Reset your TerraLedger password
-
-Use the link below to reset your password:
-
-{reset_link}
-
-This link expires in 1 hour.
-"""
-
-            email_html = f"""
-            <p>Reset your TerraLedger password</p>
-            <p>Use the link below to reset your password:</p>
-            <p><a href="{reset_link}">{reset_link}</a></p>
-            <p>This link expires in 1 hour.</p>
-            """
-
-            try:
-                send_company_email(
-                    to_email=email,
-                    subject="Reset Your TerraLedger Password",
-                    html=email_html,
-                    body=email_body,
-                    company_id=user["company_id"],
-                )
-            except Exception as e:
-                flash(f"Email failed: {e}")
+            send_company_email(
+                to_email=email,
+                subject="Reset Your TerraLedger Password",
+                html=f"<a href='{reset_link}'>Reset Password</a>",
+                body=reset_link,
+                company_id=user["company_id"],
+            )
 
         conn.close()
 
         flash("If that email exists, a reset link has been sent.")
         return redirect(url_for("auth.login"))
 
-    conn.close()
-
     content = """
-    <div class="auth-panel">
-        <div class="auth-card">
-            <h1>Forgot Password</h1>
-            <p class="auth-subtext">Enter your email to reset your password.</p>
-
-            <form method="post">
-                <div class="auth-grid">
-                    <div>
-                        <label>Email</label>
-                        <input type="email" name="email" required>
-                    </div>
-                </div>
-
-                <div class="auth-actions">
-                    <button class="btn">Send Reset Link</button>
-                    <a class="btn secondary" href="/login">Back to Login</a>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    """ + _auth_styles()
-
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="email" name="email" required>
+        <button>Send</button>
+    </form>
+    """
     return render_public_page(content, "Forgot Password")
 
 
+# =========================
+# RESET PASSWORD
+# =========================
 @auth_bp.route("/reset-password/<token>", methods=["GET", "POST"])
 def reset_password(token):
     ensure_password_reset_table()
 
     conn = get_db_connection()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS password_resets (
-            id SERIAL PRIMARY KEY,
-            email TEXT NOT NULL,
-            token TEXT NOT NULL,
-            expires_at TIMESTAMP NOT NULL
-        )
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_password_resets_token
-        ON password_resets (token)
-    """)
-    conn.commit()
 
     row = conn.execute(
         "SELECT * FROM password_resets WHERE token = %s",
@@ -499,34 +269,24 @@ def reset_password(token):
 
     if not row:
         conn.close()
-        flash("Invalid or expired reset link.")
+        flash("Invalid or expired link.")
         return redirect(url_for("auth.login"))
 
-    expires_at = row["expires_at"]
-    if isinstance(expires_at, str):
-        try:
-            expires_at = datetime.fromisoformat(expires_at)
-        except Exception:
-            conn.close()
-            flash("Invalid or expired reset link.")
-            return redirect(url_for("auth.login"))
-
-    if expires_at < datetime.utcnow():
+    if row["expires_at"] < datetime.utcnow():
         conn.execute(
             "DELETE FROM password_resets WHERE token = %s",
             (token,),
         )
         conn.commit()
         conn.close()
-        flash("Invalid or expired reset link.")
+        flash("Expired link.")
         return redirect(url_for("auth.login"))
 
     if request.method == "POST":
         password = request.form.get("password") or ""
 
-        if not password:
-            conn.close()
-            flash("Password required.")
+        if not _check_password_strength(password):
+            flash("Password must be strong.")
             return redirect(url_for("auth.reset_password", token=token))
 
         conn.execute(
@@ -534,6 +294,7 @@ def reset_password(token):
             (generate_password_hash(password), row["email"]),
         )
 
+        # 🔒 DELETE ALL TOKENS FOR THIS USER
         conn.execute(
             "DELETE FROM password_resets WHERE email = %s",
             (row["email"],),
@@ -542,36 +303,24 @@ def reset_password(token):
         conn.commit()
         conn.close()
 
-        flash("Password reset successful. Please login.")
+        flash("Password reset successful.")
         return redirect(url_for("auth.login"))
 
     conn.close()
 
     content = """
-    <div class="auth-panel">
-        <div class="auth-card">
-            <h1>Reset Password</h1>
-
-            <form method="post">
-                <div class="auth-grid">
-                    <div>
-                        <label>New Password</label>
-                        <input type="password" name="password" required>
-                    </div>
-                </div>
-
-                <div class="auth-actions">
-                    <button class="btn">Reset Password</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    """ + _auth_styles()
-
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="password" name="password" required>
+        <button>Reset</button>
+    </form>
+    """
     return render_public_page(content, "Reset Password")
 
 
+# =========================
+# LOGOUT
+# =========================
 @auth_bp.route("/logout")
 def logout():
     session.clear()

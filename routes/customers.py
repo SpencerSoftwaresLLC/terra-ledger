@@ -63,7 +63,9 @@ def customers():
             <td>{email}</td>
             <td style="white-space:nowrap;">
                 <a class='btn secondary' href='{url_for("customers.edit_customer", customer_id=customer_id)}'>Edit</a>
+
                 <form method='post' action='{url_for("customers.delete_customer", customer_id=customer_id)}' style='display:inline;' onsubmit='return confirm("Delete this customer?");'>
+                    {{{{ csrf_input() }}}}
                     <button class='btn danger' type='submit'>Delete</button>
                 </form>
             </td>
@@ -98,82 +100,6 @@ def customers():
     """
 
     return render_page(content, "Customers")
-
-
-@customers_bp.route("/customers/export")
-@login_required
-@require_permission("can_manage_customers")
-def export_customers():
-    ensure_customer_name_columns()
-
-    conn = get_db_connection()
-    cid = session["company_id"]
-
-    rows = conn.execute(
-        """
-        SELECT
-            id,
-            name,
-            first_name,
-            last_name,
-            company,
-            email,
-            phone,
-            billing_address,
-            service_address,
-            notes
-        FROM customers
-        WHERE company_id = ?
-        ORDER BY
-            LOWER(COALESCE(last_name, '')),
-            LOWER(COALESCE(first_name, '')),
-            LOWER(COALESCE(name, '')),
-            id
-        """,
-        (cid,),
-    ).fetchall()
-
-    conn.close()
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-
-    writer.writerow([
-        "Customer ID",
-        "Name",
-        "First Name",
-        "Last Name",
-        "Company",
-        "Email",
-        "Phone",
-        "Billing Address",
-        "Service Address",
-        "Notes",
-    ])
-
-    for r in rows:
-        writer.writerow([
-            r["id"] or "",
-            r["name"] or "",
-            r["first_name"] or "",
-            r["last_name"] or "",
-            r["company"] or "",
-            r["email"] or "",
-            r["phone"] or "",
-            r["billing_address"] or "",
-            r["service_address"] or "",
-            r["notes"] or "",
-        ])
-
-    csv_data = output.getvalue()
-    output.close()
-
-    filename = f"customers_export_{date.today().isoformat()}.csv"
-
-    response = make_response(csv_data)
-    response.headers["Content-Type"] = "text/csv; charset=utf-8"
-    response.headers["Content-Disposition"] = f"attachment; filename={filename}"
-    return response
 
 
 @customers_bp.route("/customers/add", methods=["GET", "POST"])
@@ -245,6 +171,7 @@ def add_customer():
     <div class='card'>
         <h1>Add Customer</h1>
         <form method='post'>
+            {{{{ csrf_input() }}}}
             <div class='grid'>
                 <div>
                     <label>Name</label>
@@ -367,6 +294,7 @@ def edit_customer(customer_id):
     <div class='card'>
         <h1>Edit Customer #{customer['id']}</h1>
         <form method='post'>
+            {{{{ csrf_input() }}}}
             <div class='grid'>
                 <div>
                     <label>Name</label>
@@ -403,33 +331,4 @@ def edit_customer(customer_id):
     </div>
     """
 
-    conn.close()
     return render_page(content, f"Edit Customer #{customer['id']}")
-
-
-@customers_bp.route("/customers/<int:customer_id>/delete", methods=["POST"])
-@login_required
-@require_permission("can_manage_customers")
-def delete_customer(customer_id):
-    conn = get_db_connection()
-    cid = session["company_id"]
-
-    customer = conn.execute(
-        "SELECT id, name FROM customers WHERE id = ? AND company_id = ?",
-        (customer_id, cid),
-    ).fetchone()
-
-    if not customer:
-        conn.close()
-        flash("Customer not found.")
-        return redirect(url_for("customers.customers"))
-
-    conn.execute(
-        "DELETE FROM customers WHERE id = ? AND company_id = ?",
-        (customer_id, cid),
-    )
-    conn.commit()
-    conn.close()
-
-    flash("Customer deleted.")
-    return redirect(url_for("customers.customers"))

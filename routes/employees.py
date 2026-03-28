@@ -226,6 +226,7 @@ def _employee_form_html(employee=None, form_action="", submit_label="Save Employ
     </div>
 
     <form method='post' action='{form_action}'>
+        {{{{ csrf_input() }}}}
         <div class='card'>
             <h2>Employee Information</h2>
             <div class='grid'>
@@ -593,11 +594,13 @@ def employees():
 
                     {
                         f"<form method='post' action='{url_for('employees.deactivate_employee', employee_id=r['id'])}' class='inline-form'>"
+                        f"{{{{ csrf_input() }}}}"
                         f"<button class='btn warning small' type='submit'>Set Inactive</button>"
                         f"</form>"
                         if bool(r['is_active'])
                         else
                         f"<form method='post' action='{url_for('employees.activate_employee', employee_id=r['id'])}' class='inline-form'>"
+                        f"{{{{ csrf_input() }}}}"
                         f"<button class='btn success small' type='submit'>Set Active</button>"
                         f"</form>"
                     }
@@ -606,6 +609,7 @@ def employees():
                         action='{url_for("employees.delete_employee", employee_id=r["id"])}'
                         class='inline-form'
                         onsubmit="return confirm('Delete this employee? This cannot be undone.');">
+                        {{{{ csrf_input() }}}}
                         <button class='btn danger small' type='submit'>Delete</button>
                     </form>
                 </div>
@@ -1564,6 +1568,7 @@ def time_clock():
     <div class='card'>
         <h2>Pay Period Settings</h2>
         <form method='post' action='{{ url_for("employees.update_time_clock_settings") }}'>
+            {{ csrf_input() }}
             <div style='display:grid; grid-template-columns:minmax(220px, 1fr) auto; gap:12px; align-items:end;'>
                 <div>
                     <label>Pay Period Start Day</label>
@@ -1606,6 +1611,7 @@ def time_clock():
         <h2>Clock Actions</h2>
 
         <form method='post' action='{{ url_for("employees.time_clock_clock_in") }}' style='margin-bottom:14px;'>
+            {{ csrf_input() }}
             <div style='display:grid; grid-template-columns:minmax(220px, 1fr) auto; gap:12px; align-items:end;'>
                 <div>
                     <label>Select Employee to Clock In</label>
@@ -1624,6 +1630,7 @@ def time_clock():
         </form>
 
         <form method='post' action='{{ url_for("employees.time_clock_clock_out") }}'>
+            {{ csrf_input() }}
             <div style='display:grid; grid-template-columns:minmax(220px, 1fr) auto; gap:12px; align-items:end;'>
                 <div>
                     <label>Select Employee to Clock Out</label>
@@ -1688,6 +1695,7 @@ def time_clock():
             </div>
 
             <form method='post' action='{{ url_for("employees.send_time_clock_summary_now") }}' style='margin:0;'>
+                {{ csrf_input() }}
                 <button class='btn warning' type='submit'>Send Last Pay Period Summary</button>
             </form>
         </div>
@@ -1733,9 +1741,9 @@ def time_clock():
             currently_clocked_in=currently_clocked_in,
             pay_period_start=pay_period_start.isoformat(),
             pay_period_end=pay_period_end.isoformat(),
-            pay_period_start_day=pay_period_start_day,
             pay_period_start_label=_weekday_label(pay_period_start_day),
             pay_period_end_label=_weekday_label(pay_period_end_day),
+            pay_period_start_day=pay_period_start_day,
             weekday_options=[
                 (0, "Monday"),
                 (1, "Tuesday"),
@@ -1747,6 +1755,7 @@ def time_clock():
             ],
             clocked_in_ids=clocked_in_ids,
             format_hours=_format_hours,
+            csrf_input=lambda: "{{ csrf_input() }}",
         ),
         "Clock In / Out",
     )
