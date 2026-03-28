@@ -1,5 +1,6 @@
-from flask import Blueprint, session, url_for
+from flask import Blueprint, session, url_for, redirect, flash
 from datetime import date, datetime
+
 from db import get_db_connection
 from decorators import login_required, subscription_required
 from page_helpers import render_page
@@ -74,118 +75,123 @@ def _parse_possible_date(value):
 @login_required
 @subscription_required
 def dashboard():
+    cid = session.get("company_id")
+    if not cid:
+        flash("Company session not found.")
+        return redirect(url_for("auth.login"))
+
     conn = get_db_connection()
-    cid = session["company_id"]
 
-    customers_count_row = conn.execute(
-        "SELECT COUNT(*) AS count FROM customers WHERE company_id = %s",
-        (cid,),
-    ).fetchone()
-    customers_count = int(customers_count_row["count"] or 0) if customers_count_row else 0
+    try:
+        customers_count_row = conn.execute(
+            "SELECT COUNT(*) AS count FROM customers WHERE company_id = %s",
+            (cid,),
+        ).fetchone()
+        customers_count = int(customers_count_row["count"] or 0) if customers_count_row else 0
 
-    quotes_count_row = conn.execute(
-        "SELECT COUNT(*) AS count FROM quotes WHERE company_id = %s",
-        (cid,),
-    ).fetchone()
-    quotes_count = int(quotes_count_row["count"] or 0) if quotes_count_row else 0
+        quotes_count_row = conn.execute(
+            "SELECT COUNT(*) AS count FROM quotes WHERE company_id = %s",
+            (cid,),
+        ).fetchone()
+        quotes_count = int(quotes_count_row["count"] or 0) if quotes_count_row else 0
 
-    jobs_count_row = conn.execute(
-        "SELECT COUNT(*) AS count FROM jobs WHERE company_id = %s",
-        (cid,),
-    ).fetchone()
-    jobs_count = int(jobs_count_row["count"] or 0) if jobs_count_row else 0
+        jobs_count_row = conn.execute(
+            "SELECT COUNT(*) AS count FROM jobs WHERE company_id = %s",
+            (cid,),
+        ).fetchone()
+        jobs_count = int(jobs_count_row["count"] or 0) if jobs_count_row else 0
 
-    invoices_count_row = conn.execute(
-        "SELECT COUNT(*) AS count FROM invoices WHERE company_id = %s",
-        (cid,),
-    ).fetchone()
-    invoices_count = int(invoices_count_row["count"] or 0) if invoices_count_row else 0
+        invoices_count_row = conn.execute(
+            "SELECT COUNT(*) AS count FROM invoices WHERE company_id = %s",
+            (cid,),
+        ).fetchone()
+        invoices_count = int(invoices_count_row["count"] or 0) if invoices_count_row else 0
 
-    ledger_rows = conn.execute(
-        """
-        SELECT entry_type, amount, description, source_type
-        FROM ledger_entries
-        WHERE company_id = %s
-        """,
-        (cid,),
-    ).fetchall()
+        ledger_rows = conn.execute(
+            """
+            SELECT entry_type, amount, description, source_type
+            FROM ledger_entries
+            WHERE company_id = %s
+            """,
+            (cid,),
+        ).fetchall()
 
-    ledger_income_total = 0.0
-    expense_total = 0.0
+        ledger_income_total = 0.0
+        expense_total = 0.0
 
-    for row in ledger_rows:
-        amount = abs(_safe_float(row["amount"]))
-        entry_type = row["entry_type"] or ""
-        source_type = str(row["source_type"] or "").strip().lower()
+        for row in ledger_rows:
+            amount = abs(_safe_float(row["amount"]))
+            entry_type = row["entry_type"] or ""
+            source_type = str(row["source_type"] or "").strip().lower()
 
-        # avoid double counting invoice payments if they are also represented in ledger_entries
-        if source_type in {"invoice_payment", "invoice_paid", "invoice_mark_paid"}:
-            continue
+            if source_type in {"invoice_payment", "invoice_paid", "invoice_mark_paid"}:
+                continue
 
-        if _is_expense_type(entry_type):
-            expense_total += amount
-        else:
-            ledger_income_total += amount
+            if _is_expense_type(entry_type):
+                expense_total += amount
+            else:
+                ledger_income_total += amount
 
-    invoice_payment_total_row = conn.execute(
-        """
-        SELECT COALESCE(SUM(amount), 0) AS total
-        FROM invoice_payments
-        WHERE company_id = %s
-        """,
-        (cid,),
-    ).fetchone()
-    invoice_payment_total = _safe_float(invoice_payment_total_row["total"]) if invoice_payment_total_row else 0.0
+        invoice_payment_total_row = conn.execute(
+            """
+            SELECT COALESCE(SUM(amount), 0) AS total
+            FROM invoice_payments
+            WHERE company_id = %s
+            """,
+            (cid,),
+        ).fetchone()
+        invoice_payment_total = _safe_float(invoice_payment_total_row["total"]) if invoice_payment_total_row else 0.0
 
-    income_total = ledger_income_total + invoice_payment_total
-    profit_total = income_total - expense_total
+        income_total = ledger_income_total + invoice_payment_total
+        profit_total = income_total - expense_total
 
-    upcoming_jobs = conn.execute(
-        """
-        SELECT j.id, j.title, j.status, c.name AS customer_name
-        FROM jobs j
-        JOIN customers c ON j.customer_id = c.id
-        WHERE j.company_id = %s
-        ORDER BY j.id DESC
-        LIMIT 8
-        """,
-        (cid,),
-    ).fetchall()
+        upcoming_jobs = conn.execute(
+            """
+            SELECT j.id, j.title, j.status, c.name AS customer_name
+            FROM jobs j
+            JOIN customers c ON j.customer_id = c.id
+            WHERE j.company_id = %s
+            ORDER BY j.id DESC
+            LIMIT 8
+            """,
+            (cid,),
+        ).fetchall()
 
-    unpaid_invoices = conn.execute(
-        """
-        SELECT i.id, i.invoice_number, i.status, i.total, i.balance_due,
-               i.invoice_date, i.due_date, c.name AS customer_name
-        FROM invoices i
-        JOIN customers c ON i.customer_id = c.id
-        WHERE i.company_id = %s
-          AND COALESCE(i.status, '') != 'Paid'
-        ORDER BY i.id DESC
-        LIMIT 8
-        """,
-        (cid,),
-    ).fetchall()
+        unpaid_invoices = conn.execute(
+            """
+            SELECT i.id, i.invoice_number, i.status, i.total, i.balance_due,
+                   i.invoice_date, i.due_date, c.name AS customer_name
+            FROM invoices i
+            JOIN customers c ON i.customer_id = c.id
+            WHERE i.company_id = %s
+              AND COALESCE(i.status, '') != 'Paid'
+            ORDER BY i.id DESC
+            LIMIT 8
+            """,
+            (cid,),
+        ).fetchall()
 
-    aging_source_rows = conn.execute(
-        """
-        SELECT
-            i.id,
-            i.invoice_number,
-            i.invoice_date,
-            i.due_date,
-            i.status,
-            i.balance_due,
-            c.name AS customer_name
-        FROM invoices i
-        JOIN customers c ON i.customer_id = c.id
-        WHERE i.company_id = %s
-          AND COALESCE(i.balance_due, 0) > 0
-        ORDER BY i.id DESC
-        """,
-        (cid,),
-    ).fetchall()
+        aging_source_rows = conn.execute(
+            """
+            SELECT
+                i.id,
+                i.invoice_number,
+                i.invoice_date,
+                i.due_date,
+                i.status,
+                i.balance_due,
+                c.name AS customer_name
+            FROM invoices i
+            JOIN customers c ON i.customer_id = c.id
+            WHERE i.company_id = %s
+              AND COALESCE(i.balance_due, 0) > 0
+            ORDER BY i.id DESC
+            """,
+            (cid,),
+        ).fetchall()
 
-    conn.close()
+    finally:
+        conn.close()
 
     today = date.today()
     aging_rows = []
@@ -241,7 +247,7 @@ def dashboard():
             <td>{_safe_text(r['customer_name'])}</td>
             <td>{_safe_text(r['status'])}</td>
             <td>
-                <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
+                <a class='btn secondary small dashboard-btn' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
             </td>
         </tr>
         """
@@ -256,7 +262,7 @@ def dashboard():
             <td>{_safe_text(r['status'])}</td>
             <td>${_safe_float(r['balance_due']):,.2f}</td>
             <td>
-                <a class='btn secondary small' href='{url_for("invoices.view_invoice", invoice_id=r["id"])}'>View</a>
+                <a class='btn secondary small dashboard-btn' href='{url_for("invoices.view_invoice", invoice_id=r["id"])}'>View</a>
             </td>
         </tr>
         """
@@ -273,7 +279,7 @@ def dashboard():
             <td>{r['aging_bucket']}</td>
             <td>${_safe_float(r['balance_due']):,.2f}</td>
             <td>
-                <a class='btn secondary small' href='{url_for("invoices.view_invoice", invoice_id=r["id"])}'>View</a>
+                <a class='btn secondary small dashboard-btn' href='{url_for("invoices.view_invoice", invoice_id=r["id"])}'>View</a>
             </td>
         </tr>
         """
@@ -301,9 +307,66 @@ def dashboard():
         overflow-x: auto;
     }}
 
+    .dashboard-financials {{
+        display:flex;
+        gap:16px;
+        justify-content:center;
+        flex-wrap:wrap;
+        margin-top:18px;
+    }}
+
+    .dashboard-financial-card {{
+        width:260px;
+    }}
+
+    .dashboard-btn {{
+        white-space: nowrap;
+    }}
+
     @media (max-width: 900px) {{
         .dashboard-grid {{
             grid-template-columns: 1fr;
+        }}
+    }}
+
+    @media (max-width: 640px) {{
+        .dashboard-financials {{
+            gap: 10px;
+        }}
+
+        .dashboard-financial-card {{
+            width: 100%;
+        }}
+
+        .dashboard-btn,
+        .btn.small {{
+            padding: 6px 10px !important;
+            font-size: 0.82rem !important;
+            line-height: 1.2 !important;
+            min-height: auto !important;
+        }}
+
+        .section-head {{
+            gap: 10px;
+        }}
+
+        .section-head .btn {{
+            padding: 6px 10px !important;
+            font-size: 0.82rem !important;
+            min-height: auto !important;
+        }}
+
+        .stat-card {{
+            padding: 12px !important;
+        }}
+
+        .stat-value {{
+            font-size: 1.2rem !important;
+        }}
+
+        table th,
+        table td {{
+            font-size: 0.85rem;
         }}
     }}
     </style>
@@ -332,18 +395,18 @@ def dashboard():
         </div>
     </div>
 
-    <div style="display:flex; gap:16px; justify-content:center; flex-wrap:wrap; margin-top:18px;">
-        <div class='card stat-card' style="width:260px;">
+    <div class="dashboard-financials">
+        <div class='card stat-card dashboard-financial-card'>
             <div class='stat-label'>Income</div>
             <div class='stat-value' style="color:#16a34a;">+${income_total:,.2f}</div>
         </div>
 
-        <div class='card stat-card' style="width:260px;">
+        <div class='card stat-card dashboard-financial-card'>
             <div class='stat-label'>Expenses</div>
             <div class='stat-value' style="color:#dc2626;">-${expense_total:,.2f}</div>
         </div>
 
-        <div class='card stat-card' style="width:260px;">
+        <div class='card stat-card dashboard-financial-card'>
             <div class='stat-label'>Profit</div>
             <div class='stat-value' style="color:{'#16a34a' if profit_total >= 0 else '#dc2626'};">
                 {'+' if profit_total >= 0 else '-'}${abs(profit_total):,.2f}
@@ -401,7 +464,7 @@ def dashboard():
         <div class='card'>
             <div class='section-head'>
                 <h2>Upcoming Jobs</h2>
-                <a class='btn small' href='{url_for("jobs.jobs")}'>View All</a>
+                <a class='btn small dashboard-btn' href='{url_for("jobs.jobs")}'>View All</a>
             </div>
 
             <div class='table-wrap'>
@@ -421,7 +484,7 @@ def dashboard():
         <div class='card'>
             <div class='section-head'>
                 <h2>Unpaid Invoices</h2>
-                <a class='btn small' href='{url_for("invoices.invoices")}'>View All</a>
+                <a class='btn small dashboard-btn' href='{url_for("invoices.invoices")}'>View All</a>
             </div>
 
             <div class='table-wrap'>

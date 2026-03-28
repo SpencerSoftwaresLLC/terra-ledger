@@ -5,138 +5,190 @@ import re
 TERRALEDGER_HELP_KNOWLEDGE = {
     "app_name": "TerraLedger",
     "summary": (
-        "TerraLedger is a business management platform for yard, hauling, "
-        "landscaping, materials, service, and contractor-style businesses."
+        "TerraLedger is a business management platform for landscaping, hauling, "
+        "material supply, and contractor businesses. It connects customers, quotes, "
+        "jobs, invoices, payments, payroll, and bookkeeping into one system."
     ),
+
+    "core_workflow": [
+        "1. Create Customer",
+        "2. Create Quote (optional)",
+        "3. Convert Quote → Job",
+        "4. Track Job (materials, labor, cost)",
+        "5. Convert Job → Invoice",
+        "6. Send Invoice",
+        "7. Record or collect Payment",
+        "8. Automatically track income/expenses in bookkeeping",
+    ],
+
     "modules": {
+
         "dashboard": {
-            "summary": "Main overview of business activity.",
+            "summary": "Main business overview with financial and operational data.",
             "common_tasks": [
-                "View quick stats",
-                "Review totals",
-                "Jump to other modules",
+                "View income, expenses, and profit",
+                "See unpaid invoices",
+                "View upcoming jobs",
+                "Track business performance",
             ],
         },
+
+        "calendar": {
+            "summary": "Schedule and visualize jobs by day, week, or month.",
+            "common_tasks": [
+                "View scheduled jobs",
+                "Assign jobs to employees or crews",
+                "See job time blocks",
+                "Manage overlapping jobs",
+            ],
+        },
+
         "customers": {
-            "summary": "Create and manage customer records.",
+            "summary": "Manage customer records and contact details.",
             "common_tasks": [
-                "Add a customer",
-                "Edit customer details",
-                "View customer history",
+                "Add customer",
+                "Edit contact info",
+                "Track job and invoice history",
             ],
         },
-        "jobs": {
-            "summary": "Create and manage jobs for customers.",
-            "common_tasks": [
-                "Create a job",
-                "Add job details",
-                "Track job-related activity",
-                "Convert job information into invoice-ready work",
-            ],
-        },
+
         "quotes": {
-            "summary": "Create and manage quotes for customers.",
+            "summary": "Create estimates for customers before work begins.",
             "common_tasks": [
-                "Create a quote",
+                "Create quote",
                 "Add line items",
-                "Save a quote",
-                "Email a quote PDF",
-                "Convert a quote into an invoice",
+                "Convert quote to invoice",
             ],
             "steps": {
                 "create quote": [
-                    "Open Quotes from the navigation.",
-                    "Click the button to create a new quote.",
-                    "Select the customer.",
-                    "Add quote line items, quantities, prices, and notes as needed.",
+                    "Go to Quotes.",
+                    "Click 'New Quote'.",
+                    "Select a customer.",
+                    "Add line items and pricing.",
                     "Save the quote.",
                 ],
-                "convert quote to invoice": [
-                    "Open the saved quote.",
-                    "Look for the option to convert the quote into an invoice.",
-                    "Review the line items and totals.",
-                    "Save the new invoice.",
-                ],
             },
         },
+
+        "jobs": {
+            "summary": "Track actual work being performed.",
+            "common_tasks": [
+                "Create job from customer or quote",
+                "Add materials, labor, and costs",
+                "Schedule job on calendar",
+                "Track profitability",
+            ],
+        },
+
         "invoices": {
-            "summary": "Create, manage, send, and track invoices.",
+            "summary": "Bill customers and track payments.",
             "common_tasks": [
                 "Create invoice",
-                "Edit invoice",
-                "Mark invoice paid",
-                "Record partial payment",
-                "Email invoice PDF",
+                "Convert job to invoice",
+                "Record partial payments",
+                "Track balance due",
+                "Send invoice email",
             ],
             "steps": {
-                "create invoice": [
-                    "Open Invoices from the navigation.",
-                    "Click the button to create a new invoice.",
-                    "Select the customer or related job.",
-                    "Add invoice items, quantities, pricing, and tax if needed.",
-                    "Save the invoice.",
-                ],
-                "record payment": [
+                "record partial payment": [
                     "Open the invoice.",
-                    "Use the payment action on the invoice screen.",
-                    "Enter the payment amount and payment details.",
-                    "Save the payment so the invoice balance updates.",
+                    "Click 'Add Payment'.",
+                    "Enter the amount paid.",
+                    "Save to update balance.",
                 ],
             },
         },
+
+        "payments": {
+            "summary": "Online payments powered by Stripe.",
+            "common_tasks": [
+                "Connect Stripe account",
+                "Enable invoice payments",
+                "Allow partial payments",
+                "Receive payouts directly to bank",
+            ],
+            "notes": [
+                "TerraLedger does not hold funds.",
+                "Payments go directly to the business via Stripe.",
+            ],
+        },
+
+        "messages": {
+            "summary": "Send SMS updates to customers.",
+            "common_tasks": [
+                "Send manual messages",
+                "Send job updates",
+                "Send invoice reminders",
+                "Use message templates",
+            ],
+        },
+
         "ledger": {
-            "summary": "Track bookkeeping entries like income and expenses.",
+            "summary": "Automatic bookkeeping system.",
             "common_tasks": [
-                "Add income entry",
-                "Add expense entry",
-                "Review bookkeeping history",
+                "Track income from invoices",
+                "Track job costs (materials, labor)",
+                "View profit",
+            ],
+            "notes": [
+                "Job costs automatically create expense entries.",
+                "Invoice payments automatically create income entries.",
             ],
         },
+
         "payroll": {
-            "summary": "Track payroll entries, hours, rates, and deductions.",
+            "summary": "Track employee pay and taxes.",
             "common_tasks": [
-                "Create payroll entry",
-                "Review gross pay",
-                "Review deductions",
-                "Track payroll history",
+                "Calculate gross pay",
+                "Apply tax rates",
+                "Track payroll expenses",
             ],
         },
+
         "employees": {
-            "summary": "Manage employee records and payroll-related details.",
+            "summary": "Manage employee details and pay settings.",
             "common_tasks": [
                 "Add employee",
-                "Edit employee",
-                "View employee details",
+                "Set hourly or salary",
+                "Store tax settings",
             ],
         },
+
         "users": {
-            "summary": "Manage login users and permission levels.",
+            "summary": "Control access and permissions.",
             "common_tasks": [
-                "Create user",
-                "Edit user",
-                "Enable or disable user access",
-                "Manage permissions",
+                "Create users",
+                "Set permissions",
+                "Restrict access to modules",
             ],
         },
+
         "settings": {
-            "summary": "Manage company settings, logos, billing, tax settings, and platform configuration.",
+            "summary": "Configure company settings.",
             "common_tasks": [
                 "Update company info",
-                "Upload logo",
-                "Review billing",
-                "Configure tax settings",
+                "Set tax rates",
+                "Configure branding",
+                "Manage system defaults",
             ],
         },
     },
+
+    "important_rules": [
+        "Jobs drive revenue and costs.",
+        "Invoices generate income.",
+        "Payments reduce invoice balance.",
+        "Ledger updates automatically from jobs and invoices.",
+        "Stripe handles all online payments.",
+        "Messaging is optional and can be turned on/off.",
+    ],
+
     "response_rules": [
-        "Answer as the built-in TerraLedger assistant.",
-        "Give step-by-step instructions whenever the user asks how to do something.",
-        "Use numbered steps whenever possible.",
-        "Use real page/module names when known.",
-        "Do not invent buttons, features, or pages that do not exist.",
-        "If a feature may not exist in this build, say so clearly.",
-        "Be practical, direct, and helpful.",
-        "For payroll, accounting, tax, and legal topics, explain software workflow but do not pretend to be a CPA or attorney.",
+        "Answer as the TerraLedger assistant.",
+        "Use step-by-step instructions when explaining how to do something.",
+        "Be direct and practical.",
+        "Do not invent features that do not exist.",
+        "If something is not built yet, say so clearly.",
     ],
 }
 

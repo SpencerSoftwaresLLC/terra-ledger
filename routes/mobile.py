@@ -16,30 +16,32 @@ def mobile_home():
         .mobile-view-wrap {{
             max-width: 700px;
             margin: 0 auto;
+            padding: 10px;
         }}
 
         .mobile-hero {{
-            padding: 18px;
-            border-radius: 18px;
+            padding: 14px;
+            border-radius: 14px;
             background: linear-gradient(135deg, #1e293b, #334155);
             color: #fff;
-            margin-bottom: 18px;
+            margin-bottom: 14px;
         }}
 
         .mobile-hero h1 {{
-            margin: 0 0 6px 0;
-            font-size: 1.7rem;
+            margin: 0 0 4px 0;
+            font-size: 1.4rem;
         }}
 
         .mobile-hero p {{
             margin: 0;
+            font-size: .9rem;
             color: rgba(255,255,255,.85);
         }}
 
         .mobile-grid {{
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 14px;
+            gap: 10px;
         }}
 
         .mobile-card-btn {{
@@ -47,45 +49,40 @@ def mobile_home():
             text-decoration: none;
             background: #fff;
             border: 1px solid #dbe2ea;
-            border-radius: 18px;
-            padding: 18px 16px;
-            min-height: 110px;
-            box-shadow: 0 8px 20px rgba(0,0,0,.05);
-            transition: transform .15s ease, box-shadow .15s ease;
-        }}
-
-        .mobile-card-btn:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 10px 22px rgba(0,0,0,.08);
+            border-radius: 14px;
+            padding: 12px;
+            min-height: auto;
+            box-shadow: 0 4px 12px rgba(0,0,0,.05);
         }}
 
         .mobile-card-title {{
-            font-size: 1.05rem;
+            font-size: .95rem;
             font-weight: 700;
             color: #0f172a;
-            margin-bottom: 6px;
+            margin-bottom: 4px;
         }}
 
         .mobile-card-text {{
-            font-size: .92rem;
+            font-size: .82rem;
             color: #64748b;
-            line-height: 1.45;
+            line-height: 1.3;
         }}
 
         .mobile-actions {{
             display: grid;
             grid-template-columns: 1fr;
-            gap: 12px;
-            margin-top: 18px;
+            gap: 10px;
+            margin-top: 14px;
         }}
 
         .mobile-wide-btn {{
             display: block;
             text-align: center;
             text-decoration: none;
-            padding: 14px 16px;
-            border-radius: 14px;
-            font-weight: 700;
+            padding: 10px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: .9rem;
             border: 1px solid #dbe2ea;
             background: #fff;
             color: #0f172a;
@@ -97,13 +94,37 @@ def mobile_home():
             border-color: #2563eb;
         }}
 
+        /* 🔥 KEY MOBILE FIX */
         @media (max-width: 640px) {{
+
             .mobile-grid {{
                 grid-template-columns: 1fr;
             }}
 
+            .mobile-card-btn {{
+                padding: 10px;
+                border-radius: 12px;
+            }}
+
+            .mobile-card-title {{
+                font-size: .9rem;
+            }}
+
+            .mobile-card-text {{
+                font-size: .8rem;
+            }}
+
+            .mobile-wide-btn {{
+                padding: 9px;
+                font-size: .85rem;
+            }}
+
             .mobile-hero h1 {{
-                font-size: 1.45rem;
+                font-size: 1.2rem;
+            }}
+
+            .mobile-hero p {{
+                font-size: .85rem;
             }}
         }}
     </style>
@@ -111,33 +132,33 @@ def mobile_home():
     <div class="mobile-view-wrap">
         <div class="mobile-hero">
             <h1>{company_name} Mobile Viewer</h1>
-            <p>Quick phone-friendly access to your most important TerraLedger pages.</p>
+            <p>Quick access to your TerraLedger tools.</p>
         </div>
 
         <div class="mobile-grid">
             <a class="mobile-card-btn" href="{url_for('dashboard.dashboard')}">
                 <div class="mobile-card-title">Dashboard</div>
-                <div class="mobile-card-text">See income, expenses, profit, jobs, and invoices.</div>
+                <div class="mobile-card-text">Income, jobs, invoices</div>
             </a>
 
             <a class="mobile-card-btn" href="{url_for('customers.customers')}">
                 <div class="mobile-card-title">Customers</div>
-                <div class="mobile-card-text">View and manage customer records quickly.</div>
+                <div class="mobile-card-text">Manage contacts</div>
             </a>
 
             <a class="mobile-card-btn" href="{url_for('quotes.quotes')}">
                 <div class="mobile-card-title">Quotes</div>
-                <div class="mobile-card-text">Open quotes, add new ones, and email them out.</div>
+                <div class="mobile-card-text">Create & send</div>
             </a>
 
             <a class="mobile-card-btn" href="{url_for('jobs.jobs')}">
                 <div class="mobile-card-title">Jobs</div>
-                <div class="mobile-card-text">Track active jobs and convert work to invoices.</div>
+                <div class="mobile-card-text">Track work</div>
             </a>
 
             <a class="mobile-card-btn" href="{url_for('invoices.invoices')}">
                 <div class="mobile-card-title">Invoices</div>
-                <div class="mobile-card-text">Manage open invoices, balances, and payments.</div>
+                <div class="mobile-card-text">Balances & payments</div>
             </a>
 
             <a class="mobile-card-btn" href="{url_for('bookkeeping.bookkeeping')}">
@@ -146,19 +167,17 @@ def mobile_home():
 
             <a class="mobile-card-btn" href="{url_for('employees.employees')}">
                 <div class="mobile-card-title">Employees</div>
-                <div class="mobile-card-text">View employee records and payroll details.</div>
             </a>
 
             <a class="mobile-card-btn" href="{url_for('settings.settings')}">
                 <div class="mobile-card-title">Settings</div>
-                <div class="mobile-card-text">Open company info, billing, email, and tax settings.</div>
             </a>
         </div>
 
         <div class="mobile-actions">
-            <a class="mobile-wide-btn primary" href="{url_for('quotes.quotes')}">Create / View Quotes</a>
-            <a class="mobile-wide-btn primary" href="{url_for('invoices.new_invoice')}">Create Invoice</a>
-            <a class="mobile-wide-btn" href="{url_for('payroll.employee_payroll')}">Open Payroll</a>
+            <a class="mobile-wide-btn primary" href="{url_for('quotes.quotes')}">Quotes</a>
+            <a class="mobile-wide-btn primary" href="{url_for('invoices.new_invoice')}">New Invoice</a>
+            <a class="mobile-wide-btn" href="{url_for('payroll.employee_payroll')}">Payroll</a>
         </div>
     </div>
     """

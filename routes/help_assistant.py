@@ -4,6 +4,7 @@ from flask import Blueprint, request, jsonify, session
 from decorators import login_required
 from ai.client import ask_terraledger_help
 from ai.knowledge import calculate_material
+from extensions import csrf
 
 help_assistant_bp = Blueprint("help_assistant", __name__)
 
@@ -108,6 +109,7 @@ def _build_augmented_question(user_question, page_title="", route=""):
 
 
 @help_assistant_bp.route("/api/help-assistant", methods=["POST"])
+@csrf.exempt
 @login_required
 def help_assistant_api():
     try:
@@ -165,6 +167,7 @@ def help_assistant_api():
 
 
 @help_assistant_bp.route("/api/help-assistant/clear", methods=["POST"])
+@csrf.exempt
 @login_required
 def help_assistant_clear():
     session["help_assistant_history"] = []
@@ -173,6 +176,7 @@ def help_assistant_clear():
 
 
 @help_assistant_bp.route("/api/help-assistant/history", methods=["GET"])
+@csrf.exempt
 @login_required
 def help_assistant_history():
     return jsonify({

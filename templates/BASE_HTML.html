@@ -768,15 +768,77 @@ label {
     }
 
     .row-actions {
-        flex-direction: column !important;
-        align-items: stretch !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        gap: 8px !important;
     }
 
     .row-actions .btn,
-    .row-actions a,
-    .row-actions button,
-    .section-head .btn {
-        width: 100% !important;
+    .row-actions a.btn,
+    .row-actions button.btn,
+    .section-head .btn,
+    .topbar-right .btn,
+    .topbar-left .btn {
+        width: auto !important;
+        min-width: 0 !important;
+        flex: 0 1 auto !important;
+        height: 32px !important;
+        padding: 0 10px !important;
+        font-size: 0.78rem !important;
+        border-radius: 8px !important;
+        white-space: nowrap !important;
+    }
+
+    .btn,
+    button.btn,
+    a.btn {
+        height: 32px !important;
+        min-width: 0 !important;
+        padding: 0 10px !important;
+        font-size: 0.78rem !important;
+        border-radius: 8px !important;
+        max-width: none !important;
+        white-space: nowrap !important;
+    }
+
+    .btn.small,
+    button.btn.small,
+    a.btn.small {
+        height: 28px !important;
+        padding: 0 8px !important;
+        font-size: 0.72rem !important;
+        min-width: 0 !important;
+    }
+
+    .topbar {
+        gap: 8px;
+    }
+
+    .topbar-left,
+    .topbar-right {
+        width: 100%;
+    }
+
+    .topbar-right {
+        justify-content: space-between;
+    }
+
+    .company-menu-wrap {
+        max-width: 100%;
+    }
+
+    #companyMenuButtonTop {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    #companyMenuTop {
+        right: 0;
+        left: auto;
+        min-width: 200px;
+        max-width: calc(100vw - 20px);
     }
 
     .page-content-inner table {
@@ -787,15 +849,6 @@ label {
     .page-content-inner select,
     .page-content-inner textarea {
         font-size: 16px !important;
-    }
-
-    .btn,
-    button.btn,
-    a.btn {
-        padding: 6px 12px;
-        font-size: 14px;
-        border-radius: 6px;
-        max-width: fit-content;
     }
 
     .sidebar-nav {
@@ -852,7 +905,7 @@ label {
 
             <a class="{% if request.endpoint == 'employees.employees' %}active{% endif %}" href="{{ url_for('employees.employees') }}">Employees</a>
 
-            <a class="{% if request.endpoint.startswith('employees.time_clock') %}active{% endif %}" href="{{ url_for('employees.time_clock') }}">Clock In / Out</a>
+            <a class="{% if request.endpoint and request.endpoint.startswith('employees.time_clock') %}active{% endif %}" href="{{ url_for('employees.time_clock') }}">Clock In / Out</a>
 
             <a class="{% if request.endpoint == 'quotes.quotes' %}active{% endif %}" href="{{ url_for('quotes.quotes') }}">Quotes</a>
 
