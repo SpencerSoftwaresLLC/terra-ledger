@@ -130,15 +130,22 @@ def _validate_twilio_request(req):
 
 def _convert_column_to_boolean(cur, column_name, default_value=False):
     """
-    Safely converts an existing messaging_settings column from integer/text/etc to boolean.
-    Uses col::text so PostgreSQL does not try to compare integer and text in the same IN clause.
+    Safely convert an old messaging_settings column from INTEGER/TEXT/etc to BOOLEAN.
+    Important: drop the old default first so PostgreSQL does not try to cast it.
     """
+    default_sql = "TRUE" if default_value else "FALSE"
+
+    cur.execute(f"""
+        ALTER TABLE messaging_settings
+        ALTER COLUMN {column_name} DROP DEFAULT
+    """)
+
     cur.execute(f"""
         ALTER TABLE messaging_settings
         ALTER COLUMN {column_name}
         TYPE BOOLEAN
         USING CASE
-            WHEN {column_name} IS NULL THEN {'TRUE' if default_value else 'FALSE'}
+            WHEN {column_name} IS NULL THEN {default_sql}
             WHEN LOWER(BTRIM({column_name}::text)) IN ('1', 'true', 't', 'yes', 'y', 'on') THEN TRUE
             ELSE FALSE
         END
@@ -146,12 +153,12 @@ def _convert_column_to_boolean(cur, column_name, default_value=False):
 
     cur.execute(f"""
         ALTER TABLE messaging_settings
-        ALTER COLUMN {column_name} SET DEFAULT {'TRUE' if default_value else 'FALSE'}
+        ALTER COLUMN {column_name} SET DEFAULT {default_sql}
     """)
 
     cur.execute(f"""
         UPDATE messaging_settings
-        SET {column_name} = {'TRUE' if default_value else 'FALSE'}
+        SET {column_name} = {default_sql}
         WHERE {column_name} IS NULL
     """)
 
@@ -227,7 +234,6 @@ def ensure_messaging_tables():
             if col_name not in settings_columns:
                 cur.execute(f"ALTER TABLE messaging_settings ADD COLUMN {col_name} {col_def}")
 
-        # Re-check after adding any missing columns
         cur.execute("""
             SELECT column_name, data_type
             FROM information_schema.columns
