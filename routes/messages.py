@@ -128,6 +128,39 @@ def _validate_twilio_request(req):
         return False
 
 
+def _convert_column_to_boolean(cur, column_name, default_value=False):
+    """
+    Safely converts an existing messaging_settings column from integer/text/etc to boolean.
+    Uses col::text so PostgreSQL does not try to compare integer and text in the same IN clause.
+    """
+    cur.execute(f"""
+        ALTER TABLE messaging_settings
+        ALTER COLUMN {column_name}
+        TYPE BOOLEAN
+        USING CASE
+            WHEN {column_name} IS NULL THEN {'TRUE' if default_value else 'FALSE'}
+            WHEN LOWER(BTRIM({column_name}::text)) IN ('1', 'true', 't', 'yes', 'y', 'on') THEN TRUE
+            ELSE FALSE
+        END
+    """)
+
+    cur.execute(f"""
+        ALTER TABLE messaging_settings
+        ALTER COLUMN {column_name} SET DEFAULT {'TRUE' if default_value else 'FALSE'}
+    """)
+
+    cur.execute(f"""
+        UPDATE messaging_settings
+        SET {column_name} = {'TRUE' if default_value else 'FALSE'}
+        WHERE {column_name} IS NULL
+    """)
+
+    cur.execute(f"""
+        ALTER TABLE messaging_settings
+        ALTER COLUMN {column_name} SET NOT NULL
+    """)
+
+
 def ensure_messaging_tables():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -194,97 +227,25 @@ def ensure_messaging_tables():
             if col_name not in settings_columns:
                 cur.execute(f"ALTER TABLE messaging_settings ADD COLUMN {col_name} {col_def}")
 
-        # Convert old integer-based columns to boolean safely for PostgreSQL.
-        bool_columns = [
-            "messaging_enabled",
-            "send_job_updates",
-            "send_invoice_reminders",
-            "send_manual_messages",
-        ]
-
+        # Re-check after adding any missing columns
         cur.execute("""
             SELECT column_name, data_type
             FROM information_schema.columns
             WHERE table_name = 'messaging_settings'
-              AND column_name IN (
-                  'messaging_enabled',
-                  'send_job_updates',
-                  'send_invoice_reminders',
-                  'send_manual_messages'
-              )
         """)
-        current_bool_types = {row["column_name"]: row["data_type"] for row in cur.fetchall()}
+        settings_columns = {row["column_name"]: row["data_type"] for row in cur.fetchall()}
 
-        for col_name in bool_columns:
-            current_type = current_bool_types.get(col_name)
+        bool_defaults = {
+            "messaging_enabled": False,
+            "send_job_updates": True,
+            "send_invoice_reminders": False,
+            "send_manual_messages": True,
+        }
+
+        for col_name, default_value in bool_defaults.items():
+            current_type = settings_columns.get(col_name)
             if current_type and current_type != "boolean":
-                cur.execute(f"""
-                    ALTER TABLE messaging_settings
-                    ALTER COLUMN {col_name}
-                    TYPE BOOLEAN
-                    USING CASE
-                        WHEN {col_name} IS NULL THEN FALSE
-                        WHEN {col_name} IN (1, '1', 'true', 'TRUE', 't', 'T', 'yes', 'on') THEN TRUE
-                        ELSE FALSE
-                    END
-                """)
-
-                if col_name == "messaging_enabled":
-                    cur.execute("""
-                        ALTER TABLE messaging_settings
-                        ALTER COLUMN messaging_enabled SET DEFAULT FALSE
-                    """)
-                    cur.execute("""
-                        UPDATE messaging_settings
-                        SET messaging_enabled = FALSE
-                        WHERE messaging_enabled IS NULL
-                    """)
-                    cur.execute("""
-                        ALTER TABLE messaging_settings
-                        ALTER COLUMN messaging_enabled SET NOT NULL
-                    """)
-                elif col_name == "send_job_updates":
-                    cur.execute("""
-                        ALTER TABLE messaging_settings
-                        ALTER COLUMN send_job_updates SET DEFAULT TRUE
-                    """)
-                    cur.execute("""
-                        UPDATE messaging_settings
-                        SET send_job_updates = TRUE
-                        WHERE send_job_updates IS NULL
-                    """)
-                    cur.execute("""
-                        ALTER TABLE messaging_settings
-                        ALTER COLUMN send_job_updates SET NOT NULL
-                    """)
-                elif col_name == "send_invoice_reminders":
-                    cur.execute("""
-                        ALTER TABLE messaging_settings
-                        ALTER COLUMN send_invoice_reminders SET DEFAULT FALSE
-                    """)
-                    cur.execute("""
-                        UPDATE messaging_settings
-                        SET send_invoice_reminders = FALSE
-                        WHERE send_invoice_reminders IS NULL
-                    """)
-                    cur.execute("""
-                        ALTER TABLE messaging_settings
-                        ALTER COLUMN send_invoice_reminders SET NOT NULL
-                    """)
-                elif col_name == "send_manual_messages":
-                    cur.execute("""
-                        ALTER TABLE messaging_settings
-                        ALTER COLUMN send_manual_messages SET DEFAULT TRUE
-                    """)
-                    cur.execute("""
-                        UPDATE messaging_settings
-                        SET send_manual_messages = TRUE
-                        WHERE send_manual_messages IS NULL
-                    """)
-                    cur.execute("""
-                        ALTER TABLE messaging_settings
-                        ALTER COLUMN send_manual_messages SET NOT NULL
-                    """)
+                _convert_column_to_boolean(cur, col_name, default_value=default_value)
 
         cur.execute("""
             SELECT column_name
@@ -762,7 +723,6 @@ def messages_page():
                                 {% endif %}
                                 {% if not row['job_title'] and not row['invoice_number'] %}
                                     —
-
                                 {% endif %}
                             </td>
                         </tr>
