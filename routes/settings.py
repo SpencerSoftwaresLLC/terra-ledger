@@ -154,44 +154,171 @@ def _build_w2_summary_pdf(company_name, tax_year, employee_name, summary):
     pdf = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
 
-    y = height - 50
+    def money(value):
+        return float(_money(value or 0))
 
-    pdf.setFont("Helvetica-Bold", 16)
-    pdf.drawString(50, y, "Year-End W-2 Summary")
-    y -= 24
+    def text(value):
+        return str(value or "").strip()
 
-    pdf.setFont("Helvetica", 10)
-    pdf.drawString(50, y, f"Company: {company_name}")
-    y -= 16
-    pdf.drawString(50, y, f"Tax Year: {tax_year}")
-    y -= 16
-    pdf.drawString(50, y, f"Employee: {employee_name}")
-    y -= 30
+    def draw_box(x, y_top, w, h, label, value="", label_size=6.5, value_size=9, bold=False, align="left"):
+        y_bottom = y_top - h
+        pdf.rect(x, y_bottom, w, h)
 
-    pdf.setFont("Helvetica-Bold", 11)
-    pdf.drawString(50, y, "Payroll Totals")
-    y -= 18
+        pdf.setFont("Helvetica", label_size)
+        pdf.drawString(x + 3, y_top - 9, label)
 
-    rows = [
-        ("Wages", _money(summary.get("wages"))),
-        ("Federal Withholding", _money(summary.get("federal_withholding"))),
-        ("Social Security", _money(summary.get("social_security"))),
-        ("Medicare", _money(summary.get("medicare"))),
-        ("State Withholding", _money(summary.get("state_withholding"))),
-        ("Local Tax", _money(summary.get("local_tax"))),
-    ]
+        pdf.setFont("Helvetica-Bold" if bold else "Helvetica", value_size)
 
-    pdf.setFont("Helvetica", 11)
-    for label, amount in rows:
-        pdf.drawString(60, y, label)
-        pdf.drawRightString(560, y, f"${amount:,.2f}")
-        y -= 20
+        value = text(value)
+        if not value:
+            return
 
-    y -= 10
-    pdf.setFont("Helvetica-Oblique", 9)
-    pdf.drawString(50, y, "This is a TerraLedger year-end payroll summary for W-2 preparation and review.")
-    y -= 14
-    pdf.drawString(50, y, "It is not the final official IRS W-2 form layout.")
+        if align == "right":
+            pdf.drawRightString(x + w - 4, y_bottom + 7, value)
+        elif align == "center":
+            pdf.drawCentredString(x + (w / 2), y_bottom + 7, value)
+        else:
+            pdf.drawString(x + 4, y_bottom + 7, value)
+
+    def draw_money_box(x, y_top, w, h, label, value):
+        draw_box(
+            x=x,
+            y_top=y_top,
+            w=w,
+            h=h,
+            label=label,
+            value=f"{money(value):,.2f}" if money(value) else "0.00",
+            label_size=6.5,
+            value_size=9,
+            bold=True,
+            align="right",
+        )
+
+    # Data
+    wages = money(summary.get("wages"))
+    federal = money(summary.get("federal_withholding"))
+    social_security = money(summary.get("social_security"))
+    medicare = money(summary.get("medicare"))
+    state = money(summary.get("state_withholding"))
+    local = money(summary.get("local_tax"))
+
+    # Page title
+    pdf.setTitle(f"W2_{text(employee_name).replace(' ', '_')}_{text(tax_year)}")
+
+    pdf.setFont("Helvetica-Bold", 15)
+    pdf.drawString(36, height - 32, "Wage and Tax Statement")
+
+    pdf.setFont("Helvetica-Bold", 28)
+    pdf.drawRightString(width - 36, height - 30, "W-2")
+
+    pdf.setFont("Helvetica", 8)
+    pdf.drawString(36, height - 44, f"Tax Year {text(tax_year)}")
+    pdf.drawRightString(width - 36, height - 44, "TerraLedger Employee Copy")
+
+    # Top form area
+    left = 36
+    right = width - 36
+    top = height - 60
+    form_width = right - left
+
+    row1_h = 52
+    row2_h = 52
+    row3_h = 52
+    row4_h = 52
+    row5_h = 52
+
+    # Column layout
+    c1 = 64
+    c2 = 185
+    c3 = 74
+    c4 = 74
+    c5 = 74
+    c6 = form_width - (c1 + c2 + c3 + c4 + c5)
+
+    # Row 1
+    y = top
+    draw_box(left, y, c1, row1_h, "a  Employee's social security number", "")
+    draw_box(left + c1, y, c2, row1_h, "b  Employer identification number (EIN)", "")
+    draw_box(left + c1 + c2, y, c3, row1_h, "1  Wages, tips, other compensation", f"{wages:,.2f}", value_size=10, bold=True, align="right")
+    draw_box(left + c1 + c2 + c3, y, c4, row1_h, "2  Federal income tax withheld", f"{federal:,.2f}", value_size=10, bold=True, align="right")
+    draw_box(left + c1 + c2 + c3 + c4, y, c5, row1_h, "3  Social security wages", f"{wages:,.2f}", value_size=10, bold=True, align="right")
+    draw_box(left + c1 + c2 + c3 + c4 + c5, y, c6, row1_h, "4  Social security tax withheld", f"{social_security:,.2f}", value_size=10, bold=True, align="right")
+
+    # Row 2
+    y -= row1_h
+    c7 = 249
+    c8 = 74
+    c9 = 74
+    c10 = 74
+    c11 = form_width - (c7 + c8 + c9 + c10)
+
+    draw_box(left, y, c7, row2_h, "c  Employer's name, address, and ZIP code", text(company_name), value_size=10, bold=True)
+    draw_box(left + c7, y, c8, row2_h, "5  Medicare wages and tips", f"{wages:,.2f}", value_size=10, bold=True, align="right")
+    draw_box(left + c7 + c8, y, c9, row2_h, "6  Medicare tax withheld", f"{medicare:,.2f}", value_size=10, bold=True, align="right")
+    draw_box(left + c7 + c8 + c9, y, c10, row2_h, "7  Social security tips", "0.00", value_size=10, bold=True, align="right")
+    draw_box(left + c7 + c8 + c9 + c10, y, c11, row2_h, "8  Allocated tips", "0.00", value_size=10, bold=True, align="right")
+
+    # Row 3
+    y -= row2_h
+    c12 = 249
+    c13 = 74
+    c14 = 74
+    c15 = 74
+    c16 = form_width - (c12 + c13 + c14 + c15)
+
+    draw_box(left, y, c12, row3_h, "d  Control number", "")
+    draw_box(left + c12, y, c13, row3_h, "9", "")
+    draw_box(left + c12 + c13, y, c14, row3_h, "10  Dependent care benefits", "0.00", value_size=10, bold=True, align="right")
+    draw_box(left + c12 + c13 + c14, y, c15, row3_h, "11  Nonqualified plans", "0.00", value_size=10, bold=True, align="right")
+    draw_box(left + c12 + c13 + c14 + c15, y, c16, row3_h, "12a  See instructions for box 12", "")
+
+    # Row 4
+    y -= row3_h
+    c17 = 249
+    c18 = 74
+    c19 = 74
+    c20 = 74
+    c21 = form_width - (c17 + c18 + c19 + c20)
+
+    draw_box(left, y, c17, row4_h, "e  Employee's first name and initial / last name", text(employee_name), value_size=10, bold=True)
+    draw_box(left + c17, y, c18, row4_h, "12b", "")
+    draw_box(left + c17 + c18, y, c19, row4_h, "12c", "")
+    draw_box(left + c17 + c18 + c19, y, c20, row4_h, "12d", "")
+    draw_box(left + c17 + c18 + c19 + c20, y, c21, row4_h, "13", "Statutory employee / Retirement plan / Third-party sick pay", value_size=7)
+
+    # Row 5
+    y -= row4_h
+    c22 = 249
+    c23 = 149
+    c24 = 74
+    c25 = form_width - (c22 + c23 + c24)
+
+    draw_box(left, y, c22, row5_h, "f  Employee's address and ZIP code", "")
+    draw_box(left + c22, y, c23, row5_h, "14  Other", "")
+    draw_box(left + c22 + c23, y, c24, row5_h, "15  State / Employer's state ID no.", "")
+    draw_box(left + c22 + c23 + c24, y, c25, row5_h, "16  State wages, tips, etc.", f"{wages:,.2f}", value_size=10, bold=True, align="right")
+
+    # Row 6 - state/local continuation
+    y -= row5_h
+    c26 = 74
+    c27 = 74
+    c28 = 110
+    c29 = 74
+    c30 = 74
+    c31 = form_width - (c26 + c27 + c28 + c29 + c30)
+
+    draw_box(left, y, c26, row1_h, "17  State income tax", f"{state:,.2f}", value_size=10, bold=True, align="right")
+    draw_box(left + c26, y, c27, row1_h, "18  Local wages, tips, etc.", f"{wages:,.2f}", value_size=10, bold=True, align="right")
+    draw_box(left + c26 + c27, y, c28, row1_h, "19  Local income tax", f"{local:,.2f}", value_size=10, bold=True, align="right")
+    draw_box(left + c26 + c27 + c28, y, c29, row1_h, "20  Locality name", "")
+    draw_box(left + c26 + c27 + c28 + c29, y, c30 + c31, row1_h, "Employer/employee records note", "Generated from TerraLedger payroll data", value_size=8)
+
+    # Footer / disclaimer
+    footer_y = y - 22
+    pdf.setFont("Helvetica", 7.5)
+    pdf.drawString(36, footer_y, "This layout is designed to resemble an employee W-2 copy using the payroll data currently stored in TerraLedger.")
+    pdf.drawString(36, footer_y - 10, "Boxes that require data TerraLedger does not yet store are intentionally left blank.")
+    pdf.drawString(36, footer_y - 20, "Review all year-end values before distributing to employees or using for filing.")
 
     pdf.showPage()
     pdf.save()
@@ -206,25 +333,40 @@ def _build_w2_all_summary_pdf(company_name, tax_year, employee_rows):
     pdf = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
 
-    def start_page():
-        pdf.setFont("Helvetica-Bold", 16)
-        pdf.drawString(50, height - 50, "Year-End W-2 Summary Report")
-        pdf.setFont("Helvetica", 10)
-        pdf.drawString(50, height - 68, f"Company: {company_name}")
-        pdf.drawString(50, height - 84, f"Tax Year: {tax_year}")
+    def money(value):
+        return float(_money(value or 0))
 
-        header_y = height - 115
-        pdf.setFont("Helvetica-Bold", 9)
-        pdf.drawString(50, header_y, "Employee")
-        pdf.drawRightString(290, header_y, "Wages")
-        pdf.drawRightString(355, header_y, "Federal")
-        pdf.drawRightString(420, header_y, "SS")
-        pdf.drawRightString(485, header_y, "Medicare")
-        pdf.drawRightString(545, header_y, "State")
+    def text(value):
+        return str(value or "").strip()
+
+    def start_page(page_no):
+        pdf.setFont("Helvetica-Bold", 16)
+        pdf.drawString(36, height - 36, "W-2 Employee Totals Report")
+
+        pdf.setFont("Helvetica", 9)
+        pdf.drawString(36, height - 50, f"Company: {text(company_name)}")
+        pdf.drawString(36, height - 62, f"Tax Year: {text(tax_year)}")
+        pdf.drawRightString(width - 36, height - 50, f"Page {page_no}")
+
+        table_top = height - 84
+        pdf.setLineWidth(1)
+        pdf.line(36, table_top, width - 36, table_top)
+
+        header_y = table_top - 14
+        pdf.setFont("Helvetica-Bold", 8.5)
+        pdf.drawString(40, header_y, "Employee")
+        pdf.drawRightString(300, header_y, "Box 1 Wages")
+        pdf.drawRightString(370, header_y, "Box 2 Federal")
+        pdf.drawRightString(435, header_y, "Box 4 SS Tax")
+        pdf.drawRightString(500, header_y, "Box 6 Medicare")
+        pdf.drawRightString(560, header_y, "Box 17 State")
+        pdf.drawRightString(612, header_y, "Box 19 Local")
+
+        pdf.line(36, header_y - 6, width - 36, header_y - 6)
         return header_y - 18
 
-    y = start_page()
-    pdf.setFont("Helvetica", 8)
+    page_no = 1
+    y = start_page(page_no)
 
     total_wages = 0.0
     total_federal = 0.0
@@ -233,53 +375,62 @@ def _build_w2_all_summary_pdf(company_name, tax_year, employee_rows):
     total_state = 0.0
     total_local = 0.0
 
+    pdf.setFont("Helvetica", 8)
+
     for row in employee_rows:
-        if y < 70:
+        if y < 66:
             pdf.showPage()
-            y = start_page()
+            page_no += 1
+            y = start_page(page_no)
             pdf.setFont("Helvetica", 8)
 
-        wages = _money(row.get("wages"))
-        federal = _money(row.get("federal_withholding"))
-        ss = _money(row.get("social_security"))
-        medicare = _money(row.get("medicare"))
-        state = _money(row.get("state_withholding"))
-        local = _money(row.get("local_tax"))
+        employee_name = text(row.get("employee_name"))[:42]
+        wages = money(row.get("wages"))
+        federal = money(row.get("federal_withholding"))
+        social_security = money(row.get("social_security"))
+        medicare = money(row.get("medicare"))
+        state = money(row.get("state_withholding"))
+        local = money(row.get("local_tax"))
 
         total_wages += wages
         total_federal += federal
-        total_ss += ss
+        total_ss += social_security
         total_medicare += medicare
         total_state += state
         total_local += local
 
-        pdf.drawString(50, y, str(row.get("employee_name", ""))[:38])
-        pdf.drawRightString(290, y, f"${wages:,.2f}")
-        pdf.drawRightString(355, y, f"${federal:,.2f}")
-        pdf.drawRightString(420, y, f"${ss:,.2f}")
-        pdf.drawRightString(485, y, f"${medicare:,.2f}")
-        pdf.drawRightString(545, y, f"${state:,.2f}")
-        y -= 16
+        pdf.drawString(40, y, employee_name)
+        pdf.drawRightString(300, y, f"{wages:,.2f}")
+        pdf.drawRightString(370, y, f"{federal:,.2f}")
+        pdf.drawRightString(435, y, f"{social_security:,.2f}")
+        pdf.drawRightString(500, y, f"{medicare:,.2f}")
+        pdf.drawRightString(560, y, f"{state:,.2f}")
+        pdf.drawRightString(612, y, f"{local:,.2f}")
 
-    if y < 95:
+        y -= 15
+
+    if y < 96:
         pdf.showPage()
-        y = start_page()
+        page_no += 1
+        y = start_page(page_no)
         pdf.setFont("Helvetica", 8)
 
-    y -= 8
-    pdf.line(50, y, 560, y)
+    y -= 6
+    pdf.line(36, y, width - 36, y)
     y -= 16
-    pdf.setFont("Helvetica-Bold", 9)
-    pdf.drawString(50, y, "Totals")
-    pdf.drawRightString(290, y, f"${total_wages:,.2f}")
-    pdf.drawRightString(355, y, f"${total_federal:,.2f}")
-    pdf.drawRightString(420, y, f"${total_ss:,.2f}")
-    pdf.drawRightString(485, y, f"${total_medicare:,.2f}")
-    pdf.drawRightString(545, y, f"${total_state:,.2f}")
 
-    y -= 20
-    pdf.setFont("Helvetica", 9)
-    pdf.drawString(50, y, f"Total Local Tax: ${total_local:,.2f}")
+    pdf.setFont("Helvetica-Bold", 9)
+    pdf.drawString(40, y, "Totals")
+    pdf.drawRightString(300, y, f"{total_wages:,.2f}")
+    pdf.drawRightString(370, y, f"{total_federal:,.2f}")
+    pdf.drawRightString(435, y, f"{total_ss:,.2f}")
+    pdf.drawRightString(500, y, f"{total_medicare:,.2f}")
+    pdf.drawRightString(560, y, f"{total_state:,.2f}")
+    pdf.drawRightString(612, y, f"{total_local:,.2f}")
+
+    y -= 22
+    pdf.setFont("Helvetica", 8)
+    pdf.drawString(40, y, "This report summarizes employee W-2 payroll totals from TerraLedger for review and year-end preparation.")
 
     pdf.showPage()
     pdf.save()
@@ -1108,6 +1259,201 @@ def settings_w2():
 
 @settings_bp.route("/settings/w2/company", methods=["GET", "POST"])
 @login_required
+@settings_bp.route("/settings/w2")
+@login_required
+@subscription_required
+@require_permission("can_manage_settings")
+def settings_w2():
+    ensure_w2_company_profile_columns()
+
+    cid = session["company_id"]
+
+    year = (request.args.get("year") or str(datetime.utcnow().year)).strip()
+    if not year.isdigit():
+        year = str(datetime.utcnow().year)
+
+    profile = get_company_profile(cid)
+    values = get_company_profile_values(profile)
+    company_readiness = get_company_w2_readiness(values)
+
+    conn = get_db_connection()
+    year_summary = get_company_w2_year_summary(conn, cid, year)
+    employee_summaries = list_employee_w2_summaries(conn, cid, year)
+    conn.close()
+
+    total_wages = float(year_summary.get("total_wages", 0) or 0)
+    total_federal = float(year_summary.get("total_federal_withholding", 0) or 0)
+    total_ss = float(year_summary.get("total_social_security_tax", 0) or 0)
+    total_medicare = float(year_summary.get("total_medicare_tax", 0) or 0)
+    total_state = float(year_summary.get("total_state_withholding", 0) or 0)
+    total_local = float(year_summary.get("total_local_tax", 0) or 0)
+
+    rows = ""
+    for row in employee_summaries:
+        employee_id = row.get("employee_id")
+        employee_name = escape(str(row.get("employee_name") or "Unnamed Employee"))
+        gross_pay = float(row.get("gross_pay", 0) or 0)
+        federal_withholding = float(row.get("federal_withholding", 0) or 0)
+        social_security_tax = float(row.get("social_security_tax", 0) or 0)
+        medicare_tax = float(row.get("medicare_tax", 0) or 0)
+        state_withholding = float(row.get("state_withholding", 0) or 0)
+        local_tax = float(row.get("local_tax", 0) or 0)
+        has_payroll_data = bool(row.get("has_payroll_data"))
+
+        print_button = (
+            f"<a class='btn secondary small' target='_blank' href='{url_for('settings.print_w2_summary', employee_id=employee_id, year=year)}'>Print</a>"
+            if has_payroll_data and employee_id
+            else "<span class='muted'>No data</span>"
+        )
+
+        rows += f"""
+        <tr>
+            <td>{employee_name}</td>
+            <td>${gross_pay:,.2f}</td>
+            <td>${federal_withholding:,.2f}</td>
+            <td>${social_security_tax:,.2f}</td>
+            <td>${medicare_tax:,.2f}</td>
+            <td>${state_withholding:,.2f}</td>
+            <td>${local_tax:,.2f}</td>
+            <td>{print_button}</td>
+        </tr>
+        """
+
+    if not rows:
+        rows = """
+        <tr>
+            <td colspan="8" class="muted" style="text-align:center; padding:18px;">
+                No employee W-2 data found for this year.
+            </td>
+        </tr>
+        """
+
+    if company_readiness.get("missing"):
+        missing_html = "".join(
+            f"<li>{escape(str(item))}</li>" for item in company_readiness["missing"]
+        )
+        readiness_card = f"""
+        <div class='card' style='border:1px solid #f59e0b; background:#fffaf0;'>
+            <div style='display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;'>
+                <div>
+                    <h2 style='margin-bottom:8px;'>W-2 Filing Readiness</h2>
+                    <ul style='margin:0;'>{missing_html}</ul>
+                </div>
+                <div>
+                    <a class='btn warning' href='{url_for("settings.settings_w2_company")}'>Complete Profile</a>
+                </div>
+            </div>
+        </div>
+        """
+    else:
+        readiness_card = """
+        <div class='card' style='border:1px solid #16a34a; background:#f0fdf4;'>
+            <h2 style='margin-bottom:8px;'>W-2 Filing Readiness</h2>
+            <p style='margin:0; color:#166534; font-weight:700;'>Ready</p>
+        </div>
+        """
+
+    content = f"""
+    <div class='card'>
+        <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
+            <div>
+                <h1 style='margin-bottom:6px;'>W-2 Center</h1>
+                <p class='muted' style='margin:0;'>Review yearly payroll totals and print employee W-2 summaries.</p>
+            </div>
+            <div class='row-actions'>
+                <a href='{url_for("settings.settings")}' class='btn secondary'>Back</a>
+            </div>
+        </div>
+    </div>
+
+    {readiness_card}
+
+    <div class='card'>
+        <div style='display:flex; justify-content:space-between; align-items:end; gap:12px; flex-wrap:wrap;'>
+            <div>
+                <h2 style='margin-bottom:6px;'>Year Summary</h2>
+                <p class='muted' style='margin:0;'>Viewing tax year {escape(year)}</p>
+            </div>
+
+            <form method='get' style='display:flex; gap:10px; align-items:end; flex-wrap:wrap; margin:0;'>
+                <div>
+                    <label for='year' style='display:block; margin-bottom:6px;'>Year</label>
+                    <input
+                        id='year'
+                        name='year'
+                        value='{escape(year)}'
+                        inputmode='numeric'
+                        pattern='[0-9]*'
+                        maxlength='4'
+                        placeholder='2026'
+                        style='min-width:110px;'
+                    >
+                </div>
+                <div class='row-actions'>
+                    <button type='submit' class='btn secondary'>Load Year</button>
+                    <a target='_blank' href='{url_for("settings.print_all_w2_summaries", year=year)}' class='btn success'>Print All</a>
+                    <a href='{url_for("settings.settings_w2_company")}' class='btn secondary'>Company W-2 Profile</a>
+                </div>
+            </form>
+        </div>
+
+        <div class='stats-grid' style='margin-top:18px; display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px;'>
+            <div class='card' style='margin:0;'>
+                <div class='muted'>Total Wages</div>
+                <div style='font-size:1.2rem; font-weight:700;'>${total_wages:,.2f}</div>
+            </div>
+            <div class='card' style='margin:0;'>
+                <div class='muted'>Federal</div>
+                <div style='font-size:1.2rem; font-weight:700;'>${total_federal:,.2f}</div>
+            </div>
+            <div class='card' style='margin:0;'>
+                <div class='muted'>Social Security</div>
+                <div style='font-size:1.2rem; font-weight:700;'>${total_ss:,.2f}</div>
+            </div>
+            <div class='card' style='margin:0;'>
+                <div class='muted'>Medicare</div>
+                <div style='font-size:1.2rem; font-weight:700;'>${total_medicare:,.2f}</div>
+            </div>
+            <div class='card' style='margin:0;'>
+                <div class='muted'>State</div>
+                <div style='font-size:1.2rem; font-weight:700;'>${total_state:,.2f}</div>
+            </div>
+            <div class='card' style='margin:0;'>
+                <div class='muted'>Local</div>
+                <div style='font-size:1.2rem; font-weight:700;'>${total_local:,.2f}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class='card'>
+        <h2>Employee W-2 Summary</h2>
+        <div style='overflow-x:auto; width:100%;'>
+            <table style='width:100%; min-width:900px;'>
+                <thead>
+                    <tr>
+                        <th>Employee</th>
+                        <th>Wages</th>
+                        <th>Federal</th>
+                        <th>SS</th>
+                        <th>Medicare</th>
+                        <th>State</th>
+                        <th>Local</th>
+                        <th>Print</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    """
+
+    return render_page(content, "W-2 Center")
+
+
+@settings_bp.route("/settings/w2/company", methods=["GET", "POST"])
+@login_required
 @subscription_required
 @require_permission("can_manage_settings")
 def settings_w2_company():
@@ -1431,8 +1777,22 @@ def print_w2_summary(employee_id):
         or f"Employee #{employee_id}"
     )
 
+    summary_data = {
+        "wages": float((summary or {}).get("wages", 0) or 0),
+        "federal_withholding": float((summary or {}).get("federal_withholding", 0) or 0),
+        "social_security": float((summary or {}).get("social_security", 0) or 0),
+        "medicare": float((summary or {}).get("medicare", 0) or 0),
+        "state_withholding": float((summary or {}).get("state_withholding", 0) or 0),
+        "local_tax": float((summary or {}).get("local_tax", 0) or 0),
+    }
+
     company_name = _company_display_name_for_reports(cid)
-    pdf_data = _build_w2_summary_pdf(company_name, year, employee_name, summary or {})
+    pdf_data = _build_w2_summary_pdf(
+        company_name=company_name,
+        tax_year=year,
+        employee_name=employee_name,
+        summary=summary_data,
+    )
 
     safe_employee_name = "".join(
         ch if ch.isalnum() or ch in ("-", "_") else "_"
@@ -1442,7 +1802,7 @@ def print_w2_summary(employee_id):
     response = make_response(pdf_data)
     response.headers["Content-Type"] = "application/pdf"
     response.headers["Content-Disposition"] = (
-        f"inline; filename=w2_summary_{safe_employee_name}_{year}.pdf"
+        f"inline; filename=w2_{safe_employee_name}_{year}.pdf"
     )
     return response
 
@@ -1453,7 +1813,8 @@ def print_w2_summary(employee_id):
 @require_permission("can_manage_settings")
 def print_all_w2_summaries():
     cid = session["company_id"]
-    year = request.args.get("year", str(datetime.utcnow().year)).strip()
+
+    year = (request.args.get("year") or str(datetime.utcnow().year)).strip()
     if not year.isdigit():
         year = str(datetime.utcnow().year)
 
@@ -1464,7 +1825,7 @@ def print_all_w2_summaries():
         SELECT id, first_name, last_name, full_name
         FROM employees
         WHERE company_id = %s
-        ORDER BY first_name, last_name
+        ORDER BY first_name, last_name, id
         """,
         (cid,),
     ).fetchall()
@@ -1481,7 +1842,9 @@ def print_all_w2_summaries():
             COALESCE(SUM(local_tax), 0) AS local_tax
         FROM payroll_entries
         WHERE company_id = %s
-          AND EXTRACT(YEAR FROM pay_date) = %s
+          AND pay_date IS NOT NULL
+          AND NULLIF(pay_date::text, '') IS NOT NULL
+          AND EXTRACT(YEAR FROM NULLIF(pay_date::text, '')::date) = %s
         GROUP BY employee_id
         """,
         (cid, int(year)),
@@ -1505,12 +1868,12 @@ def print_all_w2_summaries():
 
         employee_rows.append({
             "employee_name": employee_name,
-            "wages": summary["wages"],
-            "federal_withholding": summary["federal_withholding"],
-            "social_security": summary["social_security"],
-            "medicare": summary["medicare"],
-            "state_withholding": summary["state_withholding"],
-            "local_tax": summary["local_tax"],
+            "wages": float(summary["wages"] or 0),
+            "federal_withholding": float(summary["federal_withholding"] or 0),
+            "social_security": float(summary["social_security"] or 0),
+            "medicare": float(summary["medicare"] or 0),
+            "state_withholding": float(summary["state_withholding"] or 0),
+            "local_tax": float(summary["local_tax"] or 0),
         })
 
     company_name = _company_display_name_for_reports(cid)
