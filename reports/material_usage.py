@@ -285,11 +285,11 @@ def fetch_job_items_for_range(company_id, start_date, end_date):
             FROM job_items ji
             JOIN jobs j ON j.id = ji.job_id
             WHERE j.company_id = %s
-              AND j.scheduled_date IS NOT NULL
-              AND j.scheduled_date >= %s
-              AND j.scheduled_date <= %s
+              AND COALESCE(TRIM(j.scheduled_date), '') <> ''
+              AND j.scheduled_date::date >= %s
+              AND j.scheduled_date::date <= %s
               AND COALESCE(TRIM(ji.description), '') <> ''
-            ORDER BY j.scheduled_date, ji.job_id, ji.id
+            ORDER BY j.scheduled_date::date, ji.job_id, ji.id
             """,
             (company_id, start_date, end_date),
         ).fetchall()
