@@ -33,6 +33,32 @@ def _too_many_attempts():
     return session.get("login_attempts", 0) >= MAX_LOGIN_ATTEMPTS
 
 
+def _render_auth_page(title: str, heading: str, subtitle: str, body_html: str):
+    content = render_template_string("""
+    <div class="tl-auth-page">
+        <div class="tl-auth-card">
+            <div class="tl-auth-brand">
+                <img
+                    src="{{ url_for('static', filename='images/logo.png') }}"
+                    alt="TerraLedger Logo"
+                    class="tl-auth-logo"
+                >
+                <div>
+                    <div class="tl-auth-brand-title">TerraLedger<sup style="font-size:11px;">™</sup></div>
+                    <div class="tl-auth-brand-subtitle">Landscaper-focused business software</div>
+                </div>
+            </div>
+
+            <h1 class="tl-auth-title">{{ heading }}</h1>
+            <p class="tl-auth-subtitle">{{ subtitle }}</p>
+
+            {{ body_html|safe }}
+        </div>
+    </div>
+    """, heading=heading, subtitle=subtitle, body_html=body_html)
+    return render_public_page(content, title)
+
+
 @auth_bp.route("/")
 def home():
     if session.get("user_id"):
@@ -79,7 +105,6 @@ def register():
             )
             row = cur.fetchone()
             company_id = row["id"] if row else None
-
             conn.commit()
         finally:
             conn.close()
@@ -107,42 +132,44 @@ def register():
         flash("Account created.")
         return redirect(url_for("dashboard.dashboard"))
 
-    content = render_template_string("""
-    <h1>Create Account</h1>
-    <p class="muted">Create your TerraLedger workspace and owner account.</p>
-
-    <form method="post" style="margin-top:18px;">
+    body_html = render_template_string("""
+    <form method="post" class="tl-auth-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-        <div class="grid">
-            <div>
-                <label>Company Name</label>
-                <input name="company_name" required>
+        <div class="tl-auth-grid">
+            <div class="tl-auth-field">
+                <label class="tl-auth-label">Company Name</label>
+                <input class="tl-auth-input" name="company_name" required>
             </div>
 
-            <div>
-                <label>Your Name</label>
-                <input name="user_name" required>
+            <div class="tl-auth-field">
+                <label class="tl-auth-label">Your Name</label>
+                <input class="tl-auth-input" name="user_name" required>
             </div>
 
-            <div>
-                <label>Email</label>
-                <input type="email" name="email" required>
+            <div class="tl-auth-field">
+                <label class="tl-auth-label">Email</label>
+                <input class="tl-auth-input" type="email" name="email" required>
             </div>
 
-            <div>
-                <label>Password</label>
-                <input type="password" name="password" required>
+            <div class="tl-auth-field">
+                <label class="tl-auth-label">Password</label>
+                <input class="tl-auth-input" type="password" name="password" required>
             </div>
         </div>
 
-        <div class="row-actions" style="margin-top:18px;">
-            <button class="btn" type="submit">Create Account</button>
-            <a class="btn secondary" href="{{ url_for('auth.login') }}">Back to Login</a>
+        <div class="tl-auth-actions">
+            <button class="tl-auth-btn tl-auth-btn-primary" type="submit">Create Account</button>
+            <a class="tl-auth-btn tl-auth-btn-secondary" href="{{ url_for('auth.login') }}">Back to Login</a>
         </div>
     </form>
     """)
-    return render_public_page(content, "Register")
+    return _render_auth_page(
+        title="Register",
+        heading="Create Account",
+        subtitle="Create your TerraLedger workspace and owner account.",
+        body_html=body_html,
+    )
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
@@ -189,45 +216,45 @@ def login():
         session["company_name"] = user["company_name"]
 
         _reset_login_attempts()
-
         return redirect(url_for("dashboard.dashboard"))
 
-    content = render_template_string("""
-    <h1>Login</h1>
-    <p class="muted">Sign in to access your TerraLedger workspace.</p>
-
-    <form method="post" style="margin-top:18px;">
+    body_html = render_template_string("""
+    <form method="post" class="tl-auth-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-        <div class="grid">
-            <div>
-                <label>Email</label>
-                <input type="email" name="email" required>
+        <div class="tl-auth-grid tl-auth-grid-single">
+            <div class="tl-auth-field">
+                <label class="tl-auth-label">Email</label>
+                <input class="tl-auth-input" type="email" name="email" required>
             </div>
 
-            <div>
-                <label>Password</label>
-                <input type="password" name="password" required>
+            <div class="tl-auth-field">
+                <label class="tl-auth-label">Password</label>
+                <input class="tl-auth-input" type="password" name="password" required>
             </div>
         </div>
 
-        <div class="row-actions" style="margin-top:18px;">
-            <button class="btn" type="submit">Login</button>
-            <a class="btn secondary" href="{{ url_for('auth.register') }}">Create Account</a>
+        <div class="tl-auth-actions">
+            <button class="tl-auth-btn tl-auth-btn-primary" type="submit">Login</button>
+            <a class="tl-auth-btn tl-auth-btn-secondary" href="{{ url_for('auth.register') }}">Create Account</a>
         </div>
 
-        <div style="margin-top:14px;">
+        <div class="tl-auth-links">
             <a href="{{ url_for('auth.forgot_password') }}">Forgot Password?</a>
         </div>
     </form>
     """)
-    return render_public_page(content, "Login")
+    return _render_auth_page(
+        title="Login",
+        heading="Login",
+        subtitle="Sign in to access your TerraLedger workspace.",
+        body_html=body_html,
+    )
 
 
 @auth_bp.route("/forgot-password", methods=["GET", "POST"])
 def forgot_password():
     ensure_password_reset_table()
-
     conn = get_db_connection()
 
     try:
@@ -273,33 +300,34 @@ def forgot_password():
     finally:
         conn.close()
 
-    content = render_template_string("""
-    <h1>Forgot Password</h1>
-    <p class="muted">Enter your email and we’ll send you a password reset link.</p>
-
-    <form method="post" style="margin-top:18px;">
+    body_html = render_template_string("""
+    <form method="post" class="tl-auth-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-        <div class="grid">
-            <div>
-                <label>Email</label>
-                <input type="email" name="email" required>
+        <div class="tl-auth-grid tl-auth-grid-single">
+            <div class="tl-auth-field">
+                <label class="tl-auth-label">Email</label>
+                <input class="tl-auth-input" type="email" name="email" required>
             </div>
         </div>
 
-        <div class="row-actions" style="margin-top:18px;">
-            <button class="btn" type="submit">Send Reset Link</button>
-            <a class="btn secondary" href="{{ url_for('auth.login') }}">Back to Login</a>
+        <div class="tl-auth-actions">
+            <button class="tl-auth-btn tl-auth-btn-primary" type="submit">Send Reset Link</button>
+            <a class="tl-auth-btn tl-auth-btn-secondary" href="{{ url_for('auth.login') }}">Back to Login</a>
         </div>
     </form>
     """)
-    return render_public_page(content, "Forgot Password")
+    return _render_auth_page(
+        title="Forgot Password",
+        heading="Forgot Password",
+        subtitle="Enter your email and we’ll send you a password reset link.",
+        body_html=body_html,
+    )
 
 
 @auth_bp.route("/reset-password/<token>", methods=["GET", "POST"])
 def reset_password(token):
     ensure_password_reset_table()
-
     conn = get_db_connection()
 
     try:
@@ -345,27 +373,29 @@ def reset_password(token):
     finally:
         conn.close()
 
-    content = render_template_string("""
-    <h1>Reset Password</h1>
-    <p class="muted">Choose a new password for your TerraLedger account.</p>
-
-    <form method="post" style="margin-top:18px;">
+    body_html = render_template_string("""
+    <form method="post" class="tl-auth-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-        <div class="grid">
-            <div>
-                <label>New Password</label>
-                <input type="password" name="password" required>
+        <div class="tl-auth-grid tl-auth-grid-single">
+            <div class="tl-auth-field">
+                <label class="tl-auth-label">New Password</label>
+                <input class="tl-auth-input" type="password" name="password" required>
             </div>
         </div>
 
-        <div class="row-actions" style="margin-top:18px;">
-            <button class="btn" type="submit">Reset Password</button>
-            <a class="btn secondary" href="{{ url_for('auth.login') }}">Back to Login</a>
+        <div class="tl-auth-actions">
+            <button class="tl-auth-btn tl-auth-btn-primary" type="submit">Reset Password</button>
+            <a class="tl-auth-btn tl-auth-btn-secondary" href="{{ url_for('auth.login') }}">Back to Login</a>
         </div>
     </form>
     """)
-    return render_public_page(content, "Reset Password")
+    return _render_auth_page(
+        title="Reset Password",
+        heading="Reset Password",
+        subtitle="Choose a new password for your TerraLedger account.",
+        body_html=body_html,
+    )
 
 
 @auth_bp.route("/logout")

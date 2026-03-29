@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ title or "TerraLedger" }}</title>
 
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}">
+
     <style>
         :root {
             --bg: #f7f7f5;
@@ -112,24 +114,7 @@
             max-width: 560px;
         }
 
-        /* =========================================
-           🔥 GLOBAL BUTTON FIX (ALL PAGES)
-           ========================================= */
-
-        .btn {
-            padding: 10px 14px;
-            font-size: 14px;
-            border-radius: 10px;
-        }
-
-        .btn.small {
-            padding: 8px 12px;
-            font-size: 13px;
-        }
-
-        /* MOBILE FIX */
         @media (max-width: 640px) {
-
             .public-header {
                 padding: 0 18px;
             }
@@ -147,20 +132,8 @@
                 padding: 24px 14px;
             }
 
-            /* 🔥 THIS FIXES YOUR ISSUE */
-            .btn,
-            button,
-            input[type="submit"] {
-                padding: 6px 10px !important;
-                font-size: 0.82rem !important;
-                line-height: 1.2 !important;
-                border-radius: 8px !important;
-                min-height: auto !important;
-            }
-
-            .btn.small {
-                padding: 5px 8px !important;
-                font-size: 0.75rem !important;
+            .flash-wrap {
+                padding: 0 14px;
             }
         }
     </style>

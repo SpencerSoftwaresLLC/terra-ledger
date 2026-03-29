@@ -551,94 +551,6 @@ label {
     font-size: 0.75rem;
 }
 
-/* LOGGED OUT / LOGIN SCREEN */
-.auth-shell {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-    background:
-        radial-gradient(circle at top left, rgba(127, 191, 63, 0.18), transparent 35%),
-        radial-gradient(circle at bottom right, rgba(240, 140, 74, 0.18), transparent 32%),
-        linear-gradient(135deg, #eef3ea 0%, #f7f7f5 45%, #f3ece4 100%);
-}
-
-.auth-card {
-    width: 100%;
-    max-width: 560px;
-    background: rgba(255,255,255,0.96);
-    border: 1px solid #d8e2d0;
-    border-radius: 18px;
-    box-shadow: 0 16px 42px rgba(47, 79, 31, 0.12);
-    padding: 28px;
-    position: relative;
-    overflow: hidden;
-}
-
-.auth-card::before {
-    content: "";
-    position: absolute;
-    inset: 0 0 auto 0;
-    height: 6px;
-    background: linear-gradient(90deg, var(--green-dark), var(--green), var(--orange));
-}
-
-.auth-brand {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    margin-bottom: 18px;
-}
-
-.auth-logo-img {
-    width: 52px;
-    height: 52px;
-    object-fit: contain;
-    border-radius: 12px;
-    background: rgba(255,255,255,0.85);
-    padding: 4px;
-    flex: 0 0 auto;
-}
-
-.auth-brand-text h1,
-.auth-brand-text h2,
-.auth-brand-text h3 {
-    margin: 0;
-    color: var(--green-dark);
-}
-
-.auth-brand-text .muted {
-    margin-top: 4px;
-}
-
-.auth-content .card,
-.auth-content .settings-card {
-    box-shadow: none;
-    border: none;
-    background: transparent;
-    padding: 0;
-    margin-bottom: 0;
-}
-
-.auth-content h1:first-child,
-.auth-content h2:first-child,
-.auth-content h3:first-child {
-    margin-top: 0;
-}
-
-.auth-content .btn,
-.auth-content button.btn,
-.auth-content a.btn {
-    width: 100%;
-}
-
-.auth-content .row-actions .btn,
-.auth-content .row-actions a,
-.auth-content .row-actions button {
-    width: 100%;
-}
-
 /* RESPONSIVE */
 @media (max-width: 1100px) {
     .stats-grid,
@@ -865,26 +777,12 @@ label {
     .brand-text strong {
         white-space: normal;
     }
-
-    .auth-shell {
-        padding: 14px;
-    }
-
-    .auth-card {
-        padding: 20px;
-        border-radius: 16px;
-    }
-
-    .auth-brand {
-        align-items: flex-start;
-    }
 }
 </style>
 </head>
 
 <body data-page-title="{{ page_title or title or '' }}">
 
-{% if session.get('user_id') %}
 <div class="app-shell">
 
     <aside class="sidebar">
@@ -972,37 +870,6 @@ label {
     </main>
 
 </div>
-{% else %}
-<div class="auth-shell">
-    <div class="auth-card">
-
-        <div class="auth-brand">
-            <img src="/static/images/logo.png" class="auth-logo-img" alt="TerraLedger Logo">
-            <div class="auth-brand-text">
-                <h2>TerraLedger</h2>
-                <div class="muted">Landscaper-focused business software</div>
-            </div>
-        </div>
-
-        {% with messages = get_flashed_messages() %}
-        {% if messages %}
-        {% for message in messages %}
-        <div class="flash">{{ message }}</div>
-        {% endfor %}
-        {% endif %}
-        {% endwith %}
-
-        <div class="auth-content">
-            <div class="page-content-wrap">
-                <div class="page-content-inner">
-                    {{ content|safe }}
-                </div>
-            </div>
-        </div>
-
-    </div>
-</div>
-{% endif %}
 
 <div id="helpAssistantOverlay" class="help-assistant-overlay" style="display:none;">
     <div class="help-assistant-panel">
