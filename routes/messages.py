@@ -128,68 +128,148 @@ def _validate_twilio_request(req):
         return False
 
 
-def _convert_column_to_boolean(cur, column_name, default_value=False):
-    """
-    Safely convert an old messaging_settings column from INTEGER/TEXT/etc to BOOLEAN.
-    Important: drop the old default first so PostgreSQL does not try to cast it.
-    """
-    default_sql = "TRUE" if default_value else "FALSE"
-
-    cur.execute(f"""
-        ALTER TABLE messaging_settings
-        ALTER COLUMN {column_name} DROP DEFAULT
-    """)
-
-    cur.execute(f"""
-        ALTER TABLE messaging_settings
-        ALTER COLUMN {column_name}
-        TYPE BOOLEAN
-        USING CASE
-            WHEN {column_name} IS NULL THEN {default_sql}
-            WHEN LOWER(BTRIM({column_name}::text)) IN ('1', 'true', 't', 'yes', 'y', 'on') THEN TRUE
-            ELSE FALSE
-        END
-    """)
-
-    cur.execute(f"""
-        ALTER TABLE messaging_settings
-        ALTER COLUMN {column_name} SET DEFAULT {default_sql}
-    """)
-
-    cur.execute(f"""
-        UPDATE messaging_settings
-        SET {column_name} = {default_sql}
-        WHERE {column_name} IS NULL
-    """)
-
-    cur.execute(f"""
-        ALTER TABLE messaging_settings
-        ALTER COLUMN {column_name} SET NOT NULL
-    """)
-
-
 def ensure_messaging_tables():
     conn = get_db_connection()
     cur = conn.cursor()
 
     try:
+        # ---------- messaging_settings ----------
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS messaging_settings (
-                id SERIAL PRIMARY KEY,
-                company_id INTEGER NOT NULL UNIQUE,
-                messaging_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-                send_job_updates BOOLEAN NOT NULL DEFAULT TRUE,
-                send_invoice_reminders BOOLEAN NOT NULL DEFAULT FALSE,
-                send_manual_messages BOOLEAN NOT NULL DEFAULT TRUE,
-                default_on_the_way_template TEXT,
-                default_job_started_template TEXT,
-                default_job_completed_template TEXT,
-                default_invoice_reminder_template TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_name = 'messaging_settings'
+            ) AS exists_flag
         """)
+        settings_exists = cur.fetchone()["exists_flag"]
 
+        if not settings_exists:
+            cur.execute("""
+                CREATE TABLE messaging_settings (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL UNIQUE,
+                    messaging_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                    send_job_updates BOOLEAN NOT NULL DEFAULT TRUE,
+                    send_invoice_reminders BOOLEAN NOT NULL DEFAULT FALSE,
+                    send_manual_messages BOOLEAN NOT NULL DEFAULT TRUE,
+                    default_on_the_way_template TEXT,
+                    default_job_started_template TEXT,
+                    default_job_completed_template TEXT,
+                    default_invoice_reminder_template TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+        else:
+            cur.execute("""
+                SELECT column_name, data_type
+                FROM information_schema.columns
+                WHERE table_name = 'messaging_settings'
+            """)
+            existing_columns = {row["column_name"]: row["data_type"] for row in cur.fetchall()}
+
+            required_columns = {
+                "id": "SERIAL PRIMARY KEY",
+                "company_id": "INTEGER NOT NULL UNIQUE",
+                "messaging_enabled": "BOOLEAN NOT NULL DEFAULT FALSE",
+                "send_job_updates": "BOOLEAN NOT NULL DEFAULT TRUE",
+                "send_invoice_reminders": "BOOLEAN NOT NULL DEFAULT FALSE",
+                "send_manual_messages": "BOOLEAN NOT NULL DEFAULT TRUE",
+                "default_on_the_way_template": "TEXT",
+                "default_job_started_template": "TEXT",
+                "default_job_completed_template": "TEXT",
+                "default_invoice_reminder_template": "TEXT",
+                "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            }
+
+            # If any of the boolean columns are not actually boolean, rebuild the table cleanly.
+            bool_columns = [
+                "messaging_enabled",
+                "send_job_updates",
+                "send_invoice_reminders",
+                "send_manual_messages",
+            ]
+
+            needs_rebuild = False
+            for col in bool_columns:
+                if col in existing_columns and existing_columns[col] != "boolean":
+                    needs_rebuild = True
+                    break
+
+            if needs_rebuild:
+                cur.execute("""
+                    CREATE TABLE messaging_settings_new (
+                        id SERIAL PRIMARY KEY,
+                        company_id INTEGER NOT NULL UNIQUE,
+                        messaging_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                        send_job_updates BOOLEAN NOT NULL DEFAULT TRUE,
+                        send_invoice_reminders BOOLEAN NOT NULL DEFAULT FALSE,
+                        send_manual_messages BOOLEAN NOT NULL DEFAULT TRUE,
+                        default_on_the_way_template TEXT,
+                        default_job_started_template TEXT,
+                        default_job_completed_template TEXT,
+                        default_invoice_reminder_template TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                cur.execute("""
+                    INSERT INTO messaging_settings_new (
+                        company_id,
+                        messaging_enabled,
+                        send_job_updates,
+                        send_invoice_reminders,
+                        send_manual_messages,
+                        default_on_the_way_template,
+                        default_job_started_template,
+                        default_job_completed_template,
+                        default_invoice_reminder_template,
+                        created_at,
+                        updated_at
+                    )
+                    SELECT
+                        company_id,
+                        CASE
+                            WHEN messaging_enabled IS NULL THEN FALSE
+                            WHEN LOWER(BTRIM(messaging_enabled::text)) IN ('1', 'true', 't', 'yes', 'y', 'on') THEN TRUE
+                            ELSE FALSE
+                        END,
+                        CASE
+                            WHEN send_job_updates IS NULL THEN TRUE
+                            WHEN LOWER(BTRIM(send_job_updates::text)) IN ('1', 'true', 't', 'yes', 'y', 'on') THEN TRUE
+                            ELSE FALSE
+                        END,
+                        CASE
+                            WHEN send_invoice_reminders IS NULL THEN FALSE
+                            WHEN LOWER(BTRIM(send_invoice_reminders::text)) IN ('1', 'true', 't', 'yes', 'y', 'on') THEN TRUE
+                            ELSE FALSE
+                        END,
+                        CASE
+                            WHEN send_manual_messages IS NULL THEN TRUE
+                            WHEN LOWER(BTRIM(send_manual_messages::text)) IN ('1', 'true', 't', 'yes', 'y', 'on') THEN TRUE
+                            ELSE FALSE
+                        END,
+                        default_on_the_way_template,
+                        default_job_started_template,
+                        default_job_completed_template,
+                        default_invoice_reminder_template,
+                        COALESCE(created_at, CURRENT_TIMESTAMP),
+                        COALESCE(updated_at, CURRENT_TIMESTAMP)
+                    FROM messaging_settings
+                    ON CONFLICT (company_id) DO NOTHING
+                """)
+
+                cur.execute("DROP TABLE messaging_settings")
+                cur.execute("ALTER TABLE messaging_settings_new RENAME TO messaging_settings")
+            else:
+                # Add any missing columns without rebuilding.
+                for col_name, col_def in required_columns.items():
+                    if col_name not in existing_columns and col_name != "id":
+                        cur.execute(f"ALTER TABLE messaging_settings ADD COLUMN {col_name} {col_def}")
+
+        # ---------- message_log ----------
         cur.execute("""
             CREATE TABLE IF NOT EXISTS message_log (
                 id SERIAL PRIMARY KEY,
@@ -211,61 +291,26 @@ def ensure_messaging_tables():
         """)
 
         cur.execute("""
-            SELECT column_name, data_type
-            FROM information_schema.columns
-            WHERE table_name = 'messaging_settings'
-        """)
-        settings_columns = {row["column_name"]: row["data_type"] for row in cur.fetchall()}
-
-        required_columns = {
-            "messaging_enabled": "BOOLEAN NOT NULL DEFAULT FALSE",
-            "send_job_updates": "BOOLEAN NOT NULL DEFAULT TRUE",
-            "send_invoice_reminders": "BOOLEAN NOT NULL DEFAULT FALSE",
-            "send_manual_messages": "BOOLEAN NOT NULL DEFAULT TRUE",
-            "default_on_the_way_template": "TEXT",
-            "default_job_started_template": "TEXT",
-            "default_job_completed_template": "TEXT",
-            "default_invoice_reminder_template": "TEXT",
-            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-        }
-
-        for col_name, col_def in required_columns.items():
-            if col_name not in settings_columns:
-                cur.execute(f"ALTER TABLE messaging_settings ADD COLUMN {col_name} {col_def}")
-
-        cur.execute("""
-            SELECT column_name, data_type
-            FROM information_schema.columns
-            WHERE table_name = 'messaging_settings'
-        """)
-        settings_columns = {row["column_name"]: row["data_type"] for row in cur.fetchall()}
-
-        bool_defaults = {
-            "messaging_enabled": False,
-            "send_job_updates": True,
-            "send_invoice_reminders": False,
-            "send_manual_messages": True,
-        }
-
-        for col_name, default_value in bool_defaults.items():
-            current_type = settings_columns.get(col_name)
-            if current_type and current_type != "boolean":
-                _convert_column_to_boolean(cur, col_name, default_value=default_value)
-
-        cur.execute("""
             SELECT column_name
             FROM information_schema.columns
             WHERE table_name = 'message_log'
         """)
-        message_cols = [row["column_name"] for row in cur.fetchall()]
+        message_cols = {row["column_name"] for row in cur.fetchall()}
 
         message_required_columns = {
+            "company_id": "INTEGER NOT NULL",
+            "customer_id": "INTEGER",
+            "job_id": "INTEGER",
+            "invoice_id": "INTEGER",
+            "phone_number": "TEXT",
             "direction": "TEXT NOT NULL DEFAULT 'outbound'",
+            "message_body": "TEXT NOT NULL",
+            "status": "TEXT NOT NULL DEFAULT 'queued'",
             "provider": "TEXT DEFAULT 'twilio'",
             "provider_message_id": "TEXT",
             "sent_by_user_id": "INTEGER",
             "error_message": "TEXT",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
             "sent_at": "TIMESTAMP",
         }
 
