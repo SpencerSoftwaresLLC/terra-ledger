@@ -1340,27 +1340,27 @@ def _render_bookkeeping_page(conn, cid):
         yoy_html = f"""
         <div class='card'>
             <h2>Year over Year Comparison</h2>
-            <div class='table-wrap'>
-                <table>
+            <div class='bookkeeping-summary-table-wrap'>
+                <table class='bookkeeping-summary-table'>
                     <tr>
                         <th>Year</th>
-                        <th>Income</th>
-                        <th>Expenses</th>
-                        <th>Net</th>
+                        <th class='money'>Income</th>
+                        <th class='money'>Expenses</th>
+                        <th class='money'>Net</th>
                     </tr>
                     <tr>
                         <td>{prior_year}</td>
-                        <td style="color:#16a34a; font-weight:600;">+${prior_income:.2f}</td>
-                        <td style="color:#dc2626; font-weight:600;">-${prior_expense:.2f}</td>
-                        <td style="color:{'#16a34a' if prior_net >= 0 else '#dc2626'}; font-weight:700;">
+                        <td class='money positive'>+${prior_income:.2f}</td>
+                        <td class='money negative'>-${prior_expense:.2f}</td>
+                        <td class='money {"positive" if prior_net >= 0 else "negative"}'>
                             {'+' if prior_net >= 0 else '-'}${abs(prior_net):.2f}
                         </td>
                     </tr>
                     <tr>
                         <td>{current_year}</td>
-                        <td style="color:#16a34a; font-weight:600;">+${current_income:.2f}</td>
-                        <td style="color:#dc2626; font-weight:600;">-${current_expense:.2f}</td>
-                        <td style="color:{'#16a34a' if current_net >= 0 else '#dc2626'}; font-weight:700;">
+                        <td class='money positive'>+${current_income:.2f}</td>
+                        <td class='money negative'>-${current_expense:.2f}</td>
+                        <td class='money {"positive" if current_net >= 0 else "negative"}'>
                             {'+' if current_net >= 0 else '-'}${abs(current_net):.2f}
                         </td>
                     </tr>
@@ -1392,9 +1392,9 @@ def _render_bookkeeping_page(conn, cid):
         f"""
         <tr>
             <td>{escape(cat)}</td>
-            <td style="color:#16a34a; font-weight:600;">+${vals['Income']:.2f}</td>
-            <td style="color:#dc2626; font-weight:600;">-${vals['Expense']:.2f}</td>
-            <td style="color:{'#16a34a' if (vals['Income'] - vals['Expense']) >= 0 else '#dc2626'}; font-weight:700;">
+            <td class='money positive'>+${vals['Income']:.2f}</td>
+            <td class='money negative'>-${vals['Expense']:.2f}</td>
+            <td class='money {"positive" if (vals["Income"] - vals["Expense"]) >= 0 else "negative"}'>
                 {'+' if (vals['Income'] - vals['Expense']) >= 0 else '-'}${abs(vals['Income'] - vals['Expense']):.2f}
             </td>
         </tr>
@@ -1405,15 +1405,15 @@ def _render_bookkeeping_page(conn, cid):
     category_html = f"""
     <div class='card'>
         <h2>P&amp;L by Category</h2>
-        <div class='table-wrap'>
-            <table>
+        <div class='bookkeeping-summary-table-wrap'>
+            <table class='bookkeeping-summary-table'>
                 <tr>
                     <th>Category</th>
-                    <th>Income</th>
-                    <th>Expenses</th>
-                    <th>Net</th>
+                    <th class='money'>Income</th>
+                    <th class='money'>Expenses</th>
+                    <th class='money'>Net</th>
                 </tr>
-                {category_rows or '<tr><td colspan="4" class="muted">No category data for this period.</td></tr>'}
+                {category_rows or '<tr><td colspan="4" class="muted" style="padding:18px;">No category data for this period.</td></tr>'}
             </table>
         </div>
     </div>
@@ -1444,7 +1444,7 @@ def _render_bookkeeping_page(conn, cid):
                 <form method='post'
                       action='{url_for("bookkeeping.delete_bookkeeping_entry", entry_id=r.get("id"))}'
                       onsubmit="return confirm('Delete this bookkeeping entry?');"
-                      style='display:inline;'>
+                      style='margin:0;'>
                     <input type="hidden" name="csrf_token" value="{generate_csrf()}">
                     <button class='btn danger small' type='submit'>Delete</button>
                 </form>
@@ -1456,15 +1456,17 @@ def _render_bookkeeping_page(conn, cid):
         ledger_row_html.append(
             f"""
             <tr>
-                <td>{escape(str(r.get('entry_date') or '-'))}</td>
-                <td>{escape(str(r.get('entry_type') or '-'))}</td>
-                <td>{escape(str(r.get('category') or '-'))}</td>
-                <td>{escape(str(r.get('description') or '-'))}</td>
-                <td style="color:{'#16a34a' if r.get('entry_type') == 'Income' else '#dc2626'}; font-weight:600;">
+                <td class='bookkeeping-col-date'>{escape(str(r.get('entry_date') or '-'))}</td>
+                <td class='bookkeeping-col-type'>{escape(str(r.get('entry_type') or '-'))}</td>
+                <td class='bookkeeping-col-category'>{escape(str(r.get('category') or '-'))}</td>
+                <td class='bookkeeping-col-description'>{escape(str(r.get('description') or '-'))}</td>
+                <td class='bookkeeping-col-amount {"positive" if r.get("entry_type") == "Income" else "negative"}'>
                     {'+' if r.get('entry_type') == 'Income' else '-'}${abs(_safe_float(r.get('amount'))):.2f}
                 </td>
-                <td>{source_html}</td>
-                <td><div class='row-actions'>{actions_html}</div></td>
+                <td class='bookkeeping-col-source'>{source_html}</td>
+                <td class='bookkeeping-col-actions'>
+                    <div class='row-actions bookkeeping-actions'>{actions_html}</div>
+                </td>
             </tr>
             """
         )
@@ -1563,11 +1565,11 @@ def _render_bookkeeping_page(conn, cid):
                 </div>
                 <div style='grid-column:1 / -1;'>
                     <label>Description</label>
-                    <input type='text' name='description' placeholder='Enter description...' required>
+                    <input type='text' name='description' placeholder='Enter description.' required>
                 </div>
                 <div style='grid-column:1 / -1;'>
                     <label>Notes</label>
-                    <textarea name='notes' placeholder='Optional notes...'></textarea>
+                    <textarea name='notes' placeholder='Optional notes.'></textarea>
                 </div>
             </div>
 
@@ -1579,6 +1581,169 @@ def _render_bookkeeping_page(conn, cid):
     """
 
     content = f"""
+    <style>
+        .bookkeeping-summary-table-wrap {{
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border-radius: 14px;
+        }}
+
+        .bookkeeping-summary-table {{
+            width: 100%;
+            min-width: 680px;
+            border-collapse: separate;
+            border-spacing: 0;
+        }}
+
+        .bookkeeping-summary-table th,
+        .bookkeeping-summary-table td {{
+            padding: 12px 14px;
+            vertical-align: middle;
+            white-space: nowrap;
+            font-size: 0.95rem;
+            line-height: 1.2;
+        }}
+
+        .bookkeeping-summary-table th {{
+            font-weight: 700;
+            text-align: left;
+            border-bottom: 1px solid rgba(0,0,0,0.08);
+        }}
+
+        .bookkeeping-summary-table td {{
+            border-bottom: 1px solid rgba(0,0,0,0.06);
+        }}
+
+        .bookkeeping-summary-table .money {{
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }}
+
+        .bookkeeping-summary-table .positive {{
+            color: #16a34a;
+            font-weight: 700;
+        }}
+
+        .bookkeeping-summary-table .negative {{
+            color: #dc2626;
+            font-weight: 700;
+        }}
+
+        .bookkeeping-ledger-wrap {{
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border-radius: 14px;
+        }}
+
+        .bookkeeping-ledger-table {{
+            width: 100%;
+            min-width: 1380px;
+            border-collapse: separate;
+            border-spacing: 0;
+        }}
+
+        .bookkeeping-ledger-table th,
+        .bookkeeping-ledger-table td {{
+            padding: 12px 14px;
+            vertical-align: middle;
+            white-space: nowrap;
+            font-size: 0.95rem;
+            line-height: 1.2;
+        }}
+
+        .bookkeeping-ledger-table th {{
+            font-weight: 700;
+            text-align: left;
+            border-bottom: 1px solid rgba(0,0,0,0.08);
+            position: sticky;
+            top: 0;
+            background: #fff;
+            z-index: 2;
+        }}
+
+        .bookkeeping-ledger-table td {{
+            border-bottom: 1px solid rgba(0,0,0,0.06);
+        }}
+
+        .bookkeeping-col-date {{
+            min-width: 110px;
+        }}
+
+        .bookkeeping-col-type {{
+            min-width: 95px;
+        }}
+
+        .bookkeeping-col-category {{
+            min-width: 150px;
+        }}
+
+        .bookkeeping-col-description {{
+            min-width: 280px;
+        }}
+
+        .bookkeeping-col-amount {{
+            min-width: 110px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            font-weight: 700;
+        }}
+
+        .bookkeeping-col-amount.positive {{
+            color: #16a34a;
+        }}
+
+        .bookkeeping-col-amount.negative {{
+            color: #dc2626;
+        }}
+
+        .bookkeeping-col-source {{
+            min-width: 150px;
+            text-align: center;
+        }}
+
+        .bookkeeping-col-actions {{
+            min-width: 180px;
+            text-align: center;
+        }}
+
+        .bookkeeping-actions {{
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: nowrap;
+        }}
+
+        .bookkeeping-actions form {{
+            margin: 0;
+        }}
+
+        .bookkeeping-actions .btn {{
+            white-space: nowrap;
+        }}
+
+        .bookkeeping-ledger-scroll {{
+            max-height: 500px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+        }}
+
+        @media (max-width: 1200px) {{
+            .bookkeeping-ledger-table {{
+                min-width: 1280px;
+            }}
+        }}
+
+        @media (max-width: 900px) {{
+            .bookkeeping-summary-table {{
+                min-width: 620px;
+            }}
+        }}
+    </style>
+
     {filter_bar}
 
     <div style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:16px; margin-bottom:20px;">
@@ -1604,22 +1769,22 @@ def _render_bookkeeping_page(conn, cid):
 
     <div class='card'>
         <h2>Ledger Entries</h2>
-        <div class='table-wrap'>
-            <div style="max-height:500px; overflow-y:auto; border:1px solid #ddd; border-radius:10px;">
-                <table style="width:100%; border-collapse:collapse;">
+        <div class='bookkeeping-ledger-wrap'>
+            <div class='bookkeeping-ledger-scroll'>
+                <table class='bookkeeping-ledger-table'>
                     <thead>
                         <tr>
-                            <th style="position:sticky; top:0; background:#fff; z-index:2;">Date</th>
-                            <th style="position:sticky; top:0; background:#fff; z-index:2;">Type</th>
-                            <th style="position:sticky; top:0; background:#fff; z-index:2;">Category</th>
-                            <th style="position:sticky; top:0; background:#fff; z-index:2;">Description</th>
-                            <th style="position:sticky; top:0; background:#fff; z-index:2;">Amount</th>
-                            <th style="position:sticky; top:0; background:#fff; z-index:2;">Source</th>
-                            <th style="position:sticky; top:0; background:#fff; z-index:2;">Actions</th>
+                            <th class='bookkeeping-col-date'>Date</th>
+                            <th class='bookkeeping-col-type'>Type</th>
+                            <th class='bookkeeping-col-category'>Category</th>
+                            <th class='bookkeeping-col-description'>Description</th>
+                            <th class='bookkeeping-col-amount'>Amount</th>
+                            <th class='bookkeeping-col-source'>Source</th>
+                            <th class='bookkeeping-col-actions'>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {ledger_rows or '<tr><td colspan="7" class="muted">No bookkeeping entries for this period.</td></tr>'}
+                        {ledger_rows or '<tr><td colspan="7" class="muted" style="padding:18px;">No bookkeeping entries for this period.</td></tr>'}
                     </tbody>
                 </table>
             </div>
@@ -2061,19 +2226,67 @@ def bookkeeping_pnl():
 
     rows_html = ""
     for cat, amt in sorted(breakdown.items(), key=lambda x: x[0].lower()):
-        color = "#16a34a" if amt >= 0 else "#dc2626"
+        color_class = "positive" if amt >= 0 else "negative"
         rows_html += f"""
         <tr>
             <td>{escape(cat)}</td>
-            <td style="color:{color};">{_fmt_money(amt, show_plus=True)}</td>
+            <td class='money {color_class}'>{_fmt_money(amt, show_plus=True)}</td>
         </tr>
         """
 
-    net_color = "#16a34a" if net_profit >= 0 else "#dc2626"
-
+    net_color = "positive" if net_profit >= 0 else "negative"
     range_text = f"{escape(date_from)} to {escape(date_to)}"
 
     content = f"""
+    <style>
+        .pnl-breakdown-wrap {{
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border-radius: 14px;
+        }}
+
+        .pnl-breakdown-table {{
+            width: 100%;
+            min-width: 560px;
+            border-collapse: separate;
+            border-spacing: 0;
+        }}
+
+        .pnl-breakdown-table th,
+        .pnl-breakdown-table td {{
+            padding: 12px 14px;
+            vertical-align: middle;
+            white-space: nowrap;
+            font-size: 0.95rem;
+            line-height: 1.2;
+        }}
+
+        .pnl-breakdown-table th {{
+            font-weight: 700;
+            text-align: left;
+            border-bottom: 1px solid rgba(0,0,0,0.08);
+        }}
+
+        .pnl-breakdown-table td {{
+            border-bottom: 1px solid rgba(0,0,0,0.06);
+        }}
+
+        .pnl-breakdown-table .money {{
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            font-weight: 700;
+        }}
+
+        .positive {{
+            color: #16a34a;
+        }}
+
+        .negative {{
+            color: #dc2626;
+        }}
+    </style>
+
     <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
             <h1 style="margin:0;">Profit &amp; Loss</h1>
@@ -2107,32 +2320,32 @@ def bookkeeping_pnl():
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:20px;">
             <div class="card stat-card" style="flex:1;min-width:220px;">
                 <div class="stat-label">Total Income</div>
-                <div class="stat-value" style="color:#16a34a;">{_fmt_money(total_income)}</div>
+                <div class="stat-value positive">{_fmt_money(total_income)}</div>
             </div>
 
             <div class="card stat-card" style="flex:1;min-width:220px;">
                 <div class="stat-label">Total Expenses</div>
-                <div class="stat-value" style="color:#dc2626;">-{abs(total_expenses):,.2f}</div>
+                <div class="stat-value negative">-{abs(total_expenses):,.2f}</div>
             </div>
 
             <div class="card stat-card" style="flex:1;min-width:220px;">
                 <div class="stat-label">Net Profit</div>
-                <div class="stat-value" style="color:{net_color};">{_fmt_money(net_profit, show_plus=True)}</div>
+                <div class="stat-value {net_color}">{_fmt_money(net_profit, show_plus=True)}</div>
             </div>
         </div>
 
         <div class="card" style="margin-top:20px;">
             <h2>Breakdown</h2>
-            <div class="table-wrap">
-                <table style="width:100%;border-collapse:collapse;">
+            <div class="pnl-breakdown-wrap">
+                <table class="pnl-breakdown-table">
                     <thead>
                         <tr>
                             <th>Category</th>
-                            <th>Amount</th>
+                            <th class="money">Amount</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {rows_html or '<tr><td colspan="2" class="muted">No P&amp;L data for this date range.</td></tr>'}
+                        {rows_html or '<tr><td colspan="2" class="muted" style="padding:18px;">No P&amp;L data for this date range.</td></tr>'}
                     </tbody>
                 </table>
             </div>

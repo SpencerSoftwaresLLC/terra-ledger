@@ -384,25 +384,25 @@ def jobs():
         job_row_list.append(
             f"""
             <tr>
-                <td>#{r['id']}</td>
-                <td>{escape(clean_text_display(r['title']))}</td>
-                <td>{escape(clean_text_display(r['customer_name']))}</td>
-                <td>{escape(clean_text_display(r['scheduled_date']))}</td>
-                <td>{escape(clean_text_display(r['scheduled_start_time']))}</td>
-                <td>{escape(clean_text_display(r['scheduled_end_time']))}</td>
-                <td>{escape(clean_text_display(r['assigned_to']))}</td>
-                <td>{escape(clean_text_display(r['status']))}</td>
-                <td>${safe_float(r['revenue']):.2f}</td>
-                <td>${safe_float(r['cost_total']):.2f}</td>
-                <td>${safe_float(r['profit']):.2f}</td>
-                <td>
-                    <div class='row-actions'>
+                <td class='jobs-col-id'>#{r['id']}</td>
+                <td class='jobs-col-title'>{escape(clean_text_display(r['title']))}</td>
+                <td class='jobs-col-customer'>{escape(clean_text_display(r['customer_name']))}</td>
+                <td class='jobs-col-date'>{escape(clean_text_display(r['scheduled_date']))}</td>
+                <td class='jobs-col-time'>{escape(clean_text_display(r['scheduled_start_time']))}</td>
+                <td class='jobs-col-time'>{escape(clean_text_display(r['scheduled_end_time']))}</td>
+                <td class='jobs-col-assigned'>{escape(clean_text_display(r['assigned_to']))}</td>
+                <td class='jobs-col-status'>{escape(clean_text_display(r['status']))}</td>
+                <td class='jobs-col-money'>${safe_float(r['revenue']):.2f}</td>
+                <td class='jobs-col-money'>${safe_float(r['cost_total']):.2f}</td>
+                <td class='jobs-col-money jobs-col-profit'>${safe_float(r['profit']):.2f}</td>
+                <td class='jobs-col-actions'>
+                    <div class='row-actions jobs-table-actions'>
                         <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
                         <a class='btn warning small' href='{url_for("jobs.edit_job", job_id=r["id"])}'>Edit Job</a>
                         <a class='btn success small' href='{url_for("jobs.convert_job_to_invoice", job_id=r["id"])}'>Convert to Invoice</a>
                         <form method='post'
                               action='{url_for("jobs.delete_job", job_id=r["id"])}'
-                              style='display:inline;'
+                              style='margin:0;'
                               onsubmit="return confirm('Delete this job and all items?');">
                             <input type="hidden" name="csrf_token" value="{delete_csrf}">
                             <button class='btn danger small' type='submit'>Delete Job</button>
@@ -449,6 +449,104 @@ def jobs():
 
         .customer-result-item:hover {{
             background: #f8fbff;
+        }}
+
+        .jobs-table-wrap {{
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border-radius: 14px;
+        }}
+
+        .jobs-table {{
+            width: 100%;
+            min-width: 1450px;
+            border-collapse: separate;
+            border-spacing: 0;
+        }}
+
+        .jobs-table th,
+        .jobs-table td {{
+            padding: 12px 14px;
+            vertical-align: middle;
+            white-space: nowrap;
+            font-size: 0.95rem;
+            line-height: 1.2;
+        }}
+
+        .jobs-table th {{
+            font-weight: 700;
+            text-align: left;
+            border-bottom: 1px solid rgba(0,0,0,0.08);
+        }}
+
+        .jobs-table td {{
+            border-bottom: 1px solid rgba(0,0,0,0.06);
+        }}
+
+        .jobs-col-id {{
+            min-width: 70px;
+        }}
+
+        .jobs-col-title {{
+            min-width: 180px;
+        }}
+
+        .jobs-col-customer {{
+            min-width: 180px;
+        }}
+
+        .jobs-col-date {{
+            min-width: 110px;
+        }}
+
+        .jobs-col-time {{
+            min-width: 90px;
+        }}
+
+        .jobs-col-assigned {{
+            min-width: 140px;
+        }}
+
+        .jobs-col-status {{
+            min-width: 110px;
+        }}
+
+        .jobs-col-money {{
+            min-width: 110px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }}
+
+        .jobs-col-profit {{
+            font-weight: 700;
+        }}
+
+        .jobs-col-actions {{
+            min-width: 360px;
+            text-align: center;
+        }}
+
+        .jobs-table-actions {{
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: nowrap;
+        }}
+
+        .jobs-table-actions form {{
+            margin: 0;
+        }}
+
+        .jobs-table-actions .btn {{
+            white-space: nowrap;
+        }}
+
+        @media (max-width: 1200px) {{
+            .jobs-table {{
+                min-width: 1380px;
+            }}
         }}
     </style>
 
@@ -525,23 +623,23 @@ def jobs():
 
     <div class='card'>
         <h2>Job List</h2>
-        <div class='table-wrap'>
-            <table>
+        <div class='jobs-table-wrap'>
+            <table class='jobs-table'>
                 <tr>
-                    <th>ID</th>
-                    <th>Title</th>
-                    <th>Customer</th>
-                    <th>Date</th>
-                    <th>Start</th>
-                    <th>End</th>
-                    <th>Assigned To</th>
-                    <th>Status</th>
-                    <th>Revenue</th>
-                    <th>Costs</th>
-                    <th>Profit/Loss</th>
-                    <th>Actions</th>
+                    <th class='jobs-col-id'>ID</th>
+                    <th class='jobs-col-title'>Title</th>
+                    <th class='jobs-col-customer'>Customer</th>
+                    <th class='jobs-col-date'>Date</th>
+                    <th class='jobs-col-time'>Start</th>
+                    <th class='jobs-col-time'>End</th>
+                    <th class='jobs-col-assigned'>Assigned To</th>
+                    <th class='jobs-col-status'>Status</th>
+                    <th class='jobs-col-money'>Revenue</th>
+                    <th class='jobs-col-money'>Costs</th>
+                    <th class='jobs-col-money jobs-col-profit'>Profit/Loss</th>
+                    <th class='jobs-col-actions'>Actions</th>
                 </tr>
-                {job_rows or '<tr><td colspan="12" class="muted">No jobs yet.</td></tr>'}
+                {job_rows or '<tr><td colspan="12" class="muted" style="padding:18px;">No jobs yet.</td></tr>'}
             </table>
         </div>
     </div>
@@ -832,21 +930,21 @@ def view_job(job_id):
         item_row_list.append(
             f"""
             <tr>
-                <td>{escape(display_item_type(i['item_type']))}</td>
-                <td>{escape(clean_text_display(i['description']))}</td>
-                <td>{safe_float(i['quantity']):g}</td>
-                <td>{escape(clean_text_display(i['unit']))}</td>
-                <td>${safe_float(i['sale_price']):.2f}</td>
-                <td>{"-" if clean_text_input(i['item_type']).lower() in ['dump_fee', 'labor'] else f"${((safe_float(i['cost_amount']) / safe_float(i['quantity'])) if safe_float(i['quantity']) else 0):.2f}"}</td>
-                <td>${safe_float(i['cost_amount']):.2f}</td>
-                <td>{'Yes' if i['billable'] else 'No'}</td>
-                <td>${safe_float(i['line_total']):.2f}</td>
-                <td>
-                    <div class='row-actions'>
+                <td class='job-items-col-type'>{escape(display_item_type(i['item_type']))}</td>
+                <td class='job-items-col-description'>{escape(clean_text_display(i['description']))}</td>
+                <td class='job-items-col-qty'>{safe_float(i['quantity']):g}</td>
+                <td class='job-items-col-unit'>{escape(clean_text_display(i['unit']))}</td>
+                <td class='job-items-col-money'>${safe_float(i['sale_price']):.2f}</td>
+                <td class='job-items-col-money'>{"-" if clean_text_input(i['item_type']).lower() in ['dump_fee', 'labor'] else f"${((safe_float(i['cost_amount']) / safe_float(i['quantity'])) if safe_float(i['quantity']) else 0):.2f}"}</td>
+                <td class='job-items-col-money'>${safe_float(i['cost_amount']):.2f}</td>
+                <td class='job-items-col-billable'>{'Yes' if i['billable'] else 'No'}</td>
+                <td class='job-items-col-money job-items-col-revenue'>${safe_float(i['line_total']):.2f}</td>
+                <td class='job-items-col-actions'>
+                    <div class='row-actions job-items-actions'>
                         <a class='btn secondary small' href='{url_for("jobs.edit_job_item", job_id=job_id, item_id=i["id"])}'>Edit</a>
                         <form method='post'
                               action='{url_for("jobs.delete_job_item", job_id=job_id, item_id=i["id"])}'
-                              style='display:inline;'
+                              style='margin:0;'
                               onsubmit="return confirm('Delete this job item?');">
                             <input type="hidden" name="csrf_token" value="{delete_item_csrf}">
                             <button class='btn danger small' type='submit'>Delete</button>
@@ -1054,6 +1152,94 @@ Thank you,
     add_item_csrf = generate_csrf()
 
     content = f"""
+        <style>
+            .job-items-table-wrap {{
+                width: 100%;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                border-radius: 14px;
+            }}
+
+            .job-items-table {{
+                width: 100%;
+                min-width: 1200px;
+                border-collapse: separate;
+                border-spacing: 0;
+            }}
+
+            .job-items-table th,
+            .job-items-table td {{
+                padding: 12px 14px;
+                vertical-align: middle;
+                white-space: nowrap;
+                font-size: 0.95rem;
+                line-height: 1.2;
+            }}
+
+            .job-items-table th {{
+                font-weight: 700;
+                text-align: left;
+                border-bottom: 1px solid rgba(0,0,0,0.08);
+            }}
+
+            .job-items-table td {{
+                border-bottom: 1px solid rgba(0,0,0,0.06);
+            }}
+
+            .job-items-col-type {{
+                min-width: 110px;
+            }}
+
+            .job-items-col-description {{
+                min-width: 220px;
+            }}
+
+            .job-items-col-qty {{
+                min-width: 80px;
+                text-align: right;
+            }}
+
+            .job-items-col-unit {{
+                min-width: 90px;
+            }}
+
+            .job-items-col-billable {{
+                min-width: 90px;
+                text-align: center;
+            }}
+
+            .job-items-col-money {{
+                min-width: 110px;
+                text-align: right;
+                font-variant-numeric: tabular-nums;
+            }}
+
+            .job-items-col-revenue {{
+                font-weight: 700;
+            }}
+
+            .job-items-col-actions {{
+                min-width: 170px;
+                text-align: center;
+            }}
+
+            .job-items-actions {{
+                display: flex;
+                gap: 8px;
+                align-items: center;
+                justify-content: center;
+                flex-wrap: nowrap;
+            }}
+
+            .job-items-actions form {{
+                margin: 0;
+            }}
+
+            .job-items-actions .btn {{
+                white-space: nowrap;
+            }}
+        </style>
+
         <div class='card'>
             <h1>Job #{job['id']} - {escape(clean_text_display(job['title']))}</h1>
             <p>
@@ -1247,21 +1433,21 @@ Thank you,
 
         <div class='card'>
             <h2>Job Items</h2>
-            <div class='table-wrap'>
-                <table>
+            <div class='job-items-table-wrap'>
+                <table class='job-items-table'>
                     <tr>
-                        <th>Type</th>
-                        <th>Description</th>
-                        <th>Qty</th>
-                        <th>Unit</th>
-                        <th>Sale Price</th>
-                        <th>Unit Cost</th>
-                        <th>Total Cost</th>
-                        <th>Billable</th>
-                        <th>Revenue</th>
-                        <th>Actions</th>
+                        <th class='job-items-col-type'>Type</th>
+                        <th class='job-items-col-description'>Description</th>
+                        <th class='job-items-col-qty'>Qty</th>
+                        <th class='job-items-col-unit'>Unit</th>
+                        <th class='job-items-col-money'>Sale Price</th>
+                        <th class='job-items-col-money'>Unit Cost</th>
+                        <th class='job-items-col-money'>Total Cost</th>
+                        <th class='job-items-col-billable'>Billable</th>
+                        <th class='job-items-col-money job-items-col-revenue'>Revenue</th>
+                        <th class='job-items-col-actions'>Actions</th>
                     </tr>
-                    {item_rows or '<tr><td colspan="10" class="muted">No job items yet.</td></tr>'}
+                    {item_rows or '<tr><td colspan="10" class="muted" style="padding:18px;">No job items yet.</td></tr>'}
                 </table>
             </div>
         </div>
@@ -2070,19 +2256,19 @@ def finished_jobs():
     job_rows = "".join(
         f"""
         <tr>
-            <td>#{r['id']}</td>
-            <td>{escape(clean_text_display(r['title']))}</td>
-            <td>{escape(clean_text_display(r['customer_name']))}</td>
-            <td>{escape(clean_text_display(r['scheduled_date']))}</td>
-            <td>{escape(clean_text_display(r['scheduled_start_time']))}</td>
-            <td>{escape(clean_text_display(r['scheduled_end_time']))}</td>
-            <td>{escape(clean_text_display(r['assigned_to']))}</td>
-            <td>{escape(clean_text_display(r['status']))}</td>
-            <td>${safe_float(r['revenue']):.2f}</td>
-            <td>${safe_float(r['cost_total']):.2f}</td>
-            <td>${safe_float(r['profit']):.2f}</td>
-            <td>
-                <div class='row-actions'>
+            <td class='jobs-col-id'>#{r['id']}</td>
+            <td class='jobs-col-title'>{escape(clean_text_display(r['title']))}</td>
+            <td class='jobs-col-customer'>{escape(clean_text_display(r['customer_name']))}</td>
+            <td class='jobs-col-date'>{escape(clean_text_display(r['scheduled_date']))}</td>
+            <td class='jobs-col-time'>{escape(clean_text_display(r['scheduled_start_time']))}</td>
+            <td class='jobs-col-time'>{escape(clean_text_display(r['scheduled_end_time']))}</td>
+            <td class='jobs-col-assigned'>{escape(clean_text_display(r['assigned_to']))}</td>
+            <td class='jobs-col-status'>{escape(clean_text_display(r['status']))}</td>
+            <td class='jobs-col-money'>${safe_float(r['revenue']):.2f}</td>
+            <td class='jobs-col-money'>${safe_float(r['cost_total']):.2f}</td>
+            <td class='jobs-col-money jobs-col-profit'>${safe_float(r['profit']):.2f}</td>
+            <td class='jobs-col-actions'>
+                <div class='row-actions jobs-table-actions'>
                     <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
                     <a class='btn warning small' href='{url_for("jobs.reopen_job", job_id=r["id"])}'>Reopen</a>
                 </div>
@@ -2093,6 +2279,96 @@ def finished_jobs():
     )
 
     content = f"""
+    <style>
+        .jobs-table-wrap {{
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border-radius: 14px;
+        }}
+
+        .jobs-table {{
+            width: 100%;
+            min-width: 1350px;
+            border-collapse: separate;
+            border-spacing: 0;
+        }}
+
+        .jobs-table th,
+        .jobs-table td {{
+            padding: 12px 14px;
+            vertical-align: middle;
+            white-space: nowrap;
+            font-size: 0.95rem;
+            line-height: 1.2;
+        }}
+
+        .jobs-table th {{
+            font-weight: 700;
+            text-align: left;
+            border-bottom: 1px solid rgba(0,0,0,0.08);
+        }}
+
+        .jobs-table td {{
+            border-bottom: 1px solid rgba(0,0,0,0.06);
+        }}
+
+        .jobs-col-id {{
+            min-width: 70px;
+        }}
+
+        .jobs-col-title {{
+            min-width: 180px;
+        }}
+
+        .jobs-col-customer {{
+            min-width: 180px;
+        }}
+
+        .jobs-col-date {{
+            min-width: 110px;
+        }}
+
+        .jobs-col-time {{
+            min-width: 90px;
+        }}
+
+        .jobs-col-assigned {{
+            min-width: 140px;
+        }}
+
+        .jobs-col-status {{
+            min-width: 110px;
+        }}
+
+        .jobs-col-money {{
+            min-width: 110px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }}
+
+        .jobs-col-profit {{
+            font-weight: 700;
+        }}
+
+        .jobs-col-actions {{
+            min-width: 160px;
+            text-align: center;
+        }}
+
+        .jobs-table-actions {{
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: nowrap;
+        }}
+
+        .jobs-table-actions .btn {{
+            white-space: nowrap;
+        }}
+    </style>
+
     <div class='card'>
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
             <div>
@@ -2106,23 +2382,23 @@ def finished_jobs():
     </div>
 
     <div class='card'>
-        <div class='table-wrap'>
-            <table>
+        <div class='jobs-table-wrap'>
+            <table class='jobs-table'>
                 <tr>
-                    <th>ID</th>
-                    <th>Title</th>
-                    <th>Customer</th>
-                    <th>Date</th>
-                    <th>Start</th>
-                    <th>End</th>
-                    <th>Assigned To</th>
-                    <th>Status</th>
-                    <th>Revenue</th>
-                    <th>Costs</th>
-                    <th>Profit/Loss</th>
-                    <th>Actions</th>
+                    <th class='jobs-col-id'>ID</th>
+                    <th class='jobs-col-title'>Title</th>
+                    <th class='jobs-col-customer'>Customer</th>
+                    <th class='jobs-col-date'>Date</th>
+                    <th class='jobs-col-time'>Start</th>
+                    <th class='jobs-col-time'>End</th>
+                    <th class='jobs-col-assigned'>Assigned To</th>
+                    <th class='jobs-col-status'>Status</th>
+                    <th class='jobs-col-money'>Revenue</th>
+                    <th class='jobs-col-money'>Costs</th>
+                    <th class='jobs-col-money jobs-col-profit'>Profit/Loss</th>
+                    <th class='jobs-col-actions'>Actions</th>
                 </tr>
-                {job_rows or '<tr><td colspan="12" class="muted">No finished jobs yet.</td></tr>'}
+                {job_rows or '<tr><td colspan="12" class="muted" style="padding:18px;">No finished jobs yet.</td></tr>'}
             </table>
         </div>
     </div>
