@@ -1,4 +1,5 @@
 from flask import Blueprint, request, redirect, url_for, session, flash, make_response
+from flask_wtf.csrf import generate_csrf
 from html import escape
 from datetime import date
 import csv
@@ -21,21 +22,22 @@ def customers():
     conn = get_db_connection()
     cid = session["company_id"]
 
-    rows = conn.execute(
-        """
-        SELECT *
-        FROM customers
-        WHERE company_id = ?
-        ORDER BY
-            LOWER(COALESCE(last_name, '')),
-            LOWER(COALESCE(first_name, '')),
-            LOWER(COALESCE(name, '')),
-            id
-        """,
-        (cid,),
-    ).fetchall()
-
-    conn.close()
+    try:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM customers
+            WHERE company_id = %s
+            ORDER BY
+                LOWER(COALESCE(last_name, '')),
+                LOWER(COALESCE(first_name, '')),
+                LOWER(COALESCE(name, '')),
+                id
+            """,
+            (cid,),
+        ).fetchall()
+    finally:
+        conn.close()
 
     customer_rows = ""
     for r in rows:
@@ -62,40 +64,44 @@ def customers():
             <td>{phone}</td>
             <td>{email}</td>
             <td style="white-space:nowrap;">
-                <a class='btn secondary' href='{url_for("customers.edit_customer", customer_id=customer_id)}'>Edit</a>
+                <a class="btn secondary" href="{url_for('customers.edit_customer', customer_id=customer_id)}">Edit</a>
 
-                <form method='post' action='{url_for("customers.delete_customer", customer_id=customer_id)}' style='display:inline;' onsubmit='return confirm("Delete this customer?");'>
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button class='btn danger' type='submit'>Delete</button>
+                <form method="post"
+                      action="{url_for('customers.delete_customer', customer_id=customer_id)}"
+                      style="display:inline;"
+                      onsubmit="return confirm('Delete this customer?');">
+                    <input type="hidden" name="csrf_token" value="{generate_csrf()}">
+                    <button class="btn danger" type="submit">Delete</button>
                 </form>
             </td>
         </tr>
         """
 
     content = f"""
-    <div class='card'>
+    <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
             <h1 style="margin:0;">Customers</h1>
-            <div class='table-wrap'>
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                <a class='btn secondary' href='{url_for("customers.export_customers")}'>Export CSV</a>
-                <a class='btn' href='{url_for("customers.add_customer")}'>Add Customer</a>
+                <a class="btn secondary" href="{url_for('customers.export_customers')}">Export CSV</a>
+                <a class="btn" href="{url_for('customers.add_customer')}">Add Customer</a>
             </div>
         </div>
 
-        <p class='muted' style='margin-top:8px;'>Sorted alphabetically by last name.</p>
+        <p class="muted" style="margin-top:8px;">Sorted alphabetically by last name.</p>
 
-        <table>
-            <tr>
-                <th>ID</th>
-                <th>Name</th>
-                <th>Company</th>
-                <th>Phone</th>
-                <th>Email</th>
-                <th>Actions</th>
-            </tr>
-            {customer_rows or '<tr><td colspan="6" class="muted">No customers found.</td></tr>'}
-        </table>
+        <div class="table-wrap">
+            <table>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Company</th>
+                    <th>Phone</th>
+                    <th>Email</th>
+                    <th>Actions</th>
+                </tr>
+                {customer_rows or '<tr><td colspan="6" class="muted">No customers found.</td></tr>'}
+            </table>
+        </div>
     </div>
     """
 
@@ -104,6 +110,7 @@ def customers():
 
 @customers_bp.route("/customers/add", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_customers")
 def add_customer():
     ensure_customer_name_columns()
@@ -129,38 +136,39 @@ def add_customer():
         first_name = parts[0] if parts else ""
         last_name = parts[-1] if len(parts) > 1 else ""
 
-        conn.execute(
-            """
-            INSERT INTO customers (
-                company_id,
-                name,
-                first_name,
-                last_name,
-                company,
-                email,
-                phone,
-                billing_address,
-                service_address,
-                notes
+        try:
+            conn.execute(
+                """
+                INSERT INTO customers (
+                    company_id,
+                    name,
+                    first_name,
+                    last_name,
+                    company,
+                    email,
+                    phone,
+                    billing_address,
+                    service_address,
+                    notes
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    cid,
+                    name,
+                    first_name,
+                    last_name,
+                    company,
+                    email,
+                    phone,
+                    billing_address,
+                    service_address,
+                    notes,
+                ),
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                cid,
-                name,
-                first_name,
-                last_name,
-                company,
-                email,
-                phone,
-                billing_address,
-                service_address,
-                notes,
-            ),
-        )
-
-        conn.commit()
-        conn.close()
+            conn.commit()
+        finally:
+            conn.close()
 
         flash("Customer added.")
         return redirect(url_for("customers.customers"))
@@ -168,42 +176,47 @@ def add_customer():
     conn.close()
 
     content = f"""
-    <div class='card'>
+    <div class="card">
         <h1>Add Customer</h1>
-        <form method='post'>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class='grid'>
+        <form method="post">
+            <input type="hidden" name="csrf_token" value="{generate_csrf()}">
+
+            <div class="grid">
                 <div>
                     <label>Name</label>
-                    <input name='name' required>
+                    <input name="name" required>
                 </div>
                 <div>
                     <label>Company</label>
-                    <input name='company'>
+                    <input name="company">
                 </div>
                 <div>
                     <label>Email</label>
-                    <input name='email'>
+                    <input name="email">
                 </div>
                 <div>
                     <label>Phone</label>
-                    <input name='phone'>
+                    <input name="phone">
                 </div>
                 <div>
                     <label>Billing Address</label>
-                    <input name='billing_address'>
+                    <input name="billing_address">
                 </div>
                 <div>
                     <label>Service Address</label>
-                    <input name='service_address'>
+                    <input name="service_address">
                 </div>
             </div>
+
             <br>
+
             <label>Notes</label>
-            <textarea name='notes'></textarea>
+            <textarea name="notes"></textarea>
+
             <br>
-            <button class='btn' type='submit'>Save Customer</button>
-            <a class='btn secondary' href='{url_for("customers.customers")}'>Cancel</a>
+
+            <button class="btn" type="submit">Save Customer</button>
+            <a class="btn secondary" href="{url_for('customers.customers')}">Cancel</a>
         </form>
     </div>
     """
@@ -213,6 +226,7 @@ def add_customer():
 
 @customers_bp.route("/customers/<int:customer_id>/edit", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_customers")
 def edit_customer(customer_id):
     ensure_customer_name_columns()
@@ -221,7 +235,7 @@ def edit_customer(customer_id):
     cid = session["company_id"]
 
     customer = conn.execute(
-        "SELECT * FROM customers WHERE id = ? AND company_id = ?",
+        "SELECT * FROM customers WHERE id = %s AND company_id = %s",
         (customer_id, cid),
     ).fetchone()
 
@@ -248,36 +262,38 @@ def edit_customer(customer_id):
         first_name = parts[0] if parts else ""
         last_name = parts[-1] if len(parts) > 1 else ""
 
-        conn.execute(
-            """
-            UPDATE customers
-            SET name = ?,
-                first_name = ?,
-                last_name = ?,
-                company = ?,
-                email = ?,
-                phone = ?,
-                billing_address = ?,
-                service_address = ?,
-                notes = ?
-            WHERE id = ? AND company_id = ?
-            """,
-            (
-                name,
-                first_name,
-                last_name,
-                company,
-                email,
-                phone,
-                billing_address,
-                service_address,
-                notes,
-                customer_id,
-                cid,
-            ),
-        )
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute(
+                """
+                UPDATE customers
+                SET name = %s,
+                    first_name = %s,
+                    last_name = %s,
+                    company = %s,
+                    email = %s,
+                    phone = %s,
+                    billing_address = %s,
+                    service_address = %s,
+                    notes = %s
+                WHERE id = %s AND company_id = %s
+                """,
+                (
+                    name,
+                    first_name,
+                    last_name,
+                    company,
+                    email,
+                    phone,
+                    billing_address,
+                    service_address,
+                    notes,
+                    customer_id,
+                    cid,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
         flash("Customer updated.")
         return redirect(url_for("customers.customers"))
@@ -290,45 +306,151 @@ def edit_customer(customer_id):
     service_address = escape(customer["service_address"] or "")
     notes = escape(customer["notes"] or "")
 
+    conn.close()
+
     content = f"""
-    <div class='card'>
+    <div class="card">
         <h1>Edit Customer #{customer['id']}</h1>
-        <form method='post'>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class='grid'>
+        <form method="post">
+            <input type="hidden" name="csrf_token" value="{generate_csrf()}">
+
+            <div class="grid">
                 <div>
                     <label>Name</label>
-                    <input name='name' value="{name}" required>
+                    <input name="name" value="{name}" required>
                 </div>
                 <div>
                     <label>Company</label>
-                    <input name='company' value="{company}">
+                    <input name="company" value="{company}">
                 </div>
                 <div>
                     <label>Email</label>
-                    <input name='email' value="{email}">
+                    <input name="email" value="{email}">
                 </div>
                 <div>
                     <label>Phone</label>
-                    <input name='phone' value="{phone}">
+                    <input name="phone" value="{phone}">
                 </div>
                 <div>
                     <label>Billing Address</label>
-                    <input name='billing_address' value="{billing_address}">
+                    <input name="billing_address" value="{billing_address}">
                 </div>
                 <div>
                     <label>Service Address</label>
-                    <input name='service_address' value="{service_address}">
+                    <input name="service_address" value="{service_address}">
                 </div>
             </div>
+
             <br>
+
             <label>Notes</label>
-            <textarea name='notes'>{notes}</textarea>
+            <textarea name="notes">{notes}</textarea>
+
             <br>
-            <button class='btn' type='submit'>Save Changes</button>
-            <a class='btn secondary' href='{url_for("customers.customers")}'>Cancel</a>
+
+            <button class="btn" type="submit">Save Changes</button>
+            <a class="btn secondary" href="{url_for('customers.customers')}">Cancel</a>
         </form>
     </div>
     """
 
     return render_page(content, f"Edit Customer #{customer['id']}")
+
+
+@customers_bp.route("/customers/<int:customer_id>/delete", methods=["POST"])
+@login_required
+@subscription_required
+@require_permission("can_manage_customers")
+def delete_customer(customer_id):
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    try:
+        customer = conn.execute(
+            "SELECT id FROM customers WHERE id = %s AND company_id = %s",
+            (customer_id, cid),
+        ).fetchone()
+
+        if not customer:
+            flash("Customer not found.")
+            return redirect(url_for("customers.customers"))
+
+        conn.execute(
+            "DELETE FROM customers WHERE id = %s AND company_id = %s",
+            (customer_id, cid),
+        )
+        conn.commit()
+        flash("Customer deleted.")
+    except Exception:
+        conn.rollback()
+        flash("Could not delete customer. They may be linked to jobs, quotes, or invoices.")
+    finally:
+        conn.close()
+
+    return redirect(url_for("customers.customers"))
+
+
+@customers_bp.route("/customers/export")
+@login_required
+@subscription_required
+@require_permission("can_manage_customers")
+def export_customers():
+    ensure_customer_name_columns()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, name, first_name, last_name, company, email, phone,
+                   billing_address, service_address, notes
+            FROM customers
+            WHERE company_id = %s
+            ORDER BY
+                LOWER(COALESCE(last_name, '')),
+                LOWER(COALESCE(first_name, '')),
+                LOWER(COALESCE(name, '')),
+                id
+            """,
+            (cid,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    writer.writerow([
+        "ID",
+        "Name",
+        "First Name",
+        "Last Name",
+        "Company",
+        "Email",
+        "Phone",
+        "Billing Address",
+        "Service Address",
+        "Notes",
+    ])
+
+    for row in rows:
+        writer.writerow([
+            row["id"],
+            row["name"] or "",
+            row["first_name"] or "",
+            row["last_name"] or "",
+            row["company"] or "",
+            row["email"] or "",
+            row["phone"] or "",
+            row["billing_address"] or "",
+            row["service_address"] or "",
+            row["notes"] or "",
+        ])
+
+    response = make_response(output.getvalue())
+    response.headers["Content-Type"] = "text/csv; charset=utf-8"
+    response.headers["Content-Disposition"] = (
+        f'attachment; filename="customers_{date.today().isoformat()}.csv"'
+    )
+    return response

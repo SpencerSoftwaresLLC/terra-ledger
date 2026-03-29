@@ -1,4 +1,5 @@
 from flask import Blueprint, request, redirect, url_for, session, flash, abort, make_response, current_app
+from flask_wtf.csrf import generate_csrf
 from datetime import date, datetime
 from html import escape
 import json
@@ -429,30 +430,35 @@ def quotes():
 
     conn.close()
 
-    quote_rows = "".join(
-        f"""<tr>
-            <td>#{r['id']}</td>
-            <td>{escape(r['quote_number'] or '-')}</td>
-            <td>{escape(r['customer_name'] or '-')}</td>
-            <td>${float(r['total'] or 0):.2f}</td>
-            <td>{escape(r['status'] or '-')}</td>
-            <td>
-                <div class='row-actions'>
-                    <a class='btn secondary small' href='{url_for("quotes.view_quote", quote_id=r["id"])}'>View</a>
-                    <a class='btn small' href='{url_for("quotes.email_quote_preview", quote_id=r["id"])}'>Email</a>
-                    <a class='btn success small' href='{url_for("quotes.convert_quote_to_job", quote_id=r["id"])}'>Convert to Job</a>
-                    <form method='post'
-                          action='{url_for("quotes.delete_quote", quote_id=r["id"])}'
-                          style='display:inline;'
-                          onsubmit="return confirm('Delete this quote?');">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button class='btn danger small' type='submit'>Delete</button>
-                    </form>
-                </div>
-            </td>
-        </tr>"""
-        for r in rows
-    )
+    quote_row_list = []
+    for r in rows:
+        delete_csrf = generate_csrf()
+        quote_row_list.append(
+            f"""<tr>
+                <td>#{r['id']}</td>
+                <td>{escape(r['quote_number'] or '-')}</td>
+                <td>{escape(r['customer_name'] or '-')}</td>
+                <td>${float(r['total'] or 0):.2f}</td>
+                <td>{escape(r['status'] or '-')}</td>
+                <td>
+                    <div class='row-actions'>
+                        <a class='btn secondary small' href='{url_for("quotes.view_quote", quote_id=r["id"])}'>View</a>
+                        <a class='btn small' href='{url_for("quotes.email_quote_preview", quote_id=r["id"])}'>Email</a>
+                        <a class='btn success small' href='{url_for("quotes.convert_quote_to_job", quote_id=r["id"])}'>Convert to Job</a>
+                        <form method='post'
+                              action='{url_for("quotes.delete_quote", quote_id=r["id"])}'
+                              style='display:inline;'
+                              onsubmit="return confirm('Delete this quote?');">
+                            <input type="hidden" name="csrf_token" value="{delete_csrf}">
+                            <button class='btn danger small' type='submit'>Delete</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>"""
+        )
+    quote_rows = "".join(quote_row_list)
+
+    form_csrf = generate_csrf()
 
     content = f"""
     <style>
@@ -508,7 +514,7 @@ def quotes():
         </div>
 
         <form method='post'>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="csrf_token" value="{form_csrf}">
             <div class='grid'>
                 <div class='customer-search-wrap'>
                     <label>Customer</label>
@@ -641,6 +647,7 @@ def quotes():
 
 @quotes_bp.route("/quotes/<int:quote_id>", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def view_quote(quote_id):
     ensure_quote_item_columns()
@@ -725,29 +732,34 @@ def view_quote(quote_id):
     ).fetchall()
     conn.close()
 
-    item_rows = "".join(
-        f"""
-        <tr>
-            <td>{escape(_display_item_type(i['item_type']))}</td>
-            <td>{escape(i['description'] or '')}</td>
-            <td>{float(i['quantity'] or 0):g}</td>
-            <td>{escape(i['unit'] or '-')}</td>
-            <td>${float(i['unit_price'] or 0):.2f}</td>
-            <td>{"-" if (i['item_type'] or '').strip().lower() in ['dump_fee', 'labor'] else f"${float(i['unit_cost'] or 0):.2f}"}</td>
-            <td>${float(i['line_total'] or 0):.2f}</td>
-            <td>
-                <form method="post"
-                      action="{url_for('quotes.delete_quote_item', quote_id=quote_id, item_id=i['id'])}"
-                      style="display:inline;"
-                      onsubmit="return confirm('Delete this line item?');">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button class="btn danger small" type="submit">Delete</button>
-                </form>
-            </td>
-        </tr>
-        """
-        for i in items
-    )
+    item_row_list = []
+    for i in items:
+        delete_item_csrf = generate_csrf()
+        item_row_list.append(
+            f"""
+            <tr>
+                <td>{escape(_display_item_type(i['item_type']))}</td>
+                <td>{escape(i['description'] or '')}</td>
+                <td>{float(i['quantity'] or 0):g}</td>
+                <td>{escape(i['unit'] or '-')}</td>
+                <td>${float(i['unit_price'] or 0):.2f}</td>
+                <td>{"-" if (i['item_type'] or '').strip().lower() in ['dump_fee', 'labor'] else f"${float(i['unit_cost'] or 0):.2f}"}</td>
+                <td>${float(i['line_total'] or 0):.2f}</td>
+                <td>
+                    <form method="post"
+                          action="{url_for('quotes.delete_quote_item', quote_id=quote_id, item_id=i['id'])}"
+                          style="display:inline;"
+                          onsubmit="return confirm('Delete this line item?');">
+                        <input type="hidden" name="csrf_token" value="{delete_item_csrf}">
+                        <button class="btn danger small" type="submit">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            """
+        )
+    item_rows = "".join(item_row_list)
+
+    add_item_csrf = generate_csrf()
 
     content = f"""
         <div class='card'>
@@ -775,7 +787,7 @@ def view_quote(quote_id):
 
             <h2>Add Quote Item</h2>
             <form method='post'>
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="csrf_token" value="{add_item_csrf}">
                 <div class='grid'>
                     <div>
                         <label>Item Type</label>
@@ -924,6 +936,7 @@ def view_quote(quote_id):
 
 @quotes_bp.route("/quotes/<int:quote_id>/email")
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def email_quote_preview(quote_id):
     ensure_quote_item_columns()
@@ -950,6 +963,7 @@ def email_quote_preview(quote_id):
 
     preview_url = url_for("quotes.preview_quote_pdf", quote_id=quote_id)
     send_url = url_for("quotes.send_quote_email", quote_id=quote_id)
+    send_csrf = generate_csrf()
 
     content = f"""
     <div class='card'>
@@ -982,7 +996,7 @@ def email_quote_preview(quote_id):
         {"<div class='notice warning'>This customer does not have an email address yet. Add one before sending.</div>" if not recipient else ""}
 
         <form method='post' action='{send_url}' onsubmit="return confirm('Send this quote by email now?');">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="csrf_token" value="{send_csrf}">
             <button class='btn' type='submit' {"disabled" if not recipient else ""}>Send Email Now</button>
         </form>
     </div>
@@ -992,6 +1006,7 @@ def email_quote_preview(quote_id):
 
 @quotes_bp.route("/quotes/<int:quote_id>/preview_pdf")
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def preview_quote_pdf(quote_id):
     ensure_quote_item_columns()
@@ -1048,6 +1063,7 @@ def preview_quote_pdf(quote_id):
 
 @quotes_bp.route("/quotes/<int:quote_id>/send_email", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def send_quote_email(quote_id):
     ensure_quote_item_columns()
@@ -1148,6 +1164,7 @@ def send_quote_email(quote_id):
 
 @quotes_bp.route("/quotes/<int:quote_id>/convert_to_job")
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def convert_quote_to_job(quote_id):
     ensure_quote_item_columns()
@@ -1340,6 +1357,7 @@ def convert_quote_to_job(quote_id):
 
 @quotes_bp.route("/quotes/<int:quote_id>/delete", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def delete_quote(quote_id):
     ensure_quote_item_columns()
@@ -1372,6 +1390,7 @@ def delete_quote(quote_id):
 
 @quotes_bp.route("/quotes/<int:quote_id>/items/<int:item_id>/delete", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def delete_quote_item(quote_id, item_id):
     ensure_quote_item_columns()
@@ -1419,6 +1438,7 @@ def delete_quote_item(quote_id, item_id):
 
 @quotes_bp.route("/quotes/finished")
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def finished_quotes():
     ensure_quote_item_columns()
@@ -1486,6 +1506,7 @@ def finished_quotes():
 
 @quotes_bp.route("/quotes/<int:quote_id>/reopen")
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def reopen_quote(quote_id):
     conn = get_db_connection()

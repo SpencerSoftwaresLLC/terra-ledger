@@ -1,4 +1,5 @@
 from flask import Blueprint, request, redirect, url_for, session, flash, make_response, abort
+from flask_wtf.csrf import generate_csrf
 from datetime import date, datetime
 from html import escape
 import json
@@ -377,38 +378,43 @@ def jobs():
 
     conn.close()
 
-    job_rows = "".join(
-        f"""
-        <tr>
-            <td>#{r['id']}</td>
-            <td>{escape(clean_text_display(r['title']))}</td>
-            <td>{escape(clean_text_display(r['customer_name']))}</td>
-            <td>{escape(clean_text_display(r['scheduled_date']))}</td>
-            <td>{escape(clean_text_display(r['scheduled_start_time']))}</td>
-            <td>{escape(clean_text_display(r['scheduled_end_time']))}</td>
-            <td>{escape(clean_text_display(r['assigned_to']))}</td>
-            <td>{escape(clean_text_display(r['status']))}</td>
-            <td>${safe_float(r['revenue']):.2f}</td>
-            <td>${safe_float(r['cost_total']):.2f}</td>
-            <td>${safe_float(r['profit']):.2f}</td>
-            <td>
-                <div class='row-actions'>
-                    <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
-                    <a class='btn warning small' href='{url_for("jobs.edit_job", job_id=r["id"])}'>Edit Job</a>
-                    <a class='btn success small' href='{url_for("jobs.convert_job_to_invoice", job_id=r["id"])}'>Convert to Invoice</a>
-                    <form method='post'
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                          action='{url_for("jobs.delete_job", job_id=r["id"])}'
-                          style='display:inline;'
-                          onsubmit="return confirm('Delete this job and all items?');">
-                        <button class='btn danger small' type='submit'>Delete Job</button>
-                    </form>
-                </div>
-            </td>
-        </tr>
-        """
-        for r in rows
-    )
+    job_row_list = []
+    for r in rows:
+        delete_csrf = generate_csrf()
+        job_row_list.append(
+            f"""
+            <tr>
+                <td>#{r['id']}</td>
+                <td>{escape(clean_text_display(r['title']))}</td>
+                <td>{escape(clean_text_display(r['customer_name']))}</td>
+                <td>{escape(clean_text_display(r['scheduled_date']))}</td>
+                <td>{escape(clean_text_display(r['scheduled_start_time']))}</td>
+                <td>{escape(clean_text_display(r['scheduled_end_time']))}</td>
+                <td>{escape(clean_text_display(r['assigned_to']))}</td>
+                <td>{escape(clean_text_display(r['status']))}</td>
+                <td>${safe_float(r['revenue']):.2f}</td>
+                <td>${safe_float(r['cost_total']):.2f}</td>
+                <td>${safe_float(r['profit']):.2f}</td>
+                <td>
+                    <div class='row-actions'>
+                        <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
+                        <a class='btn warning small' href='{url_for("jobs.edit_job", job_id=r["id"])}'>Edit Job</a>
+                        <a class='btn success small' href='{url_for("jobs.convert_job_to_invoice", job_id=r["id"])}'>Convert to Invoice</a>
+                        <form method='post'
+                              action='{url_for("jobs.delete_job", job_id=r["id"])}'
+                              style='display:inline;'
+                              onsubmit="return confirm('Delete this job and all items?');">
+                            <input type="hidden" name="csrf_token" value="{delete_csrf}">
+                            <button class='btn danger small' type='submit'>Delete Job</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            """
+        )
+    job_rows = "".join(job_row_list)
+
+    create_job_csrf = generate_csrf()
 
     content = f"""
     <style>
@@ -456,7 +462,7 @@ def jobs():
         </div>
 
         <form method='post' style='margin-top:18px;'>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="csrf_token" value="{create_job_csrf}">
             <div class='grid'>
                 <div class='customer-search-wrap'>
                     <label>Customer</label>
@@ -616,6 +622,7 @@ def jobs():
 
 @jobs_bp.route("/jobs/export")
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def export_jobs():
     ensure_job_schedule_columns()
@@ -701,6 +708,7 @@ def export_jobs():
 
 @jobs_bp.route("/jobs/<int:job_id>", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def view_job(job_id):
     ensure_job_schedule_columns()
@@ -818,34 +826,37 @@ def view_job(job_id):
 
     conn.close()
 
-    item_rows = "".join(
-        f"""
-        <tr>
-            <td>{escape(display_item_type(i['item_type']))}</td>
-            <td>{escape(clean_text_display(i['description']))}</td>
-            <td>{safe_float(i['quantity']):g}</td>
-            <td>{escape(clean_text_display(i['unit']))}</td>
-            <td>${safe_float(i['sale_price']):.2f}</td>
-            <td>{"-" if clean_text_input(i['item_type']).lower() in ['dump_fee', 'labor'] else f"${((safe_float(i['cost_amount']) / safe_float(i['quantity'])) if safe_float(i['quantity']) else 0):.2f}"}</td>
-            <td>${safe_float(i['cost_amount']):.2f}</td>
-            <td>{'Yes' if i['billable'] else 'No'}</td>
-            <td>${safe_float(i['line_total']):.2f}</td>
-            <td>
-                <div class='row-actions'>
-                    <a class='btn secondary small' href='{url_for("jobs.edit_job_item", job_id=job_id, item_id=i["id"])}'>Edit</a>
-                    <form method='post'
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                          action='{url_for("jobs.delete_job_item", job_id=job_id, item_id=i["id"])}'
-                          style='display:inline;'
-                          onsubmit="return confirm('Delete this job item?');">
-                        <button class='btn danger small' type='submit'>Delete</button>
-                    </form>
-                </div>
-            </td>
-        </tr>
-        """
-        for i in items
-    )
+    item_row_list = []
+    for i in items:
+        delete_item_csrf = generate_csrf()
+        item_row_list.append(
+            f"""
+            <tr>
+                <td>{escape(display_item_type(i['item_type']))}</td>
+                <td>{escape(clean_text_display(i['description']))}</td>
+                <td>{safe_float(i['quantity']):g}</td>
+                <td>{escape(clean_text_display(i['unit']))}</td>
+                <td>${safe_float(i['sale_price']):.2f}</td>
+                <td>{"-" if clean_text_input(i['item_type']).lower() in ['dump_fee', 'labor'] else f"${((safe_float(i['cost_amount']) / safe_float(i['quantity'])) if safe_float(i['quantity']) else 0):.2f}"}</td>
+                <td>${safe_float(i['cost_amount']):.2f}</td>
+                <td>{'Yes' if i['billable'] else 'No'}</td>
+                <td>${safe_float(i['line_total']):.2f}</td>
+                <td>
+                    <div class='row-actions'>
+                        <a class='btn secondary small' href='{url_for("jobs.edit_job_item", job_id=job_id, item_id=i["id"])}'>Edit</a>
+                        <form method='post'
+                              action='{url_for("jobs.delete_job_item", job_id=job_id, item_id=i["id"])}'
+                              style='display:inline;'
+                              onsubmit="return confirm('Delete this job item?');">
+                            <input type="hidden" name="csrf_token" value="{delete_item_csrf}">
+                            <button class='btn danger small' type='submit'>Delete</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            """
+        )
+    item_rows = "".join(item_row_list)
 
     schedule_bits = []
     if clean_text_input(job["scheduled_date"]):
@@ -865,6 +876,11 @@ def view_job(job_id):
     customer_email = clean_text_input(job["customer_email"])
 
     if customer_email:
+        email_csrf_1 = generate_csrf()
+        email_csrf_2 = generate_csrf()
+        email_csrf_3 = generate_csrf()
+        email_csrf_custom = generate_csrf()
+
         email_buttons = f"""
         <style>
             .updates-menu-wrap {{
@@ -911,19 +927,19 @@ def view_job(job_id):
 
             <div id="updatesMenu" class="updates-menu">
                 <form method="post" action="{url_for("jobs.send_update_email", job_id=job_id)}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="csrf_token" value="{email_csrf_1}">
                     <input type="hidden" name="update_type" value="on_the_way">
                     <button type="submit">Send On The Way Email</button>
                 </form>
 
                 <form method="post" action="{url_for("jobs.send_update_email", job_id=job_id)}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="csrf_token" value="{email_csrf_2}">
                     <input type="hidden" name="update_type" value="job_started">
                     <button type="submit">Send Job Started Email</button>
                 </form>
 
                 <form method="post" action="{url_for("jobs.send_update_email", job_id=job_id)}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="csrf_token" value="{email_csrf_3}">
                     <input type="hidden" name="update_type" value="job_completed">
                     <button type="submit">Send Job Finished Email</button>
                 </form>
@@ -938,7 +954,7 @@ def view_job(job_id):
             <h3>Custom Job Update</h3>
 
             <form method="post" action="{url_for("jobs.send_custom_email", job_id=job_id)}">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="csrf_token" value="{email_csrf_custom}">
                 <div class="grid">
                     <div>
                         <label>To Email</label>
@@ -980,6 +996,7 @@ Thank you,
         </div>
         """
     else:
+        email_csrf_custom_empty = generate_csrf()
         email_buttons = """
         <div class='muted small'>Add a customer email address to send job updates.</div>
         <div id="customUpdateCard" class="card custom-update-card" style="display:block; margin-top:14px;">
@@ -987,7 +1004,7 @@ Thank you,
             <div class="muted small" style="margin-bottom:12px;">No customer email is on file, but you can still enter one manually below.</div>
 
             <form method="post" action="{send_custom_url}">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="csrf_token" value="{csrf_token_value}">
                 <div class="grid">
                     <div>
                         <label>To Email</label>
@@ -1028,10 +1045,13 @@ Thank you,
         </div>
         """.format(
             send_custom_url=url_for("jobs.send_custom_email", job_id=job_id),
+            csrf_token_value=email_csrf_custom_empty,
             job_title=escape(clean_text_display(job["title"])),
             customer_name=escape(clean_text_display(job["customer_name"])),
             company_name=escape(session.get("company_name") or "Your Company"),
         )
+
+    add_item_csrf = generate_csrf()
 
     content = f"""
         <div class='card'>
@@ -1064,7 +1084,7 @@ Thank you,
             <p class='muted'>Any cost you enter here is automatically pushed into bookkeeping as an expense.</p>
 
             <form method='post'>
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="csrf_token" value="{add_item_csrf}">
                 <div class='grid'>
 
                     <div>
@@ -1251,6 +1271,7 @@ Thank you,
 
 @jobs_bp.route("/jobs/<int:job_id>/send_update_email", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def send_update_email(job_id):
     ensure_job_schedule_columns()
@@ -1312,6 +1333,7 @@ def send_update_email(job_id):
 
 @jobs_bp.route("/jobs/<int:job_id>/send_custom_email", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def send_custom_email(job_id):
     conn = get_db_connection()
@@ -1366,6 +1388,7 @@ def send_custom_email(job_id):
 
 @jobs_bp.route("/jobs/<int:job_id>/edit", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def edit_job(job_id):
     ensure_job_schedule_columns()
@@ -1465,11 +1488,13 @@ def edit_job(job_id):
         for c in customers
     )
 
+    edit_job_csrf = generate_csrf()
+
     content = f"""
     <div class='card'>
         <h1>Edit Job #{job['id']}</h1>
         <form method='post'>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="csrf_token" value="{edit_job_csrf}">
             <div class='grid'>
                 <div>
                     <label>Customer</label>
@@ -1526,6 +1551,7 @@ def edit_job(job_id):
 
 @jobs_bp.route("/jobs/<int:job_id>/items/<int:item_id>/edit", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def edit_job_item(job_id, item_id):
     conn = get_db_connection()
@@ -1649,6 +1675,7 @@ def edit_job_item(job_id, item_id):
     sale_price_val = safe_float(item["sale_price"])
     unit_cost_val = (safe_float(item["cost_amount"]) / safe_float(item["quantity"])) if safe_float(item["quantity"]) else 0
     hide_cost = item_type_val in ["dump_fee", "labor"]
+    edit_item_csrf = generate_csrf()
 
     content = f"""
     <div class='card'>
@@ -1659,7 +1686,7 @@ def edit_job_item(job_id, item_id):
         </p>
 
         <form method='post'>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="csrf_token" value="{edit_item_csrf}">
             <div class='grid'>
                 <div>
                     <label>Type</label>
@@ -1804,6 +1831,7 @@ def edit_job_item(job_id, item_id):
 
 @jobs_bp.route("/jobs/<int:job_id>/items/<int:item_id>/delete", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def delete_job_item(job_id, item_id):
     conn = get_db_connection()
@@ -1835,6 +1863,7 @@ def delete_job_item(job_id, item_id):
 
 @jobs_bp.route("/jobs/<int:job_id>/convert_to_invoice")
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def convert_job_to_invoice(job_id):
     conn = get_db_connection()
@@ -1982,6 +2011,7 @@ def convert_job_to_invoice(job_id):
 
 @jobs_bp.route("/jobs/<int:job_id>/delete", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def delete_job(job_id):
     conn = get_db_connection()
@@ -2012,6 +2042,7 @@ def delete_job(job_id):
 
 @jobs_bp.route("/jobs/finished")
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def finished_jobs():
     ensure_job_schedule_columns()
@@ -2101,6 +2132,7 @@ def finished_jobs():
 
 @jobs_bp.route("/jobs/<int:job_id>/reopen")
 @login_required
+@subscription_required
 @require_permission("can_manage_jobs")
 def reopen_job(job_id):
     conn = get_db_connection()

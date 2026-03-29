@@ -35,7 +35,7 @@ def users():
             """
             SELECT id
             FROM users
-            WHERE email = ?
+            WHERE email = %s
             """,
             (email,),
         ).fetchone()
@@ -67,7 +67,7 @@ def users():
                 can_manage_invoices,
                 can_manage_settings
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 cid,
@@ -98,7 +98,7 @@ def users():
         """
         SELECT *
         FROM users
-        WHERE company_id = ?
+        WHERE company_id = %s
         ORDER BY
             CASE
                 WHEN role = 'Owner' THEN 1
@@ -128,7 +128,7 @@ def users():
                           action='{url_for("users.toggle_user_active", user_id=r["id"])}'
                           style='display:inline;'
                           onsubmit="return confirm('Change this user\\'s active status?');">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
                         <button class='btn warning small' type='submit'>{"Deactivate" if r["is_active"] else "Activate"}</button>
                     </form>
                     '''
@@ -141,7 +141,7 @@ def users():
                           action='{url_for("users.delete_user", user_id=r["id"])}'
                           style='display:inline;'
                           onsubmit="return confirm('Delete this user?');">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
                         <button class='btn danger small' type='submit'>Delete</button>
                     </form>
                     '''
@@ -163,7 +163,7 @@ def users():
     <div class='card'>
         <h2>Add User</h2>
         <form method='post'>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
             <div class='grid'>
                 <div>
                     <label>Name</label>
@@ -212,6 +212,7 @@ def users():
 
 @users_bp.route("/users/<int:user_id>/permissions", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_users")
 def edit_user_permissions(user_id):
     ensure_user_permission_columns()
@@ -223,7 +224,7 @@ def edit_user_permissions(user_id):
         """
         SELECT *
         FROM users
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (user_id, cid),
     ).fetchone()
@@ -249,17 +250,17 @@ def edit_user_permissions(user_id):
         conn.execute(
             """
             UPDATE users
-            SET role = ?,
-                can_manage_users = ?,
-                can_view_payroll = ?,
-                can_manage_payroll = ?,
-                can_view_bookkeeping = ?,
-                can_manage_bookkeeping = ?,
-                can_manage_jobs = ?,
-                can_manage_customers = ?,
-                can_manage_invoices = ?,
-                can_manage_settings = ?
-            WHERE id = ? AND company_id = ?
+            SET role = %s,
+                can_manage_users = %s,
+                can_view_payroll = %s,
+                can_manage_payroll = %s,
+                can_view_bookkeeping = %s,
+                can_manage_bookkeeping = %s,
+                can_manage_jobs = %s,
+                can_manage_customers = %s,
+                can_manage_invoices = %s,
+                can_manage_settings = %s
+            WHERE id = %s AND company_id = %s
             """,
             (
                 role,
@@ -296,7 +297,7 @@ def edit_user_permissions(user_id):
         <p class='muted'><strong>User:</strong> {escape(user['name'] or '-')} ({escape(user['email'] or '-')})</p>
 
         <form method='post'>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
             <div class='grid'>
                 <div>
                     <label>Role</label>
@@ -339,6 +340,7 @@ def edit_user_permissions(user_id):
 
 @users_bp.route("/users/<int:user_id>/toggle-active", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_users")
 def toggle_user_active(user_id):
     if user_id == session.get("user_id"):
@@ -352,7 +354,7 @@ def toggle_user_active(user_id):
         """
         SELECT id, is_active
         FROM users
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (user_id, cid),
     ).fetchone()
@@ -367,8 +369,8 @@ def toggle_user_active(user_id):
     conn.execute(
         """
         UPDATE users
-        SET is_active = ?
-        WHERE id = ? AND company_id = ?
+        SET is_active = %s
+        WHERE id = %s AND company_id = %s
         """,
         (new_status, user_id, cid),
     )
@@ -382,6 +384,7 @@ def toggle_user_active(user_id):
 
 @users_bp.route("/users/delete/<int:user_id>", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_users")
 def delete_user(user_id):
     if user_id == session["user_id"]:
@@ -395,7 +398,7 @@ def delete_user(user_id):
         """
         SELECT id
         FROM users
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (user_id, cid),
     ).fetchone()
@@ -408,7 +411,7 @@ def delete_user(user_id):
     conn.execute(
         """
         DELETE FROM users
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (user_id, cid),
     )

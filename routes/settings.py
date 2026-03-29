@@ -25,7 +25,7 @@ from utils.w2_service import (
     get_company_w2_year_summary,
     list_employee_w2_summaries,
 )
-from decorators import login_required, require_permission
+from decorators import login_required, require_permission, subscription_required
 from page_helpers import render_page
 from utils.emailing import send_company_email
 from utils.backups import create_company_backup, export_company_backup_data, load_backup_file, restore_company_backup
@@ -70,7 +70,7 @@ def get_company_profile(cid):
 
     conn = get_db_connection()
     profile = conn.execute(
-        "SELECT * FROM company_profile WHERE company_id = ?",
+        "SELECT * FROM company_profile WHERE company_id = %s",
         (cid,),
     ).fetchone()
     conn.close()
@@ -306,6 +306,7 @@ def _w2_company_readiness(values):
 
 @settings_bp.route("/settings")
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def settings():
     settings_html = f"""
@@ -456,6 +457,7 @@ def settings():
 
 @settings_bp.route("/settings/company", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def settings_company():
     ensure_company_profile_columns()
@@ -496,17 +498,17 @@ def settings_company():
         conn.execute(
             """
             UPDATE companies
-            SET name = ?,
-                phone = ?,
-                email = ?,
-                website = ?,
-                tax_id = ?,
-                address_line_1 = ?,
-                address_line_2 = ?,
-                city = ?,
-                state = ?,
-                zip_code = ?
-            WHERE id = ?
+            SET name = %s,
+                phone = %s,
+                email = %s,
+                website = %s,
+                tax_id = %s,
+                address_line_1 = %s,
+                address_line_2 = %s,
+                city = %s,
+                state = %s,
+                zip_code = %s
+            WHERE id = %s
             """,
             (
                 name,
@@ -524,7 +526,7 @@ def settings_company():
         )
 
         existing_profile = conn.execute(
-            "SELECT id FROM company_profile WHERE company_id = ?",
+            "SELECT id FROM company_profile WHERE company_id = %s",
             (company_id,),
         ).fetchone()
 
@@ -532,18 +534,18 @@ def settings_company():
             conn.execute(
                 """
                 UPDATE company_profile
-                SET display_name = ?,
-                    phone = ?,
-                    email = ?,
-                    website = ?,
-                    address_line_1 = ?,
-                    address_line_2 = ?,
-                    city = ?,
-                    state = ?,
-                    county = ?,
-                    zip_code = ?,
+                SET display_name = %s,
+                    phone = %s,
+                    email = %s,
+                    website = %s,
+                    address_line_1 = %s,
+                    address_line_2 = %s,
+                    city = %s,
+                    state = %s,
+                    county = %s,
+                    zip_code = %s,
                     updated_at = CURRENT_TIMESTAMP
-                WHERE company_id = ?
+                WHERE company_id = %s
                 """,
                 (
                     name,
@@ -575,7 +577,7 @@ def settings_company():
                     county,
                     zip_code
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     company_id,
@@ -604,7 +606,7 @@ def settings_company():
         SELECT id, name, phone, email, website, tax_id,
                address_line_1, address_line_2, city, state, zip_code
         FROM companies
-        WHERE id = ?
+        WHERE id = %s
         """,
         (company_id,),
     ).fetchone()
@@ -613,7 +615,7 @@ def settings_company():
         """
         SELECT county
         FROM company_profile
-        WHERE company_id = ?
+        WHERE company_id = %s
         """,
         (company_id,),
     ).fetchone()
@@ -704,6 +706,7 @@ def settings_company():
 
 @settings_bp.route("/settings/taxes", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def settings_taxes():
     ensure_company_tax_settings_table()
@@ -721,7 +724,7 @@ def settings_taxes():
         workers_comp_rate = float(request.form.get("workers_comp_rate") or 0)
 
         existing = conn.execute(
-            "SELECT id FROM company_tax_settings WHERE company_id = ?",
+            "SELECT id FROM company_tax_settings WHERE company_id = %s",
             (cid,),
         ).fetchone()
 
@@ -729,15 +732,15 @@ def settings_taxes():
             conn.execute(
                 """
                 UPDATE company_tax_settings
-                SET federal_withholding_rate = ?,
-                    state_withholding_rate = ?,
-                    social_security_rate = ?,
-                    medicare_rate = ?,
-                    local_tax_rate = ?,
-                    unemployment_rate = ?,
-                    workers_comp_rate = ?,
+                SET federal_withholding_rate = %s,
+                    state_withholding_rate = %s,
+                    social_security_rate = %s,
+                    medicare_rate = %s,
+                    local_tax_rate = %s,
+                    unemployment_rate = %s,
+                    workers_comp_rate = %s,
                     updated_at = CURRENT_TIMESTAMP
-                WHERE company_id = ?
+                WHERE company_id = %s
                 """,
                 (
                     federal_withholding_rate,
@@ -763,7 +766,7 @@ def settings_taxes():
                     unemployment_rate,
                     workers_comp_rate
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     cid,
@@ -783,7 +786,7 @@ def settings_taxes():
         return redirect(url_for("settings.settings_taxes"))
 
     settings = conn.execute(
-        "SELECT * FROM company_tax_settings WHERE company_id = ?",
+        "SELECT * FROM company_tax_settings WHERE company_id = %s",
         (cid,),
     ).fetchone()
 
@@ -913,6 +916,7 @@ def settings_taxes():
 
 @settings_bp.route("/settings/w2")
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def settings_w2():
     ensure_w2_company_profile_columns()
@@ -1020,6 +1024,7 @@ def settings_w2():
 
 @settings_bp.route("/settings/w2/company", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def settings_w2_company():
     ensure_company_profile_table()
@@ -1031,7 +1036,7 @@ def settings_w2_company():
     conn = get_db_connection()
 
     existing = conn.execute(
-        "SELECT * FROM company_profile WHERE company_id = ?",
+        "SELECT * FROM company_profile WHERE company_id = %s",
         (cid,),
     ).fetchone()
 
@@ -1054,33 +1059,33 @@ def settings_w2_company():
             conn.execute(
                 """
                 UPDATE company_profile
-                SET display_name = ?,
-                    legal_name = ?,
-                    logo_url = ?,
-                    phone = ?,
-                    email = ?,
-                    website = ?,
-                    address_line_1 = ?,
-                    address_line_2 = ?,
-                    city = ?,
-                    state = ?,
-                    county = ?,
-                    zip_code = ?,
-                    invoice_header_name = ?,
-                    quote_header_name = ?,
-                    invoice_footer_note = ?,
-                    quote_footer_note = ?,
-                    email_from_name = ?,
-                    reply_to_email = ?,
-                    platform_sender_enabled = ?,
-                    reply_to_mode = ?,
-                    ein = ?,
-                    state_employer_id = ?,
-                    w2_contact_name = ?,
-                    w2_contact_phone = ?,
-                    w2_contact_email = ?,
+                SET display_name = %s,
+                    legal_name = %s,
+                    logo_url = %s,
+                    phone = %s,
+                    email = %s,
+                    website = %s,
+                    address_line_1 = %s,
+                    address_line_2 = %s,
+                    city = %s,
+                    state = %s,
+                    county = %s,
+                    zip_code = %s,
+                    invoice_header_name = %s,
+                    quote_header_name = %s,
+                    invoice_footer_note = %s,
+                    quote_footer_note = %s,
+                    email_from_name = %s,
+                    reply_to_email = %s,
+                    platform_sender_enabled = %s,
+                    reply_to_mode = %s,
+                    ein = %s,
+                    state_employer_id = %s,
+                    w2_contact_name = %s,
+                    w2_contact_phone = %s,
+                    w2_contact_email = %s,
                     updated_at = CURRENT_TIMESTAMP
-                WHERE company_id = ?
+                WHERE company_id = %s
                 """,
                 (
                     values["display_name"],
@@ -1142,7 +1147,7 @@ def settings_w2_company():
                     w2_contact_phone,
                     w2_contact_email
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     cid,
@@ -1289,6 +1294,7 @@ def settings_w2_company():
 
 @settings_bp.route("/settings/w2/<int:employee_id>/print")
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def print_w2_summary(employee_id):
     cid = session["company_id"]
@@ -1302,7 +1308,7 @@ def print_w2_summary(employee_id):
         """
         SELECT id, first_name, last_name, full_name
         FROM employees
-        WHERE id = ? AND company_id = ?
+        WHERE id = %s AND company_id = %s
         """,
         (employee_id, cid),
     ).fetchone()
@@ -1322,11 +1328,11 @@ def print_w2_summary(employee_id):
             COALESCE(SUM(state_withholding), 0) AS state_withholding,
             COALESCE(SUM(local_tax), 0) AS local_tax
         FROM payroll_entries
-        WHERE company_id = ?
-          AND employee_id = ?
-          AND strftime('%Y', pay_date) = ?
+        WHERE company_id = %s
+          AND employee_id = %s
+          AND EXTRACT(YEAR FROM pay_date) = %s
         """,
-        (cid, employee_id, year),
+        (cid, employee_id, int(year)),
     ).fetchone()
 
     conn.close()
@@ -1348,6 +1354,7 @@ def print_w2_summary(employee_id):
 
 @settings_bp.route("/settings/w2/print-all")
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def print_all_w2_summaries():
     cid = session["company_id"]
@@ -1361,7 +1368,7 @@ def print_all_w2_summaries():
         """
         SELECT id, first_name, last_name, full_name
         FROM employees
-        WHERE company_id = ?
+        WHERE company_id = %s
         ORDER BY first_name, last_name
         """,
         (cid,),
@@ -1378,11 +1385,11 @@ def print_all_w2_summaries():
             COALESCE(SUM(state_withholding), 0) AS state_withholding,
             COALESCE(SUM(local_tax), 0) AS local_tax
         FROM payroll_entries
-        WHERE company_id = ?
-          AND strftime('%Y', pay_date) = ?
+        WHERE company_id = %s
+          AND EXTRACT(YEAR FROM pay_date) = %s
         GROUP BY employee_id
         """,
-        (cid, year),
+        (cid, int(year)),
     ).fetchall()
 
     conn.close()
@@ -1422,6 +1429,7 @@ def print_all_w2_summaries():
 
 @settings_bp.route("/settings/logo")
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def settings_logo():
     return redirect(url_for("settings.settings_branding"))
@@ -1429,6 +1437,7 @@ def settings_logo():
 
 @settings_bp.route("/settings/company-profile")
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def settings_company_profile():
     return redirect(url_for("settings.settings_branding"))
@@ -1436,6 +1445,7 @@ def settings_company_profile():
 
 @settings_bp.route("/settings/branding", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def settings_branding():
     ensure_company_profile_table()
@@ -1447,7 +1457,7 @@ def settings_branding():
     cid = session["company_id"]
 
     existing = conn.execute(
-        "SELECT * FROM company_profile WHERE company_id = ?",
+        "SELECT * FROM company_profile WHERE company_id = %s",
         (cid,),
     ).fetchone()
 
@@ -1506,33 +1516,33 @@ def settings_branding():
             conn.execute(
                 """
                 UPDATE company_profile
-                SET display_name = ?,
-                    legal_name = ?,
-                    logo_url = ?,
-                    phone = ?,
-                    email = ?,
-                    website = ?,
-                    address_line_1 = ?,
-                    address_line_2 = ?,
-                    city = ?,
-                    state = ?,
-                    county = ?,
-                    zip_code = ?,
-                    invoice_header_name = ?,
-                    quote_header_name = ?,
-                    invoice_footer_note = ?,
-                    quote_footer_note = ?,
-                    email_from_name = ?,
-                    reply_to_email = ?,
-                    platform_sender_enabled = ?,
-                    reply_to_mode = ?,
-                    ein = ?,
-                    state_employer_id = ?,
-                    w2_contact_name = ?,
-                    w2_contact_phone = ?,
-                    w2_contact_email = ?,
+                SET display_name = %s,
+                    legal_name = %s,
+                    logo_url = %s,
+                    phone = %s,
+                    email = %s,
+                    website = %s,
+                    address_line_1 = %s,
+                    address_line_2 = %s,
+                    city = %s,
+                    state = %s,
+                    county = %s,
+                    zip_code = %s,
+                    invoice_header_name = %s,
+                    quote_header_name = %s,
+                    invoice_footer_note = %s,
+                    quote_footer_note = %s,
+                    email_from_name = %s,
+                    reply_to_email = %s,
+                    platform_sender_enabled = %s,
+                    reply_to_mode = %s,
+                    ein = %s,
+                    state_employer_id = %s,
+                    w2_contact_name = %s,
+                    w2_contact_phone = %s,
+                    w2_contact_email = %s,
                     updated_at = CURRENT_TIMESTAMP
-                WHERE company_id = ?
+                WHERE company_id = %s
                 """,
                 (
                     display_name,
@@ -1594,7 +1604,7 @@ def settings_branding():
                     w2_contact_phone,
                     w2_contact_email
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     cid,
@@ -1803,6 +1813,7 @@ def settings_branding():
 
 @settings_bp.route("/settings/email", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def settings_email():
     ensure_company_profile_table()
@@ -1814,7 +1825,7 @@ def settings_email():
     cid = session["company_id"]
 
     existing = conn.execute(
-        "SELECT * FROM company_profile WHERE company_id = ?",
+        "SELECT * FROM company_profile WHERE company_id = %s",
         (cid,),
     ).fetchone()
 
@@ -1830,33 +1841,33 @@ def settings_email():
             conn.execute(
                 """
                 UPDATE company_profile
-                SET display_name = ?,
-                    legal_name = ?,
-                    logo_url = ?,
-                    phone = ?,
-                    email = ?,
-                    website = ?,
-                    address_line_1 = ?,
-                    address_line_2 = ?,
-                    city = ?,
-                    state = ?,
-                    county = ?,
-                    zip_code = ?,
-                    invoice_header_name = ?,
-                    quote_header_name = ?,
-                    invoice_footer_note = ?,
-                    quote_footer_note = ?,
-                    email_from_name = ?,
-                    reply_to_email = ?,
-                    platform_sender_enabled = ?,
-                    reply_to_mode = ?,
-                    ein = ?,
-                    state_employer_id = ?,
-                    w2_contact_name = ?,
-                    w2_contact_phone = ?,
-                    w2_contact_email = ?,
+                SET display_name = %s,
+                    legal_name = %s,
+                    logo_url = %s,
+                    phone = %s,
+                    email = %s,
+                    website = %s,
+                    address_line_1 = %s,
+                    address_line_2 = %s,
+                    city = %s,
+                    state = %s,
+                    county = %s,
+                    zip_code = %s,
+                    invoice_header_name = %s,
+                    quote_header_name = %s,
+                    invoice_footer_note = %s,
+                    quote_footer_note = %s,
+                    email_from_name = %s,
+                    reply_to_email = %s,
+                    platform_sender_enabled = %s,
+                    reply_to_mode = %s,
+                    ein = %s,
+                    state_employer_id = %s,
+                    w2_contact_name = %s,
+                    w2_contact_phone = %s,
+                    w2_contact_email = %s,
                     updated_at = CURRENT_TIMESTAMP
-                WHERE company_id = ?
+                WHERE company_id = %s
                 """,
                 (
                     values["display_name"],
@@ -1918,7 +1929,7 @@ def settings_email():
                     w2_contact_phone,
                     w2_contact_email
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     cid,
@@ -2041,6 +2052,7 @@ def settings_email():
 
 @settings_bp.route("/settings/test_email", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def test_email():
     ensure_company_profile_table()
@@ -2077,6 +2089,7 @@ def test_email():
 
 @settings_bp.route("/settings/backup/download")
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def download_backup():
     cid = session["company_id"]
@@ -2094,6 +2107,7 @@ def download_backup():
 
 @settings_bp.route("/settings/backup/restore", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_settings")
 def restore_backup():
     if request.method == "POST":

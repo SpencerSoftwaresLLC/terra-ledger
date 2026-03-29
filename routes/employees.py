@@ -1,4 +1,5 @@
 from flask import Blueprint, request, redirect, url_for, session, flash, render_template_string
+from flask_wtf.csrf import generate_csrf
 from html import escape
 from datetime import datetime, date, timedelta
 
@@ -211,6 +212,8 @@ def _employee_form_html(employee=None, form_action="", submit_label="Save Employ
     else:
         county_tax_year_default = employee.get("county_tax_effective_year", current_year)
 
+    csrf_token_value = generate_csrf()
+
     content = f"""
     <div class='card'>
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
@@ -226,7 +229,7 @@ def _employee_form_html(employee=None, form_action="", submit_label="Save Employ
     </div>
 
     <form method='post' action='{form_action}'>
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="csrf_token" value="{csrf_token_value}">
         <div class='card'>
             <h2>Employee Information</h2>
             <div class='grid'>
@@ -566,7 +569,7 @@ def employees():
             f"""
             SELECT *
             FROM employees
-            WHERE company_id = %s AND is_active = 1
+            WHERE company_id = %s AND is_active = TRUE
             ORDER BY {name_col} ASC, id DESC
             """,
             (cid,),
@@ -574,50 +577,70 @@ def employees():
 
     conn.close()
 
-    employee_rows = "".join(
-        f"""
-        <tr>
-            <td>{escape(str(r[name_col])) if name_col != 'id' and r[name_col] else f"Employee #{r['id']}"}</td>
-            <td>{escape(str(r[phone_col])) if phone_col and r[phone_col] else '-'}</td>
-            <td>{escape(str(r[email_col])) if email_col and r[email_col] else '-'}</td>
-            <td>{escape(str(r['position'])) if 'position' in r.keys() and r['position'] else '-'}</td>
-            <td>{escape(str(r['pay_type'])) if 'pay_type' in r.keys() and r['pay_type'] else '-'}</td>
-            <td>{
-                f"${float(r['salary_amount'] or 0):.2f}/yr" if 'pay_type' in r.keys() and r['pay_type'] == 'Salary'
-                else f"${float(r['hourly_rate'] or 0):.2f}/hr" if 'hourly_rate' in r.keys() and r['hourly_rate'] is not None
-                else '-'
-            }</td>
-            <td>{"Active" if bool(r['is_active']) else "Inactive"}</td>
-            <td>
-                <div class='row-actions'>
-                    <a class='btn secondary small' href='{url_for("employees.view_employee", employee_id=r["id"])}'>View</a>
+    employee_rows_list = []
+    for r in rows:
+        csrf_token_value = generate_csrf()
 
-                    {
-                        f"<form method='post' action='{url_for('employees.deactivate_employee', employee_id=r['id'])}' class='inline-form'>"
-                        f"<input type='hidden' name='csrf_token' value='{{ csrf_token() }}'>"
-                        f"<button class='btn warning small' type='submit'>Set Inactive</button>"
-                        f"</form>"
-                        if bool(r['is_active'])
-                        else
-                        f"<form method='post' action='{url_for('employees.activate_employee', employee_id=r['id'])}' class='inline-form'>"
-                        f"<input type='hidden' name='csrf_token' value='{{ csrf_token() }}'>"
-                        f"<button class='btn success small' type='submit'>Set Active</button>"
-                        f"</form>"
-                    }
+        display_name = (
+            escape(str(r[name_col])) if name_col != "id" and r[name_col] else f"Employee #{r['id']}"
+        )
+        phone_value = escape(str(r[phone_col])) if phone_col and r[phone_col] else "-"
+        email_value = escape(str(r[email_col])) if email_col and r[email_col] else "-"
+        position_value = escape(str(r["position"])) if "position" in r.keys() and r["position"] else "-"
+        pay_type_value = escape(str(r["pay_type"])) if "pay_type" in r.keys() and r["pay_type"] else "-"
 
-                    <form method='post'
-                        action='{url_for("employees.delete_employee", employee_id=r["id"])}'
-                        class='inline-form'
-                        onsubmit="return confirm('Delete this employee? This cannot be undone.');">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button class='btn danger small' type='submit'>Delete</button>
-                    </form>
-                </div>
-            </td>
-        </tr>
-        """
-        for r in rows
-    )
+        if "pay_type" in r.keys() and r["pay_type"] == "Salary":
+            rate_display = f"${float(r['salary_amount'] or 0):.2f}/yr"
+        elif "hourly_rate" in r.keys() and r["hourly_rate"] is not None:
+            rate_display = f"${float(r['hourly_rate'] or 0):.2f}/hr"
+        else:
+            rate_display = "-"
+
+        status_text = "Active" if bool(r["is_active"]) else "Inactive"
+
+        if bool(r["is_active"]):
+            status_form = f"""
+            <form method='post' action='{url_for('employees.deactivate_employee', employee_id=r['id'])}' class='inline-form'>
+                <input type='hidden' name='csrf_token' value='{csrf_token_value}'>
+                <button class='btn warning small' type='submit'>Set Inactive</button>
+            </form>
+            """
+        else:
+            status_form = f"""
+            <form method='post' action='{url_for('employees.activate_employee', employee_id=r['id'])}' class='inline-form'>
+                <input type='hidden' name='csrf_token' value='{csrf_token_value}'>
+                <button class='btn success small' type='submit'>Set Active</button>
+            </form>
+            """
+
+        employee_rows_list.append(
+            f"""
+            <tr>
+                <td>{display_name}</td>
+                <td>{phone_value}</td>
+                <td>{email_value}</td>
+                <td>{position_value}</td>
+                <td>{pay_type_value}</td>
+                <td>{rate_display}</td>
+                <td>{status_text}</td>
+                <td>
+                    <div class='row-actions'>
+                        <a class='btn secondary small' href='{url_for("employees.view_employee", employee_id=r["id"])}'>View</a>
+                        {status_form}
+                        <form method='post'
+                              action='{url_for("employees.delete_employee", employee_id=r["id"])}'
+                              class='inline-form'
+                              onsubmit="return confirm('Delete this employee? This cannot be undone.');">
+                            <input type="hidden" name="csrf_token" value="{csrf_token_value}">
+                            <button class='btn danger small' type='submit'>Delete</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            """
+        )
+
+    employee_rows = "".join(employee_rows_list)
 
     active_btn_class = "btn" if show != "all" else "btn secondary"
     all_btn_class = "btn" if show == "all" else "btn secondary"
@@ -663,6 +686,7 @@ def employees():
 
 @employees_bp.route("/employees/new", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_employees")
 def new_employee():
     ensure_employee_profile_columns()
@@ -732,7 +756,7 @@ def new_employee():
 
         full_name = " ".join(part for part in [first_name, middle_name, last_name, suffix] if part).strip()
 
-        is_active = 1
+        is_active = True
         w4_step2_checked = bool(request.form.get("w4_step2_checked"))
         is_indiana_resident = bool(request.form.get("is_indiana_resident"))
 
@@ -860,6 +884,7 @@ def new_employee():
 
 @employees_bp.route("/employees/<int:employee_id>")
 @login_required
+@subscription_required
 @require_permission("can_view_employees")
 def view_employee(employee_id):
     ensure_employee_profile_columns()
@@ -1101,6 +1126,7 @@ def view_employee(employee_id):
 
 @employees_bp.route("/employees/<int:employee_id>/edit", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_employees")
 def edit_employee(employee_id):
     ensure_employee_profile_columns()
@@ -1287,6 +1313,7 @@ def edit_employee(employee_id):
 
 @employees_bp.route("/employees/<int:employee_id>/activate", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_employees")
 def activate_employee(employee_id):
     ensure_employee_profile_columns()
@@ -1298,7 +1325,7 @@ def activate_employee(employee_id):
     conn.execute(
         """
         UPDATE employees
-        SET is_active = 1
+        SET is_active = TRUE
         WHERE id = %s AND company_id = %s
         """,
         (employee_id, cid),
@@ -1312,6 +1339,7 @@ def activate_employee(employee_id):
 
 @employees_bp.route("/employees/<int:employee_id>/deactivate", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_employees")
 def deactivate_employee(employee_id):
     ensure_employee_profile_columns()
@@ -1323,7 +1351,7 @@ def deactivate_employee(employee_id):
     conn.execute(
         """
         UPDATE employees
-        SET is_active = 0
+        SET is_active = FALSE
         WHERE id = %s AND company_id = %s
         """,
         (employee_id, cid),
@@ -1337,6 +1365,7 @@ def deactivate_employee(employee_id):
 
 @employees_bp.route("/employees/<int:employee_id>/delete", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_employees")
 def delete_employee(employee_id):
     ensure_employee_profile_columns()
@@ -1412,6 +1441,7 @@ def delete_employee(employee_id):
 
 @employees_bp.route("/employees/time-clock", methods=["GET"])
 @login_required
+@subscription_required
 @require_permission("can_manage_employees")
 def time_clock():
     ensure_employee_profile_columns()
@@ -1436,7 +1466,7 @@ def time_clock():
             email,
             is_active
         FROM employees
-        WHERE company_id = %s AND is_active = 1
+        WHERE company_id = %s AND is_active = TRUE
         ORDER BY
             COALESCE(NULLIF(last_name, ''), NULLIF(full_name, ''), NULLIF(first_name, ''), 'ZZZ'),
             COALESCE(NULLIF(first_name, ''), ''),
@@ -1461,7 +1491,7 @@ def time_clock():
             ON t.employee_id = e.id
            AND t.company_id = e.company_id
            AND t.clock_out IS NULL
-        WHERE e.company_id = %s AND e.is_active = 1
+        WHERE e.company_id = %s AND e.is_active = TRUE
         ORDER BY
             COALESCE(NULLIF(e.last_name, ''), NULLIF(e.full_name, ''), NULLIF(e.first_name, ''), 'ZZZ'),
             COALESCE(NULLIF(e.first_name, ''), ''),
@@ -1755,7 +1785,6 @@ def time_clock():
             ],
             clocked_in_ids=clocked_in_ids,
             format_hours=_format_hours,
-            csrf_input=lambda: "{{ csrf_input() }}",
         ),
         "Clock In / Out",
     )
@@ -1763,6 +1792,7 @@ def time_clock():
 
 @employees_bp.route("/employees/time-clock/settings", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_employees")
 def update_time_clock_settings():
     ensure_company_profile_table()
@@ -1822,6 +1852,7 @@ def update_time_clock_settings():
 
 @employees_bp.route("/employees/time-clock/clock-in", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_employees")
 def time_clock_clock_in():
     ensure_employee_profile_columns()
@@ -1841,7 +1872,7 @@ def time_clock_clock_in():
         """
         SELECT id, first_name, last_name, full_name
         FROM employees
-        WHERE id = %s AND company_id = %s AND is_active = 1
+        WHERE id = %s AND company_id = %s AND is_active = TRUE
         """,
         (employee_id, cid),
     ).fetchone()
@@ -1893,6 +1924,7 @@ def time_clock_clock_in():
 
 @employees_bp.route("/employees/time-clock/clock-out", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_employees")
 def time_clock_clock_out():
     ensure_employee_profile_columns()
@@ -1951,6 +1983,7 @@ def time_clock_clock_out():
 
 @employees_bp.route("/employees/time-clock/send-summary", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_employees")
 def send_time_clock_summary_now():
     cid = session["company_id"]

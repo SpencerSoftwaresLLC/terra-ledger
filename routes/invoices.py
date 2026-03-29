@@ -1,4 +1,5 @@
 from flask import Blueprint, request, redirect, url_for, session, flash, abort, make_response, current_app
+from flask_wtf.csrf import generate_csrf
 from datetime import date, datetime
 from html import escape
 import json
@@ -16,7 +17,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 
 from db import get_db_connection
-from decorators import login_required, require_permission
+from decorators import login_required, require_permission, subscription_required
 from page_helpers import render_page
 from utils.emailing import send_company_email
 
@@ -737,6 +738,7 @@ def create_invoice_checkout_session(invoice, company_id):
 
 @invoices_bp.route("/invoices")
 @login_required
+@subscription_required
 @require_permission("can_manage_invoices")
 def invoices():
     ensure_document_number_columns()
@@ -824,6 +826,7 @@ def invoices():
 
 @invoices_bp.route("/invoices/paid")
 @login_required
+@subscription_required
 @require_permission("can_manage_invoices")
 def paid_invoices():
     ensure_document_number_columns()
@@ -910,6 +913,7 @@ def paid_invoices():
 
 @invoices_bp.route("/invoices/new", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_invoices")
 def new_invoice():
     ensure_document_number_columns()
@@ -1065,6 +1069,8 @@ def new_invoice():
 
     conn.close()
 
+    csrf_token_value = generate_csrf()
+
     content = f"""
     <style>
         .customer-search-wrap {{
@@ -1123,7 +1129,7 @@ def new_invoice():
 
     <div class='card'>
         <form method='post'>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="csrf_token" value="{csrf_token_value}">
             <div class='grid'>
                 <div class='customer-search-wrap'>
                     <label>Customer</label>
@@ -1274,6 +1280,7 @@ def new_invoice():
 
 @invoices_bp.route("/invoices/<int:invoice_id>")
 @login_required
+@subscription_required
 @require_permission("can_manage_invoices")
 def view_invoice(invoice_id):
     ensure_invoice_payment_table()
@@ -1334,6 +1341,7 @@ def view_invoice(invoice_id):
 
     payment_rows = ""
     for p in payments:
+        payment_csrf = generate_csrf()
         payment_rows += f"""
         <tr>
             <td>{escape(str(p["payment_date"] or "-"))}</td>
@@ -1344,7 +1352,7 @@ def view_invoice(invoice_id):
                 <div class='row-actions'>
                     <a class='btn small' href='{url_for("invoices.edit_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}'>Edit</a>
                     <form method='post' action='{url_for("invoices.delete_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}' style='display:inline;'>
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="csrf_token" value="{payment_csrf}">
                         <button class='btn secondary small' type='submit'>Delete</button>
                     </form>
                 </div>
@@ -1359,9 +1367,13 @@ def view_invoice(invoice_id):
     invoice_status = _clean_display(invoice["status"])
     is_paid = str(invoice["status"] or "").strip().lower() == "paid"
 
+    toggle_csrf = generate_csrf()
+    delete_invoice_csrf = generate_csrf()
+    add_payment_csrf = generate_csrf()
+
     toggle_button_html = f"""
     <form method='post' action='{url_for("invoices.toggle_invoice_paid", invoice_id=invoice_id)}' style='display:inline;'>
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="csrf_token" value="{toggle_csrf}">
         <button class='btn {"secondary" if is_paid else "success"}' type='submit'>
             {"Mark Unpaid" if is_paid else "Mark Paid"}
         </button>
@@ -1393,7 +1405,7 @@ def view_invoice(invoice_id):
                 <form method='post'
                       action='{url_for("invoices.delete_invoice", invoice_id=invoice_id)}'
                       onsubmit="return confirm('Delete this invoice? This will also remove its items and payments.');">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="csrf_token" value="{delete_invoice_csrf}">
                     <button class='btn danger small' type='submit'>Delete Invoice</button>
                 </form>
             </div>
@@ -1425,7 +1437,7 @@ def view_invoice(invoice_id):
         </p>
 
         <form method='post' action='{url_for("invoices.add_invoice_payment", invoice_id=invoice_id)}'>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="csrf_token" value="{add_payment_csrf}">
             <div class='grid'>
                 <div>
                     <label>Amount</label>
@@ -1503,6 +1515,7 @@ def view_invoice(invoice_id):
 
 @invoices_bp.route("/invoices/<int:invoice_id>/toggle_paid", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_invoices")
 def toggle_invoice_paid(invoice_id):
     conn = get_db_connection()
@@ -1576,6 +1589,7 @@ def toggle_invoice_paid(invoice_id):
 
 @invoices_bp.route("/invoices/<int:invoice_id>/email")
 @login_required
+@subscription_required
 @require_permission("can_manage_invoices")
 def email_invoice_preview(invoice_id):
     ensure_invoice_payment_table()
@@ -1602,6 +1616,7 @@ def email_invoice_preview(invoice_id):
 
     preview_url = url_for("invoices.preview_invoice_pdf", invoice_id=invoice_id)
     send_url = url_for("invoices.send_invoice_email", invoice_id=invoice_id)
+    preview_csrf = generate_csrf()
 
     content = f"""
     <div class='card'>
@@ -1631,7 +1646,7 @@ def email_invoice_preview(invoice_id):
         {"<div class='notice warning'>This customer does not have an email address yet. Add one before sending.</div>" if not recipient else ""}
 
         <form method='post' action='{send_url}' onsubmit="return confirm('Send this invoice by email now?');">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="csrf_token" value="{preview_csrf}">
             <button class='btn' type='submit' {"disabled" if not recipient else ""}>Send Email Now</button>
         </form>
     </div>
@@ -1641,6 +1656,7 @@ def email_invoice_preview(invoice_id):
 
 @invoices_bp.route("/invoices/<int:invoice_id>/preview_pdf")
 @login_required
+@subscription_required
 @require_permission("can_manage_invoices")
 def preview_invoice_pdf(invoice_id):
     ensure_invoice_payment_table()
@@ -1702,6 +1718,7 @@ def preview_invoice_pdf(invoice_id):
 
 @invoices_bp.route("/invoices/<int:invoice_id>/send_email", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_invoices")
 def send_invoice_email(invoice_id):
     ensure_invoice_payment_table()
@@ -1824,6 +1841,7 @@ def send_invoice_email(invoice_id):
 
 @invoices_bp.route("/invoices/<int:invoice_id>/delete", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_invoices")
 def delete_invoice(invoice_id):
     conn = get_db_connection()
@@ -1870,6 +1888,7 @@ def delete_invoice(invoice_id):
 
 @invoices_bp.route("/invoices/<int:invoice_id>/add_payment", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_invoices")
 def add_invoice_payment(invoice_id):
     conn = get_db_connection()
@@ -1925,6 +1944,7 @@ def add_invoice_payment(invoice_id):
 
 @invoices_bp.route("/invoices/<int:invoice_id>/payments/<int:payment_id>/edit", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_invoices")
 def edit_invoice_payment(invoice_id, payment_id):
     conn = get_db_connection()
@@ -2011,11 +2031,13 @@ def edit_invoice_payment(invoice_id, payment_id):
 
     conn.close()
 
+    edit_payment_csrf = generate_csrf()
+
     content = f"""
     <div class='card'>
         <h1>Edit Payment</h1>
         <form method='post'>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="csrf_token" value="{edit_payment_csrf}">
             <div class='grid'>
                 <div>
                     <label>Amount</label>
@@ -2052,6 +2074,7 @@ def edit_invoice_payment(invoice_id, payment_id):
 
 @invoices_bp.route("/invoices/<int:invoice_id>/payments/<int:payment_id>/delete", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_invoices")
 def delete_invoice_payment(invoice_id, payment_id):
     conn = get_db_connection()

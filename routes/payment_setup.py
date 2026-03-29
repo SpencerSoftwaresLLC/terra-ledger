@@ -609,7 +609,7 @@ def payment_setup():
                     </div>
                 </div>
                 <div>
-                    <a class="btn-tl btn-secondary-tl" href="{{ url_for('settings.settings_home') if false else '#' }}" onclick="history.back(); return false;">Back</a>
+                    <a class="btn-tl btn-secondary-tl" href="{{ url_for('settings.settings') }}">Back to Settings</a>
                 </div>
             </div>
 
@@ -796,7 +796,7 @@ def payment_setup():
         publishable_ready=bool(_stripe_publishable_key()),
     )
 
-    return render_page(html)
+    return render_page(html, "Payment Setup")
 
 
 @payment_setup_bp.route("/payment-setup/save", methods=["POST"])

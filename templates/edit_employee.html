@@ -7,6 +7,7 @@ EDIT_EMPLOYEE_HTML = """
 
     <form method="POST" class="card">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
         <div class="settings-section-title">
             <h2 style="margin-bottom:6px;">Employee Details</h2>
             <div class="muted">Basic employee information.</div>
@@ -60,22 +61,26 @@ EDIT_EMPLOYEE_HTML = """
 
             <div id="hourly_rate_wrap">
                 <label>Hourly Rate</label>
-                <input type="number" step="0.01" min="0" name="hourly_rate" value="{{ employee['hourly_rate'] if employee['hourly_rate'] is not none else 0 }}">
+                <input type="number" step="0.01" min="0" name="hourly_rate"
+                       value="{{ employee['hourly_rate'] or 0 }}">
             </div>
 
             <div id="overtime_rate_wrap">
                 <label>Overtime Rate</label>
-                <input type="number" step="0.01" min="0" name="overtime_rate" value="{{ employee['overtime_rate'] if employee['overtime_rate'] is not none else 0 }}">
+                <input type="number" step="0.01" min="0" name="overtime_rate"
+                       value="{{ employee['overtime_rate'] or 0 }}">
             </div>
 
-            <div id="salary_amount_wrap" style="display:none;">
+            <div id="salary_amount_wrap">
                 <label>Salary Amount</label>
-                <input type="number" step="0.01" min="0" name="salary_amount" value="{{ employee['salary_amount'] if employee['salary_amount'] is not none else 0 }}">
+                <input type="number" step="0.01" min="0" name="salary_amount"
+                       value="{{ employee['salary_amount'] or 0 }}">
             </div>
 
             <div>
                 <label>Default Hours</label>
-                <input type="number" step="0.01" min="0" name="default_hours" value="{{ employee['default_hours'] if employee['default_hours'] is not none else 0 }}">
+                <input type="number" step="0.01" min="0" name="default_hours"
+                       value="{{ employee['default_hours'] or 0 }}">
             </div>
 
             <div style="grid-column:1 / -1;">
@@ -112,39 +117,43 @@ EDIT_EMPLOYEE_HTML = """
                     </select>
                 </div>
 
-                <div class="checkbox-field">
-                    <label class="checkbox-label">
-                        <input type="checkbox" name="w4_step2_checked" value="1" {% if employee['w4_step2_checked'] %}checked{% endif %}>
-                        <span>Step 2 box checked</span>
+                <div>
+                    <label>
+                        <input type="checkbox" name="w4_step2_checked" value="1"
+                               {% if employee['w4_step2_checked'] %}checked{% endif %}>
+                        Step 2 box checked
                     </label>
-                    <div class="muted small">Use when employee has multiple jobs or spouse also works.</div>
                 </div>
 
                 <div>
-                    <label>Step 3 Credits (Annual $)</label>
-                    <input type="number" step="0.01" min="0" name="w4_step3_amount" value="{{ employee['w4_step3_amount'] if employee['w4_step3_amount'] is not none else 0 }}">
+                    <label>Step 3 Credits</label>
+                    <input type="number" step="0.01" name="w4_step3_amount"
+                           value="{{ employee['w4_step3_amount'] or 0 }}">
                 </div>
 
                 <div>
-                    <label>Step 4(a) Other Income (Annual $)</label>
-                    <input type="number" step="0.01" min="0" name="w4_step4a_other_income" value="{{ employee['w4_step4a_other_income'] if employee['w4_step4a_other_income'] is not none else 0 }}">
+                    <label>Step 4(a) Other Income</label>
+                    <input type="number" step="0.01" name="w4_step4a_other_income"
+                           value="{{ employee['w4_step4a_other_income'] or 0 }}">
                 </div>
 
                 <div>
-                    <label>Step 4(b) Deductions (Annual $)</label>
-                    <input type="number" step="0.01" min="0" name="w4_step4b_deductions" value="{{ employee['w4_step4b_deductions'] if employee['w4_step4b_deductions'] is not none else 0 }}">
+                    <label>Step 4(b) Deductions</label>
+                    <input type="number" step="0.01" name="w4_step4b_deductions"
+                           value="{{ employee['w4_step4b_deductions'] or 0 }}">
                 </div>
 
                 <div>
-                    <label>Step 4(c) Extra Withholding (Per Paycheck $)</label>
-                    <input type="number" step="0.01" min="0" name="w4_step4c_extra_withholding" value="{{ employee['w4_step4c_extra_withholding'] if employee['w4_step4c_extra_withholding'] is not none else 0 }}">
+                    <label>Step 4(c) Extra Withholding</label>
+                    <input type="number" step="0.01" name="w4_step4c_extra_withholding"
+                           value="{{ employee['w4_step4c_extra_withholding'] or 0 }}">
                 </div>
             </div>
         </div>
 
         <div class="row-actions" style="margin-top:20px;">
             <button class="btn success" type="submit">Save Changes</button>
-            <a class="btn secondary" href="/employees/{{ employee['id'] }}">Back to Employee</a>
+            <a class="btn secondary" href="{{ url_for('employees.employee_detail', employee_id=employee['id']) }}">Back to Employee</a>
         </div>
     </form>
 </div>
@@ -156,7 +165,7 @@ function togglePayFields() {
     const overtimeWrap = document.getElementById("overtime_rate_wrap");
     const salaryWrap = document.getElementById("salary_amount_wrap");
 
-    if (!payType) return;
+    if (!payType || !hourlyWrap || !overtimeWrap || !salaryWrap) return;
 
     if (payType.value === "Salary") {
         hourlyWrap.style.display = "none";
@@ -169,6 +178,8 @@ function togglePayFields() {
     }
 }
 
-document.addEventListener("DOMContentLoaded", togglePayFields);
+document.addEventListener("DOMContentLoaded", function () {
+    togglePayFields();
+});
 </script>
 """

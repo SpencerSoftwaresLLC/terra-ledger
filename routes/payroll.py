@@ -1,4 +1,5 @@
 from flask import Blueprint, request, redirect, url_for, session, flash, make_response, jsonify
+from flask_wtf.csrf import generate_csrf
 from datetime import date, datetime
 import io
 import csv
@@ -462,6 +463,7 @@ def create_or_get_payroll_check(conn, company_id, payroll_row, employee_name):
 
 @payroll_bp.route("/api/time-clock/hours", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_payroll")
 def get_time_clock_hours_api():
     ensure_employee_payroll_columns()
@@ -490,7 +492,7 @@ def get_time_clock_hours_api():
         """
         SELECT id
         FROM employees
-        WHERE id = %s AND company_id = %s AND is_active = 1
+        WHERE id = %s AND company_id = %s AND is_active = TRUE
         """,
         (employee_id, cid),
     ).fetchone()
@@ -521,6 +523,7 @@ def get_time_clock_hours_api():
 
 @payroll_bp.route("/employees/payroll/preview", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_payroll")
 def payroll_preview():
     ensure_employee_payroll_columns()
@@ -846,7 +849,7 @@ def employee_payroll():
             county_of_principal_employment,
             county_tax_effective_year
         FROM employees
-        WHERE company_id = %s AND is_active = 1
+        WHERE company_id = %s AND is_active = TRUE
         ORDER BY first_name, last_name
         """,
         (cid,),
@@ -922,6 +925,7 @@ def employee_payroll():
     for r in rows:
         payment_method = clean_text_input(r["payment_method"]) or "-"
         check_number = r["check_number"] if "check_number" in r.keys() else None
+        row_csrf = generate_csrf()
 
         actions_html = []
         if payment_method == "Check" or check_number:
@@ -934,7 +938,7 @@ def employee_payroll():
                   action='{url_for("payroll.delete_payroll_entry", payroll_id=r["id"])}'
                   onsubmit="return confirm('Delete this payroll entry?');"
                   style='margin:0;'>
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="csrf_token" value="{row_csrf}">
                 <button class='btn danger small' type='submit'>Delete</button>
             </form>
             """
@@ -977,6 +981,8 @@ def employee_payroll():
     </div>
     """
 
+    form_csrf = generate_csrf()
+
     content = f"""
     <div class='card'>
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
@@ -997,7 +1003,7 @@ def employee_payroll():
     <div class='card'>
         <h2>New Payroll Entry</h2>
         <form method='post' id='payroll_form'>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="csrf_token" value="{form_csrf}">
             <div class='grid'>
                 <div>
                     <label>Employee</label>
@@ -1492,6 +1498,7 @@ def print_payroll_check(payroll_id):
 
 @payroll_bp.route("/employees/payroll/export")
 @login_required
+@subscription_required
 @require_permission("can_manage_payroll")
 def export_payroll():
     ensure_employee_payroll_columns()
@@ -1585,6 +1592,7 @@ def export_payroll():
 
 @payroll_bp.route("/payroll/add", methods=["GET", "POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_payroll")
 def add_payroll():
     return redirect(url_for("payroll.employee_payroll"))
@@ -1592,6 +1600,7 @@ def add_payroll():
 
 @payroll_bp.route("/employees/payroll/<int:payroll_id>/delete", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_payroll")
 def delete_payroll_entry(payroll_id):
     ensure_payroll_check_structure()

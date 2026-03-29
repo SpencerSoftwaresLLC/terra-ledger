@@ -3,7 +3,7 @@ import re
 
 from flask import Blueprint, request, redirect, url_for, flash, session, render_template_string
 
-from db import get_db_connection
+from db import get_db_connection, table_columns
 from decorators import login_required, require_permission, subscription_required
 from page_helpers import render_page
 
@@ -54,10 +54,10 @@ def ensure_messaging_tables():
             CREATE TABLE IF NOT EXISTS messaging_settings (
                 id SERIAL PRIMARY KEY,
                 company_id INTEGER NOT NULL UNIQUE,
-                messaging_enabled INTEGER NOT NULL DEFAULT 0,
-                send_job_updates INTEGER NOT NULL DEFAULT 1,
-                send_invoice_reminders INTEGER NOT NULL DEFAULT 0,
-                send_manual_messages INTEGER NOT NULL DEFAULT 1,
+                messaging_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                send_job_updates BOOLEAN NOT NULL DEFAULT TRUE,
+                send_invoice_reminders BOOLEAN NOT NULL DEFAULT FALSE,
+                send_manual_messages BOOLEAN NOT NULL DEFAULT TRUE,
                 default_on_the_way_template TEXT,
                 default_job_started_template TEXT,
                 default_job_completed_template TEXT,
@@ -95,10 +95,10 @@ def ensure_messaging_tables():
         existing_cols = [row["column_name"] for row in cur.fetchall()]
 
         required_columns = {
-            "messaging_enabled": "INTEGER NOT NULL DEFAULT 0",
-            "send_job_updates": "INTEGER NOT NULL DEFAULT 1",
-            "send_invoice_reminders": "INTEGER NOT NULL DEFAULT 0",
-            "send_manual_messages": "INTEGER NOT NULL DEFAULT 1",
+            "messaging_enabled": "BOOLEAN NOT NULL DEFAULT FALSE",
+            "send_job_updates": "BOOLEAN NOT NULL DEFAULT TRUE",
+            "send_invoice_reminders": "BOOLEAN NOT NULL DEFAULT FALSE",
+            "send_manual_messages": "BOOLEAN NOT NULL DEFAULT TRUE",
             "default_on_the_way_template": "TEXT",
             "default_job_started_template": "TEXT",
             "default_job_completed_template": "TEXT",
@@ -155,25 +155,32 @@ def get_message_history(company_id, limit=100):
 
 def get_customers_for_messages(company_id):
     conn = get_db_connection()
-    cur = conn.cursor()
 
     try:
-        try:
-            cur.execute("""
-                SELECT id, name, phone
+        cols = table_columns(conn, "customers")
+        if not cols:
+            return []
+
+        phone_col = None
+        if "phone" in cols:
+            phone_col = "phone"
+        elif "phone_number" in cols:
+            phone_col = "phone_number"
+
+        if not phone_col:
+            return conn.execute("""
+                SELECT id, name, NULL AS phone
                 FROM customers
                 WHERE company_id = %s
                 ORDER BY name ASC
-            """, (company_id,))
-            return cur.fetchall()
-        except Exception:
-            cur.execute("""
-                SELECT id, name, phone_number AS phone
-                FROM customers
-                WHERE company_id = %s
-                ORDER BY name ASC
-            """, (company_id,))
-            return cur.fetchall()
+            """, (company_id,)).fetchall()
+
+        return conn.execute(f"""
+            SELECT id, name, {phone_col} AS phone
+            FROM customers
+            WHERE company_id = %s
+            ORDER BY name ASC
+        """, (company_id,)).fetchall()
     except Exception:
         return []
     finally:
@@ -584,10 +591,10 @@ def messaging_configuration():
 
     try:
         if request.method == "POST":
-            messaging_enabled = 1 if request.form.get("messaging_enabled") == "on" else 0
-            send_job_updates = 1 if request.form.get("send_job_updates") == "on" else 0
-            send_invoice_reminders = 1 if request.form.get("send_invoice_reminders") == "on" else 0
-            send_manual_messages = 1 if request.form.get("send_manual_messages") == "on" else 0
+            messaging_enabled = request.form.get("messaging_enabled") == "on"
+            send_job_updates = request.form.get("send_job_updates") == "on"
+            send_invoice_reminders = request.form.get("send_invoice_reminders") == "on"
+            send_manual_messages = request.form.get("send_manual_messages") == "on"
 
             default_on_the_way_template = _safe_text(request.form.get("default_on_the_way_template"))
             default_job_started_template = _safe_text(request.form.get("default_job_started_template"))

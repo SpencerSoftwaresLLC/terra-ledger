@@ -11,16 +11,6 @@ auth_bp = Blueprint("auth", __name__)
 
 MAX_LOGIN_ATTEMPTS = 5
 
-def _get_csrf_token():
-    token = session.get("_csrf_token")
-    if not token:
-        token = secrets.token_hex(32)
-        session["_csrf_token"] = token
-    return token
-
-
-def csrf_input():
-    return f'<input type="hidden" name="csrf_token" value="{_get_csrf_token()}">'
 
 def _check_password_strength(password: str) -> bool:
     return (
@@ -70,6 +60,8 @@ def register():
             return redirect(url_for("auth.register"))
 
         conn = get_db_connection()
+        company_id = None
+
         try:
             exists = conn.execute(
                 "SELECT id FROM users WHERE email = %s",

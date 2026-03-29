@@ -60,7 +60,7 @@ def get_stripe_config():
 def _get_company(company_id):
     conn = get_db_connection()
     row = conn.execute(
-        "SELECT * FROM companies WHERE id = ?",
+        "SELECT * FROM companies WHERE id = %s",
         (company_id,),
     ).fetchone()
     conn.close()
@@ -254,42 +254,44 @@ def subscription_required_page():
 
     status_text = _normalize_status(sub["status"]) if sub else "Inactive"
     plan_name = sub["plan_name"] if sub and sub["plan_name"] else "No active plan"
+    renewal = sub["current_period_end"] if sub and sub["current_period_end"] else "-"
 
-    content = """
-    <div class="card" style="max-width:900px;margin:0 auto;">
-        <h1>Subscription Required</h1>
-        <p class="muted">
-            TerraLedger access is currently locked for this account.
-        </p>
+    content = render_template_string(
+        """
+        <div class="card" style="max-width:900px;margin:0 auto;">
+            <h1>Subscription Required</h1>
+            <p class="muted">
+                TerraLedger access is currently locked for this account.
+            </p>
 
-        <div style="margin-top:20px;">
-            <div class="card" style="margin:0;">
-                <h2>Current Status</h2>
-                <p><strong>Plan:</strong> {plan_name}</p>
-                <p><strong>Status:</strong> {status_text}</p>
-                <p><strong>Renewal Date:</strong> {renewal}</p>
-            </div>
+            <div style="margin-top:20px;">
+                <div class="card" style="margin:0;">
+                    <h2>Current Status</h2>
+                    <p><strong>Plan:</strong> {{ plan_name }}</p>
+                    <p><strong>Status:</strong> {{ status_text }}</p>
+                    <p><strong>Renewal Date:</strong> {{ renewal }}</p>
+                </div>
 
-            <div class="card" style="margin-top:20px;">
-                <h2>What To Do</h2>
-                <p>
-                    Your account needs an active subscription to continue using TerraLedger.
-                </p>
+                <div class="card" style="margin-top:20px;">
+                    <h2>What To Do</h2>
+                    <p>
+                        Your account needs an active subscription to continue using TerraLedger.
+                    </p>
 
-                <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                    <form method="post" action="{refresh_url}" style="display:inline;">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button class="btn secondary" type="submit">Refresh Access</button>
-                    </form>
-                    <a class="btn secondary" href="{billing_url}">View Billing Page</a>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                        <form method="post" action="{{ refresh_url }}" style="display:inline;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button class="btn secondary" type="submit">Refresh Access</button>
+                        </form>
+                        <a class="btn secondary" href="{{ billing_url }}">View Billing Page</a>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
-    """.format(
+        """,
         plan_name=plan_name,
         status_text=status_text,
-        renewal=sub["current_period_end"] if sub and sub["current_period_end"] else "-",
+        renewal=renewal,
         refresh_url=url_for("billing.refresh_billing_status"),
         billing_url=url_for("billing.billing_page"),
     )
@@ -632,7 +634,7 @@ def stripe_webhook():
     def company_id_from_customer(customer_id):
         conn = get_db_connection()
         row = conn.execute(
-            "SELECT company_id FROM subscriptions WHERE stripe_customer_id = ?",
+            "SELECT company_id FROM subscriptions WHERE stripe_customer_id = %s",
             (customer_id,)
         ).fetchone()
         conn.close()
@@ -644,7 +646,7 @@ def stripe_webhook():
 
         conn = get_db_connection()
         row = conn.execute(
-            "SELECT company_id FROM users WHERE LOWER(email) = ? ORDER BY id LIMIT 1",
+            "SELECT company_id FROM users WHERE LOWER(email) = %s ORDER BY id LIMIT 1",
             ((email or "").strip().lower(),)
         ).fetchone()
         conn.close()

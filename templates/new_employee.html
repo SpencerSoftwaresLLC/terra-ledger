@@ -7,6 +7,7 @@ NEW_EMPLOYEE_HTML = """
 
     <form method="POST" class="card">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
         <div class="settings-section-title">
             <h2 style="margin-bottom:6px;">Employee Details</h2>
             <div class="muted">Basic employee information.</div>
@@ -121,22 +122,22 @@ NEW_EMPLOYEE_HTML = """
                 </div>
 
                 <div>
-                    <label>Step 3 Credits (Annual $)</label>
+                    <label>Step 3 Credits</label>
                     <input type="number" step="0.01" min="0" name="w4_step3_amount" value="0">
                 </div>
 
                 <div>
-                    <label>Step 4(a) Other Income (Annual $)</label>
+                    <label>Step 4(a) Other Income</label>
                     <input type="number" step="0.01" min="0" name="w4_step4a_other_income" value="0">
                 </div>
 
                 <div>
-                    <label>Step 4(b) Deductions (Annual $)</label>
+                    <label>Step 4(b) Deductions</label>
                     <input type="number" step="0.01" min="0" name="w4_step4b_deductions" value="0">
                 </div>
 
                 <div>
-                    <label>Step 4(c) Extra Withholding (Per Paycheck $)</label>
+                    <label>Step 4(c) Extra Withholding</label>
                     <input type="number" step="0.01" min="0" name="w4_step4c_extra_withholding" value="0">
                 </div>
             </div>
@@ -144,7 +145,7 @@ NEW_EMPLOYEE_HTML = """
 
         <div class="row-actions" style="margin-top:20px;">
             <button class="btn success" type="submit">Save Employee</button>
-            <a class="btn secondary" href="/employees">Back to Employees</a>
+            <a class="btn secondary" href="{{ url_for('employees.employees') }}">Back to Employees</a>
         </div>
     </form>
 </div>
@@ -156,7 +157,7 @@ function togglePayFields() {
     const overtimeWrap = document.getElementById("overtime_rate_wrap");
     const salaryWrap = document.getElementById("salary_amount_wrap");
 
-    if (!payType) return;
+    if (!payType || !hourlyWrap || !overtimeWrap || !salaryWrap) return;
 
     if (payType.value === "Salary") {
         hourlyWrap.style.display = "none";
@@ -169,6 +170,8 @@ function togglePayFields() {
     }
 }
 
-document.addEventListener("DOMContentLoaded", togglePayFields);
+document.addEventListener("DOMContentLoaded", function () {
+    togglePayFields();
+});
 </script>
 """

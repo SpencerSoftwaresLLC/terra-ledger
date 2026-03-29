@@ -1,4 +1,5 @@
 from flask import Blueprint, session, url_for, request, redirect, flash, make_response
+from flask_wtf.csrf import generate_csrf
 from html import escape
 from datetime import date, datetime
 import csv
@@ -1441,10 +1442,10 @@ def _render_bookkeeping_page(conn, cid):
             actions.append(
                 f"""
                 <form method='post'
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                       action='{url_for("bookkeeping.delete_bookkeeping_entry", entry_id=r.get("id"))}'
                       onsubmit="return confirm('Delete this bookkeeping entry?');"
                       style='display:inline;'>
+                    <input type="hidden" name="csrf_token" value="{generate_csrf()}">
                     <button class='btn danger small' type='submit'>Delete</button>
                 </form>
                 """
@@ -1510,7 +1511,7 @@ def _render_bookkeeping_page(conn, cid):
     <div class='card'>
         <h2>Add Manual Bookkeeping Entry</h2>
         <form method='post'>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="csrf_token" value="{generate_csrf()}">
             <div class='grid'>
                 <div>
                     <label>Date</label>
@@ -1841,6 +1842,7 @@ def print_bookkeeping_check(entry_id):
 @bookkeeping_bp.route("/bookkeeping/export")
 @bookkeeping_bp.route("/ledger/export")
 @login_required
+@subscription_required
 @require_permission("can_manage_bookkeeping")
 def export_bookkeeping_csv():
     conn = get_db_connection()
@@ -1906,95 +1908,97 @@ def export_bookkeeping_csv():
 @bookkeeping_bp.route("/bookkeeping/<int:entry_id>/delete", methods=["POST"])
 @bookkeeping_bp.route("/ledger/<int:entry_id>/delete", methods=["POST"])
 @login_required
+@subscription_required
 @require_permission("can_manage_bookkeeping")
 def delete_bookkeeping_entry(entry_id):
     conn = get_db_connection()
     cid = session["company_id"]
 
-    ledger_cols = table_columns(conn, "ledger_entries")
+    try:
+        ledger_cols = table_columns(conn, "ledger_entries")
 
-    date_select = "entry_date"
-    if "entry_date" in ledger_cols:
         date_select = "entry_date"
-    elif "date" in ledger_cols:
-        date_select = "date"
-    else:
-        date_select = "NULL"
+        if "entry_date" in ledger_cols:
+            date_select = "entry_date"
+        elif "date" in ledger_cols:
+            date_select = "date"
+        else:
+            date_select = "NULL"
 
-    entry_type_select = "entry_type" if "entry_type" in ledger_cols else "''"
-    category_select = "category" if "category" in ledger_cols else "''"
-    amount_select = "amount" if "amount" in ledger_cols else "0"
+        entry_type_select = "entry_type" if "entry_type" in ledger_cols else "''"
+        category_select = "category" if "category" in ledger_cols else "''"
+        amount_select = "amount" if "amount" in ledger_cols else "0"
 
-    if "description" in ledger_cols and "memo" in ledger_cols:
-        description_select = "COALESCE(description, memo, '')"
-    elif "description" in ledger_cols:
-        description_select = "COALESCE(description, '')"
-    elif "memo" in ledger_cols:
-        description_select = "COALESCE(memo, '')"
-    else:
-        description_select = "''"
+        if "description" in ledger_cols and "memo" in ledger_cols:
+            description_select = "COALESCE(description, memo, '')"
+        elif "description" in ledger_cols:
+            description_select = "COALESCE(description, '')"
+        elif "memo" in ledger_cols:
+            description_select = "COALESCE(memo, '')"
+        else:
+            description_select = "''"
 
-    notes_select = "notes" if "notes" in ledger_cols else "''"
-    source_type_select = "source_type" if "source_type" in ledger_cols else "''"
-    reference_type_select = "reference_type" if "reference_type" in ledger_cols else "''"
-    source_id_select = "source_id" if "source_id" in ledger_cols else "NULL"
-    check_id_select = "check_id" if "check_id" in ledger_cols else "NULL"
+        notes_select = "notes" if "notes" in ledger_cols else "''"
+        source_type_select = "source_type" if "source_type" in ledger_cols else "''"
+        reference_type_select = "reference_type" if "reference_type" in ledger_cols else "''"
+        source_id_select = "source_id" if "source_id" in ledger_cols else "NULL"
+        check_id_select = "check_id" if "check_id" in ledger_cols else "NULL"
 
-    row = conn.execute(
-        f"""
-        SELECT
-            id,
-            company_id,
-            {date_select} AS entry_date,
-            {entry_type_select} AS entry_type,
-            {category_select} AS category,
-            {amount_select} AS amount,
-            {description_select} AS description,
-            {notes_select} AS notes,
-            {source_type_select} AS source_type,
-            {reference_type_select} AS reference_type,
-            {source_id_select} AS source_id,
-            {check_id_select} AS check_id
-        FROM ledger_entries
-        WHERE id = %s AND company_id = %s
-        """,
-        (entry_id, cid),
-    ).fetchone()
+        row = conn.execute(
+            f"""
+            SELECT
+                id,
+                company_id,
+                {date_select} AS entry_date,
+                {entry_type_select} AS entry_type,
+                {category_select} AS category,
+                {amount_select} AS amount,
+                {description_select} AS description,
+                {notes_select} AS notes,
+                {source_type_select} AS source_type,
+                {reference_type_select} AS reference_type,
+                {source_id_select} AS source_id,
+                {check_id_select} AS check_id
+            FROM ledger_entries
+            WHERE id = %s AND company_id = %s
+            """,
+            (entry_id, cid),
+        ).fetchone()
 
-    if not row:
-        conn.close()
-        flash("Bookkeeping entry not found.")
-        return redirect(url_for("bookkeeping.bookkeeping"))
+        if not row:
+            flash("Bookkeeping entry not found.")
+            return redirect(url_for("bookkeeping.bookkeeping"))
 
-    is_manual = (
-        _normalize_text(_safe_get(row, "source_type", "")) == "manual"
-        or _normalize_text(_safe_get(row, "reference_type", "")) == "manual"
-    )
-
-    if not is_manual:
-        conn.close()
-        flash("Only manual bookkeeping entries can be deleted here.")
-        return redirect(url_for("bookkeeping.bookkeeping"))
-
-    if _safe_get(row, "check_id"):
-        conn.execute(
-            "DELETE FROM checks WHERE id = %s AND company_id = %s",
-            (_safe_get(row, "check_id"), cid),
+        is_manual = (
+            _normalize_text(_safe_get(row, "source_type", "")) == "manual"
+            or _normalize_text(_safe_get(row, "reference_type", "")) == "manual"
         )
 
-    conn.execute(
-        "DELETE FROM ledger_entries WHERE id = %s AND company_id = %s",
-        (entry_id, cid),
-    )
-    conn.commit()
-    conn.close()
+        if not is_manual:
+            flash("Only manual bookkeeping entries can be deleted here.")
+            return redirect(url_for("bookkeeping.bookkeeping"))
 
-    flash("Bookkeeping entry deleted.")
-    return redirect(url_for("bookkeeping.bookkeeping"))
+        if _safe_get(row, "check_id"):
+            conn.execute(
+                "DELETE FROM checks WHERE id = %s AND company_id = %s",
+                (_safe_get(row, "check_id"), cid),
+            )
+
+        conn.execute(
+            "DELETE FROM ledger_entries WHERE id = %s AND company_id = %s",
+            (entry_id, cid),
+        )
+        conn.commit()
+
+        flash("Bookkeeping entry deleted.")
+        return redirect(url_for("bookkeeping.bookkeeping"))
+    finally:
+        conn.close()
 
 
 @bookkeeping_bp.route("/bookkeeping/pnl")
 @login_required
+@subscription_required
 @require_permission("can_view_bookkeeping")
 def bookkeeping_pnl():
     conn = get_db_connection()
