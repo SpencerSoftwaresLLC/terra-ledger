@@ -384,19 +384,19 @@ def jobs():
         job_row_list.append(
             f"""
             <tr>
-                <td class='jobs-col-id'>#{r['id']}</td>
-                <td class='jobs-col-title'>{escape(clean_text_display(r['title']))}</td>
-                <td class='jobs-col-customer'>{escape(clean_text_display(r['customer_name']))}</td>
-                <td class='jobs-col-date'>{escape(clean_text_display(r['scheduled_date']))}</td>
-                <td class='jobs-col-time'>{escape(clean_text_display(r['scheduled_start_time']))}</td>
-                <td class='jobs-col-time'>{escape(clean_text_display(r['scheduled_end_time']))}</td>
-                <td class='jobs-col-assigned'>{escape(clean_text_display(r['assigned_to']))}</td>
-                <td class='jobs-col-status'>{escape(clean_text_display(r['status']))}</td>
-                <td class='jobs-col-money'>${safe_float(r['revenue']):.2f}</td>
-                <td class='jobs-col-money'>${safe_float(r['cost_total']):.2f}</td>
-                <td class='jobs-col-money jobs-col-profit'>${safe_float(r['profit']):.2f}</td>
-                <td class='jobs-col-actions'>
-                    <div class='row-actions jobs-table-actions'>
+                <td>#{r['id']}</td>
+                <td class='wrap'>{escape(clean_text_display(r['title']))}</td>
+                <td class='wrap'>{escape(clean_text_display(r['customer_name']))}</td>
+                <td>{escape(clean_text_display(r['scheduled_date']))}</td>
+                <td>{escape(clean_text_display(r['scheduled_start_time']))}</td>
+                <td>{escape(clean_text_display(r['scheduled_end_time']))}</td>
+                <td class='wrap'>{escape(clean_text_display(r['assigned_to']))}</td>
+                <td>{escape(clean_text_display(r['status']))}</td>
+                <td class='money'>${safe_float(r['revenue']):.2f}</td>
+                <td class='money'>${safe_float(r['cost_total']):.2f}</td>
+                <td class='money jobs-profit'>${safe_float(r['profit']):.2f}</td>
+                <td class='wrap'>
+                    <div class='static-actions'>
                         <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
                         <a class='btn warning small' href='{url_for("jobs.edit_job", job_id=r["id"])}'>Edit Job</a>
                         <a class='btn success small' href='{url_for("jobs.convert_job_to_invoice", job_id=r["id"])}'>Convert to Invoice</a>
@@ -451,102 +451,65 @@ def jobs():
             background: #f8fbff;
         }}
 
-        .jobs-table-wrap {{
+        .static-table-wrap {{
             width: 100%;
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            border-radius: 14px;
         }}
 
-        .jobs-table {{
+        .static-table {{
             width: 100%;
-            min-width: 1450px;
-            border-collapse: separate;
-            border-spacing: 0;
+            table-layout: fixed;
+            border-collapse: collapse;
         }}
 
-        .jobs-table th,
-        .jobs-table td {{
-            padding: 12px 14px;
-            vertical-align: middle;
-            white-space: nowrap;
-            font-size: 0.95rem;
-            line-height: 1.2;
-        }}
-
-        .jobs-table th {{
-            font-weight: 700;
-            text-align: left;
-            border-bottom: 1px solid rgba(0,0,0,0.08);
-        }}
-
-        .jobs-table td {{
+        .static-table th,
+        .static-table td {{
+            padding: 10px 8px;
+            vertical-align: top;
+            font-size: 0.88rem;
+            line-height: 1.25;
             border-bottom: 1px solid rgba(0,0,0,0.06);
         }}
 
-        .jobs-col-id {{
-            min-width: 70px;
-        }}
-
-        .jobs-col-title {{
-            min-width: 180px;
-        }}
-
-        .jobs-col-customer {{
-            min-width: 180px;
-        }}
-
-        .jobs-col-date {{
-            min-width: 110px;
-        }}
-
-        .jobs-col-time {{
-            min-width: 90px;
-        }}
-
-        .jobs-col-assigned {{
-            min-width: 140px;
-        }}
-
-        .jobs-col-status {{
-            min-width: 110px;
-        }}
-
-        .jobs-col-money {{
-            min-width: 110px;
-            text-align: right;
-            font-variant-numeric: tabular-nums;
-        }}
-
-        .jobs-col-profit {{
+        .static-table th {{
+            text-align: left;
             font-weight: 700;
         }}
 
-        .jobs-col-actions {{
-            min-width: 360px;
+        .static-table td.money,
+        .static-table th.money {{
+            text-align: right;
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }}
+
+        .static-table td.center,
+        .static-table th.center {{
             text-align: center;
         }}
 
-        .jobs-table-actions {{
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            justify-content: center;
-            flex-wrap: nowrap;
+        .static-table td.wrap,
+        .static-table th.wrap {{
+            white-space: normal;
+            word-break: break-word;
         }}
 
-        .jobs-table-actions form {{
+        .static-actions {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+        }}
+
+        .static-actions form {{
             margin: 0;
         }}
 
-        .jobs-table-actions .btn {{
+        .static-actions .btn {{
             white-space: nowrap;
         }}
 
-        @media (max-width: 1200px) {{
-            .jobs-table {{
-                min-width: 1380px;
-            }}
+        .jobs-profit {{
+            font-weight: 700;
         }}
     </style>
 
@@ -623,23 +586,37 @@ def jobs():
 
     <div class='card'>
         <h2>Job List</h2>
-        <div class='jobs-table-wrap'>
-            <table class='jobs-table'>
+        <div class='static-table-wrap'>
+            <table class='static-table'>
+                <colgroup>
+                    <col style='width:6%;'>
+                    <col style='width:14%;'>
+                    <col style='width:14%;'>
+                    <col style='width:9%;'>
+                    <col style='width:7%;'>
+                    <col style='width:7%;'>
+                    <col style='width:10%;'>
+                    <col style='width:10%;'>
+                    <col style='width:7%;'>
+                    <col style='width:7%;'>
+                    <col style='width:9%;'>
+                    <col style='width:20%;'>
+                </colgroup>
                 <tr>
-                    <th class='jobs-col-id'>ID</th>
-                    <th class='jobs-col-title'>Title</th>
-                    <th class='jobs-col-customer'>Customer</th>
-                    <th class='jobs-col-date'>Date</th>
-                    <th class='jobs-col-time'>Start</th>
-                    <th class='jobs-col-time'>End</th>
-                    <th class='jobs-col-assigned'>Assigned To</th>
-                    <th class='jobs-col-status'>Status</th>
-                    <th class='jobs-col-money'>Revenue</th>
-                    <th class='jobs-col-money'>Costs</th>
-                    <th class='jobs-col-money jobs-col-profit'>Profit/Loss</th>
-                    <th class='jobs-col-actions'>Actions</th>
+                    <th>ID</th>
+                    <th class='wrap'>Title</th>
+                    <th class='wrap'>Customer</th>
+                    <th>Date</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th class='wrap'>Assigned To</th>
+                    <th>Status</th>
+                    <th class='money'>Revenue</th>
+                    <th class='money'>Costs</th>
+                    <th class='money'>Profit/Loss</th>
+                    <th class='wrap'>Actions</th>
                 </tr>
-                {job_rows or '<tr><td colspan="12" class="muted" style="padding:18px;">No jobs yet.</td></tr>'}
+                {job_rows or '<tr><td colspan="12" class="muted">No jobs yet.</td></tr>'}
             </table>
         </div>
     </div>
@@ -930,17 +907,17 @@ def view_job(job_id):
         item_row_list.append(
             f"""
             <tr>
-                <td class='job-items-col-type'>{escape(display_item_type(i['item_type']))}</td>
-                <td class='job-items-col-description'>{escape(clean_text_display(i['description']))}</td>
-                <td class='job-items-col-qty'>{safe_float(i['quantity']):g}</td>
-                <td class='job-items-col-unit'>{escape(clean_text_display(i['unit']))}</td>
-                <td class='job-items-col-money'>${safe_float(i['sale_price']):.2f}</td>
-                <td class='job-items-col-money'>{"-" if clean_text_input(i['item_type']).lower() in ['dump_fee', 'labor'] else f"${((safe_float(i['cost_amount']) / safe_float(i['quantity'])) if safe_float(i['quantity']) else 0):.2f}"}</td>
-                <td class='job-items-col-money'>${safe_float(i['cost_amount']):.2f}</td>
-                <td class='job-items-col-billable'>{'Yes' if i['billable'] else 'No'}</td>
-                <td class='job-items-col-money job-items-col-revenue'>${safe_float(i['line_total']):.2f}</td>
-                <td class='job-items-col-actions'>
-                    <div class='row-actions job-items-actions'>
+                <td>{escape(display_item_type(i['item_type']))}</td>
+                <td class='wrap'>{escape(clean_text_display(i['description']))}</td>
+                <td class='money'>{safe_float(i['quantity']):g}</td>
+                <td>{escape(clean_text_display(i['unit']))}</td>
+                <td class='money'>${safe_float(i['sale_price']):.2f}</td>
+                <td class='money'>{"-" if clean_text_input(i['item_type']).lower() in ['dump_fee', 'labor'] else f"${((safe_float(i['cost_amount']) / safe_float(i['quantity'])) if safe_float(i['quantity']) else 0):.2f}"}</td>
+                <td class='money'>${safe_float(i['cost_amount']):.2f}</td>
+                <td class='center'>{'Yes' if i['billable'] else 'No'}</td>
+                <td class='money job-items-revenue'>${safe_float(i['line_total']):.2f}</td>
+                <td class='wrap'>
+                    <div class='static-actions'>
                         <a class='btn secondary small' href='{url_for("jobs.edit_job_item", job_id=job_id, item_id=i["id"])}'>Edit</a>
                         <form method='post'
                               action='{url_for("jobs.delete_job_item", job_id=job_id, item_id=i["id"])}'
@@ -1153,90 +1130,65 @@ Thank you,
 
     content = f"""
         <style>
-            .job-items-table-wrap {{
+            .static-table-wrap {{
                 width: 100%;
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
-                border-radius: 14px;
             }}
 
-            .job-items-table {{
+            .static-table {{
                 width: 100%;
-                min-width: 1200px;
-                border-collapse: separate;
-                border-spacing: 0;
+                table-layout: fixed;
+                border-collapse: collapse;
             }}
 
-            .job-items-table th,
-            .job-items-table td {{
-                padding: 12px 14px;
-                vertical-align: middle;
-                white-space: nowrap;
-                font-size: 0.95rem;
-                line-height: 1.2;
-            }}
-
-            .job-items-table th {{
-                font-weight: 700;
-                text-align: left;
-                border-bottom: 1px solid rgba(0,0,0,0.08);
-            }}
-
-            .job-items-table td {{
+            .static-table th,
+            .static-table td {{
+                padding: 10px 8px;
+                vertical-align: top;
+                font-size: 0.88rem;
+                line-height: 1.25;
                 border-bottom: 1px solid rgba(0,0,0,0.06);
             }}
 
-            .job-items-col-type {{
-                min-width: 110px;
-            }}
-
-            .job-items-col-description {{
-                min-width: 220px;
-            }}
-
-            .job-items-col-qty {{
-                min-width: 80px;
-                text-align: right;
-            }}
-
-            .job-items-col-unit {{
-                min-width: 90px;
-            }}
-
-            .job-items-col-billable {{
-                min-width: 90px;
-                text-align: center;
-            }}
-
-            .job-items-col-money {{
-                min-width: 110px;
-                text-align: right;
-                font-variant-numeric: tabular-nums;
-            }}
-
-            .job-items-col-revenue {{
+            .static-table th {{
+                text-align: left;
                 font-weight: 700;
             }}
 
-            .job-items-col-actions {{
-                min-width: 170px;
+            .static-table td.money,
+            .static-table th.money {{
+                text-align: right;
+                white-space: nowrap;
+                font-variant-numeric: tabular-nums;
+            }}
+
+            .static-table td.center,
+            .static-table th.center {{
                 text-align: center;
             }}
 
-            .job-items-actions {{
-                display: flex;
-                gap: 8px;
-                align-items: center;
-                justify-content: center;
-                flex-wrap: nowrap;
+            .static-table td.wrap,
+            .static-table th.wrap {{
+                white-space: normal;
+                word-break: break-word;
             }}
 
-            .job-items-actions form {{
+            .static-actions {{
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                align-items: center;
+            }}
+
+            .static-actions form {{
                 margin: 0;
             }}
 
-            .job-items-actions .btn {{
+            .static-actions .btn {{
                 white-space: nowrap;
+            }}
+
+            .job-items-revenue {{
+                font-weight: 700;
             }}
         </style>
 
@@ -1433,21 +1385,33 @@ Thank you,
 
         <div class='card'>
             <h2>Job Items</h2>
-            <div class='job-items-table-wrap'>
-                <table class='job-items-table'>
+            <div class='static-table-wrap'>
+                <table class='static-table'>
+                    <colgroup>
+                        <col style='width:10%;'>
+                        <col style='width:22%;'>
+                        <col style='width:7%;'>
+                        <col style='width:8%;'>
+                        <col style='width:10%;'>
+                        <col style='width:10%;'>
+                        <col style='width:10%;'>
+                        <col style='width:8%;'>
+                        <col style='width:10%;'>
+                        <col style='width:15%;'>
+                    </colgroup>
                     <tr>
-                        <th class='job-items-col-type'>Type</th>
-                        <th class='job-items-col-description'>Description</th>
-                        <th class='job-items-col-qty'>Qty</th>
-                        <th class='job-items-col-unit'>Unit</th>
-                        <th class='job-items-col-money'>Sale Price</th>
-                        <th class='job-items-col-money'>Unit Cost</th>
-                        <th class='job-items-col-money'>Total Cost</th>
-                        <th class='job-items-col-billable'>Billable</th>
-                        <th class='job-items-col-money job-items-col-revenue'>Revenue</th>
-                        <th class='job-items-col-actions'>Actions</th>
+                        <th>Type</th>
+                        <th class='wrap'>Description</th>
+                        <th class='money'>Qty</th>
+                        <th>Unit</th>
+                        <th class='money'>Sale Price</th>
+                        <th class='money'>Unit Cost</th>
+                        <th class='money'>Total Cost</th>
+                        <th class='center'>Billable</th>
+                        <th class='money'>Revenue</th>
+                        <th class='wrap'>Actions</th>
                     </tr>
-                    {item_rows or '<tr><td colspan="10" class="muted" style="padding:18px;">No job items yet.</td></tr>'}
+                    {item_rows or '<tr><td colspan="10" class="muted">No job items yet.</td></tr>'}
                 </table>
             </div>
         </div>
@@ -2256,19 +2220,19 @@ def finished_jobs():
     job_rows = "".join(
         f"""
         <tr>
-            <td class='jobs-col-id'>#{r['id']}</td>
-            <td class='jobs-col-title'>{escape(clean_text_display(r['title']))}</td>
-            <td class='jobs-col-customer'>{escape(clean_text_display(r['customer_name']))}</td>
-            <td class='jobs-col-date'>{escape(clean_text_display(r['scheduled_date']))}</td>
-            <td class='jobs-col-time'>{escape(clean_text_display(r['scheduled_start_time']))}</td>
-            <td class='jobs-col-time'>{escape(clean_text_display(r['scheduled_end_time']))}</td>
-            <td class='jobs-col-assigned'>{escape(clean_text_display(r['assigned_to']))}</td>
-            <td class='jobs-col-status'>{escape(clean_text_display(r['status']))}</td>
-            <td class='jobs-col-money'>${safe_float(r['revenue']):.2f}</td>
-            <td class='jobs-col-money'>${safe_float(r['cost_total']):.2f}</td>
-            <td class='jobs-col-money jobs-col-profit'>${safe_float(r['profit']):.2f}</td>
-            <td class='jobs-col-actions'>
-                <div class='row-actions jobs-table-actions'>
+            <td>#{r['id']}</td>
+            <td class='wrap'>{escape(clean_text_display(r['title']))}</td>
+            <td class='wrap'>{escape(clean_text_display(r['customer_name']))}</td>
+            <td>{escape(clean_text_display(r['scheduled_date']))}</td>
+            <td>{escape(clean_text_display(r['scheduled_start_time']))}</td>
+            <td>{escape(clean_text_display(r['scheduled_end_time']))}</td>
+            <td class='wrap'>{escape(clean_text_display(r['assigned_to']))}</td>
+            <td>{escape(clean_text_display(r['status']))}</td>
+            <td class='money'>${safe_float(r['revenue']):.2f}</td>
+            <td class='money'>${safe_float(r['cost_total']):.2f}</td>
+            <td class='money jobs-profit'>${safe_float(r['profit']):.2f}</td>
+            <td class='wrap'>
+                <div class='static-actions'>
                     <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
                     <a class='btn warning small' href='{url_for("jobs.reopen_job", job_id=r["id"])}'>Reopen</a>
                 </div>
@@ -2280,92 +2244,60 @@ def finished_jobs():
 
     content = f"""
     <style>
-        .jobs-table-wrap {{
+        .static-table-wrap {{
             width: 100%;
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            border-radius: 14px;
         }}
 
-        .jobs-table {{
+        .static-table {{
             width: 100%;
-            min-width: 1350px;
-            border-collapse: separate;
-            border-spacing: 0;
+            table-layout: fixed;
+            border-collapse: collapse;
         }}
 
-        .jobs-table th,
-        .jobs-table td {{
-            padding: 12px 14px;
-            vertical-align: middle;
-            white-space: nowrap;
-            font-size: 0.95rem;
-            line-height: 1.2;
-        }}
-
-        .jobs-table th {{
-            font-weight: 700;
-            text-align: left;
-            border-bottom: 1px solid rgba(0,0,0,0.08);
-        }}
-
-        .jobs-table td {{
+        .static-table th,
+        .static-table td {{
+            padding: 10px 8px;
+            vertical-align: top;
+            font-size: 0.88rem;
+            line-height: 1.25;
             border-bottom: 1px solid rgba(0,0,0,0.06);
         }}
 
-        .jobs-col-id {{
-            min-width: 70px;
-        }}
-
-        .jobs-col-title {{
-            min-width: 180px;
-        }}
-
-        .jobs-col-customer {{
-            min-width: 180px;
-        }}
-
-        .jobs-col-date {{
-            min-width: 110px;
-        }}
-
-        .jobs-col-time {{
-            min-width: 90px;
-        }}
-
-        .jobs-col-assigned {{
-            min-width: 140px;
-        }}
-
-        .jobs-col-status {{
-            min-width: 110px;
-        }}
-
-        .jobs-col-money {{
-            min-width: 110px;
-            text-align: right;
-            font-variant-numeric: tabular-nums;
-        }}
-
-        .jobs-col-profit {{
+        .static-table th {{
+            text-align: left;
             font-weight: 700;
         }}
 
-        .jobs-col-actions {{
-            min-width: 160px;
-            text-align: center;
-        }}
-
-        .jobs-table-actions {{
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            justify-content: center;
-            flex-wrap: nowrap;
-        }}
-
-        .jobs-table-actions .btn {{
+        .static-table td.money,
+        .static-table th.money {{
+            text-align: right;
             white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }}
+
+        .static-table td.wrap,
+        .static-table th.wrap {{
+            white-space: normal;
+            word-break: break-word;
+        }}
+
+        .static-actions {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+        }}
+
+        .static-actions form {{
+            margin: 0;
+        }}
+
+        .static-actions .btn {{
+            white-space: nowrap;
+        }}
+
+        .jobs-profit {{
+            font-weight: 700;
         }}
     </style>
 
@@ -2382,23 +2314,37 @@ def finished_jobs():
     </div>
 
     <div class='card'>
-        <div class='jobs-table-wrap'>
-            <table class='jobs-table'>
+        <div class='static-table-wrap'>
+            <table class='static-table'>
+                <colgroup>
+                    <col style='width:6%;'>
+                    <col style='width:14%;'>
+                    <col style='width:14%;'>
+                    <col style='width:9%;'>
+                    <col style='width:7%;'>
+                    <col style='width:7%;'>
+                    <col style='width:10%;'>
+                    <col style='width:10%;'>
+                    <col style='width:7%;'>
+                    <col style='width:7%;'>
+                    <col style='width:9%;'>
+                    <col style='width:20%;'>
+                </colgroup>
                 <tr>
-                    <th class='jobs-col-id'>ID</th>
-                    <th class='jobs-col-title'>Title</th>
-                    <th class='jobs-col-customer'>Customer</th>
-                    <th class='jobs-col-date'>Date</th>
-                    <th class='jobs-col-time'>Start</th>
-                    <th class='jobs-col-time'>End</th>
-                    <th class='jobs-col-assigned'>Assigned To</th>
-                    <th class='jobs-col-status'>Status</th>
-                    <th class='jobs-col-money'>Revenue</th>
-                    <th class='jobs-col-money'>Costs</th>
-                    <th class='jobs-col-money jobs-col-profit'>Profit/Loss</th>
-                    <th class='jobs-col-actions'>Actions</th>
+                    <th>ID</th>
+                    <th class='wrap'>Title</th>
+                    <th class='wrap'>Customer</th>
+                    <th>Date</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th class='wrap'>Assigned To</th>
+                    <th>Status</th>
+                    <th class='money'>Revenue</th>
+                    <th class='money'>Costs</th>
+                    <th class='money'>Profit/Loss</th>
+                    <th class='wrap'>Actions</th>
                 </tr>
-                {job_rows or '<tr><td colspan="12" class="muted" style="padding:18px;">No finished jobs yet.</td></tr>'}
+                {job_rows or '<tr><td colspan="12" class="muted">No finished jobs yet.</td></tr>'}
             </table>
         </div>
     </div>

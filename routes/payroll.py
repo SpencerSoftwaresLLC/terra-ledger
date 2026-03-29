@@ -946,21 +946,21 @@ def employee_payroll():
 
         payroll_rows += f"""
         <tr>
-            <td class='payroll-col-date'>{html_escape(clean_text_display(r['pay_date']))}</td>
-            <td class='payroll-col-employee'>{html_escape((clean_text_input(r['first_name']) + ' ' + clean_text_input(r['last_name'])).strip() or '-')}</td>
-            <td class='payroll-col-type'>{html_escape(clean_text_display(r['pay_type']))}</td>
-            <td class='payroll-col-method'>{html_escape(payment_method)}</td>
-            <td class='payroll-col-check'>{html_escape(str(check_number) if check_number else '-')}</td>
-            <td class='payroll-col-money'>${float(r['gross_pay'] or 0):.2f}</td>
-            <td class='payroll-col-money'>${float(r['federal_withholding'] or 0):.2f}</td>
-            <td class='payroll-col-money'>${float(r['state_withholding'] or 0):.2f}</td>
-            <td class='payroll-col-money'>${float(r['social_security'] or 0):.2f}</td>
-            <td class='payroll-col-money'>${float(r['medicare'] or 0):.2f}</td>
-            <td class='payroll-col-money'>${float(r['local_tax'] or 0):.2f}</td>
-            <td class='payroll-col-money'>${float(r['other_deductions'] or 0):.2f}</td>
-            <td class='payroll-col-money payroll-col-net'>${float(r['net_pay'] or 0):.2f}</td>
-            <td class='payroll-col-actions'>
-                <div class='row-actions payroll-actions'>
+            <td>{html_escape(clean_text_display(r['pay_date']))}</td>
+            <td class='wrap'>{html_escape((clean_text_input(r['first_name']) + ' ' + clean_text_input(r['last_name'])).strip() or '-')}</td>
+            <td>{html_escape(clean_text_display(r['pay_type']))}</td>
+            <td>{html_escape(payment_method)}</td>
+            <td class='center'>{html_escape(str(check_number) if check_number else '-')}</td>
+            <td class='money'>${float(r['gross_pay'] or 0):.2f}</td>
+            <td class='money'>${float(r['federal_withholding'] or 0):.2f}</td>
+            <td class='money'>${float(r['state_withholding'] or 0):.2f}</td>
+            <td class='money'>${float(r['social_security'] or 0):.2f}</td>
+            <td class='money'>${float(r['medicare'] or 0):.2f}</td>
+            <td class='money'>${float(r['local_tax'] or 0):.2f}</td>
+            <td class='money'>${float(r['other_deductions'] or 0):.2f}</td>
+            <td class='money payroll-net'>${float(r['net_pay'] or 0):.2f}</td>
+            <td class='wrap'>
+                <div class='static-actions'>
                     {''.join(actions_html)}
                 </div>
             </td>
@@ -985,94 +985,66 @@ def employee_payroll():
 
     content = f"""
     <style>
-        .payroll-history-wrap {{
+        .static-table-wrap {{
             width: 100%;
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            border-radius: 14px;
         }}
 
-        .payroll-history-table {{
+        .static-table {{
             width: 100%;
-            min-width: 1380px;
-            border-collapse: separate;
-            border-spacing: 0;
+            table-layout: fixed;
+            border-collapse: collapse;
         }}
 
-        .payroll-history-table th,
-        .payroll-history-table td {{
-            padding: 12px 14px;
-            vertical-align: middle;
-            white-space: nowrap;
-            font-size: 0.95rem;
-            line-height: 1.2;
-        }}
-
-        .payroll-history-table th {{
-            font-weight: 700;
-            text-align: left;
-            border-bottom: 1px solid rgba(0,0,0,0.08);
-        }}
-
-        .payroll-history-table td {{
+        .static-table th,
+        .static-table td {{
+            padding: 10px 8px;
+            vertical-align: top;
+            font-size: 0.88rem;
+            line-height: 1.25;
             border-bottom: 1px solid rgba(0,0,0,0.06);
         }}
 
-        .payroll-col-money {{
-            text-align: right;
-            font-variant-numeric: tabular-nums;
-        }}
-
-        .payroll-col-net {{
+        .static-table th {{
+            text-align: left;
             font-weight: 700;
         }}
 
-        .payroll-col-date {{
-            min-width: 110px;
+        .static-table td.money,
+        .static-table th.money {{
+            text-align: right;
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
         }}
 
-        .payroll-col-employee {{
-            min-width: 180px;
-        }}
-
-        .payroll-col-type {{
-            min-width: 95px;
-        }}
-
-        .payroll-col-method {{
-            min-width: 135px;
-        }}
-
-        .payroll-col-check {{
-            min-width: 80px;
+        .static-table td.center,
+        .static-table th.center {{
             text-align: center;
         }}
 
-        .payroll-col-actions {{
-            min-width: 190px;
-            text-align: center;
+        .static-table td.wrap,
+        .static-table th.wrap {{
+            white-space: normal;
+            word-break: break-word;
         }}
 
-        .payroll-actions {{
+        .static-actions {{
             display: flex;
-            gap: 8px;
+            flex-wrap: wrap;
+            gap: 6px;
             align-items: center;
-            justify-content: center;
-            flex-wrap: nowrap;
+            justify-content: flex-start;
         }}
 
-        .payroll-actions form {{
+        .static-actions form {{
             margin: 0;
         }}
 
-        .payroll-actions .btn {{
+        .static-actions .btn {{
             white-space: nowrap;
         }}
 
-        @media (max-width: 1200px) {{
-            .payroll-history-table {{
-                min-width: 1280px;
-            }}
+        .payroll-net {{
+            font-weight: 700;
         }}
     </style>
 
@@ -1219,25 +1191,41 @@ def employee_payroll():
 
     <div class='card'>
         <h2>Payroll History</h2>
-        <div class='payroll-history-wrap'>
-            <table class='payroll-history-table'>
+        <div class='static-table-wrap'>
+            <table class='static-table'>
+                <colgroup>
+                    <col style='width:8%;'>
+                    <col style='width:11%;'>
+                    <col style='width:8%;'>
+                    <col style='width:9%;'>
+                    <col style='width:7%;'>
+                    <col style='width:7%;'>
+                    <col style='width:7%;'>
+                    <col style='width:7%;'>
+                    <col style='width:7%;'>
+                    <col style='width:7%;'>
+                    <col style='width:7%;'>
+                    <col style='width:7%;'>
+                    <col style='width:8%;'>
+                    <col style='width:17%;'>
+                </colgroup>
                 <tr>
-                    <th class='payroll-col-date'>Date</th>
-                    <th class='payroll-col-employee'>Employee</th>
-                    <th class='payroll-col-type'>Pay Type</th>
-                    <th class='payroll-col-method'>Method</th>
-                    <th class='payroll-col-check'>Check #</th>
-                    <th class='payroll-col-money'>Gross</th>
-                    <th class='payroll-col-money'>Federal</th>
-                    <th class='payroll-col-money'>State</th>
-                    <th class='payroll-col-money'>SS</th>
-                    <th class='payroll-col-money'>Medicare</th>
-                    <th class='payroll-col-money'>Local</th>
-                    <th class='payroll-col-money'>Other</th>
-                    <th class='payroll-col-money'>Net</th>
-                    <th class='payroll-col-actions'>Actions</th>
+                    <th>Date</th>
+                    <th class='wrap'>Employee</th>
+                    <th>Pay Type</th>
+                    <th>Method</th>
+                    <th class='center'>Check #</th>
+                    <th class='money'>Gross</th>
+                    <th class='money'>Federal</th>
+                    <th class='money'>State</th>
+                    <th class='money'>SS</th>
+                    <th class='money'>Medicare</th>
+                    <th class='money'>Local</th>
+                    <th class='money'>Other</th>
+                    <th class='money'>Net</th>
+                    <th class='wrap'>Actions</th>
                 </tr>
-                {payroll_rows or "<tr><td colspan='14' class='muted' style='padding:18px;'>No payroll entries yet.</td></tr>"}
+                {payroll_rows or "<tr><td colspan='14' class='muted'>No payroll entries yet.</td></tr>"}
             </table>
         </div>
     </div>
@@ -1553,7 +1541,7 @@ def print_payroll_check(payroll_id):
         flash("Cannot print a check for a payroll entry with zero or negative net pay.")
         return redirect(url_for("payroll.employee_payroll"))
 
-    check_id, check_number = create_or_get_payroll_check(conn, cid, row, employee_name)
+    _, check_number = create_or_get_payroll_check(conn, cid, row, employee_name)
     conn.commit()
 
     profile = get_company_profile_row(cid) or {}
