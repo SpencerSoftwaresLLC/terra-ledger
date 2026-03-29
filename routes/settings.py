@@ -4,7 +4,9 @@ import json
 import io
 
 from flask import Blueprint, request, redirect, url_for, session, flash, render_template_string, make_response
+from flask_wtf.csrf import generate_csrf
 from markupsafe import escape
+from html import escape
 from werkzeug.utils import secure_filename
 from datetime import datetime
 
@@ -922,105 +924,187 @@ def settings_w2():
     ensure_w2_company_profile_columns()
 
     cid = session["company_id"]
-    year = request.args.get("year", str(datetime.utcnow().year)).strip()
+
+    year = (request.args.get("year") or str(datetime.utcnow().year)).strip()
     if not year.isdigit():
         year = str(datetime.utcnow().year)
 
     profile = get_company_profile(cid)
     values = get_company_profile_values(profile)
-
     company_readiness = get_company_w2_readiness(values)
 
     conn = get_db_connection()
-
     year_summary = get_company_w2_year_summary(conn, cid, year)
     employee_summaries = list_employee_w2_summaries(conn, cid, year)
-
     conn.close()
 
-    total_wages = year_summary["total_wages"]
-    total_federal = year_summary["total_federal_withholding"]
-    total_ss = year_summary["total_social_security_tax"]
-    total_medicare = year_summary["total_medicare_tax"]
-    total_state = year_summary["total_state_withholding"]
-    total_local = year_summary["total_local_tax"]
+    total_wages = float(year_summary.get("total_wages", 0) or 0)
+    total_federal = float(year_summary.get("total_federal_withholding", 0) or 0)
+    total_ss = float(year_summary.get("total_social_security_tax", 0) or 0)
+    total_medicare = float(year_summary.get("total_medicare_tax", 0) or 0)
+    total_state = float(year_summary.get("total_state_withholding", 0) or 0)
+    total_local = float(year_summary.get("total_local_tax", 0) or 0)
 
     rows = ""
     for row in employee_summaries:
+        employee_id = row.get("employee_id")
+        employee_name = escape(str(row.get("employee_name") or "Unnamed Employee"))
+        gross_pay = float(row.get("gross_pay", 0) or 0)
+        federal_withholding = float(row.get("federal_withholding", 0) or 0)
+        social_security_tax = float(row.get("social_security_tax", 0) or 0)
+        medicare_tax = float(row.get("medicare_tax", 0) or 0)
+        state_withholding = float(row.get("state_withholding", 0) or 0)
+        local_tax = float(row.get("local_tax", 0) or 0)
+        has_payroll_data = bool(row.get("has_payroll_data"))
+
         print_button = (
-            f"<a class='btn secondary small' target='_blank' href='{url_for('settings.print_w2_summary', employee_id=row['employee_id'], year=year)}'>Print</a>"
-            if row["has_payroll_data"]
+            f"<a class='btn secondary small' target='_blank' href='{url_for('settings.print_w2_summary', employee_id=employee_id, year=year)}'>Print</a>"
+            if has_payroll_data and employee_id
             else "<span class='muted'>No data</span>"
         )
 
         rows += f"""
         <tr>
-            <td>{escape(row["employee_name"])}</td>
-            <td>${row["gross_pay"]:,.2f}</td>
-            <td>${row["federal_withholding"]:,.2f}</td>
-            <td>${row["social_security_tax"]:,.2f}</td>
-            <td>${row["medicare_tax"]:,.2f}</td>
-            <td>${row["state_withholding"]:,.2f}</td>
-            <td>${row["local_tax"]:,.2f}</td>
+            <td>{employee_name}</td>
+            <td>${gross_pay:,.2f}</td>
+            <td>${federal_withholding:,.2f}</td>
+            <td>${social_security_tax:,.2f}</td>
+            <td>${medicare_tax:,.2f}</td>
+            <td>${state_withholding:,.2f}</td>
+            <td>${local_tax:,.2f}</td>
             <td>{print_button}</td>
         </tr>
         """
 
-    if company_readiness["missing"]:
-        missing_html = "".join(f"<li>{escape(item)}</li>" for item in company_readiness["missing"])
+    if not rows:
+        rows = """
+        <tr>
+            <td colspan="8" class="muted" style="text-align:center; padding:18px;">
+                No employee W-2 data found for this year.
+            </td>
+        </tr>
+        """
+
+    if company_readiness.get("missing"):
+        missing_html = "".join(
+            f"<li>{escape(str(item))}</li>" for item in company_readiness["missing"]
+        )
         readiness_card = f"""
         <div class='card' style='border:1px solid #f59e0b; background:#fffaf0;'>
-            <h2>W-2 Filing Readiness</h2>
-            <ul>{missing_html}</ul>
-            <a class='btn warning' href='{url_for("settings.settings_w2_company")}'>Complete Profile</a>
+            <div style='display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;'>
+                <div>
+                    <h2 style='margin-bottom:8px;'>W-2 Filing Readiness</h2>
+                    <ul style='margin:0;'>{missing_html}</ul>
+                </div>
+                <div>
+                    <a class='btn warning' href='{url_for("settings.settings_w2_company")}'>Complete Profile</a>
+                </div>
+            </div>
         </div>
         """
     else:
-        readiness_card = f"""
+        readiness_card = """
         <div class='card' style='border:1px solid #16a34a; background:#f0fdf4;'>
-            <h2>W-2 Filing Readiness</h2>
-            <p style='color:#166534;'>Ready</p>
+            <h2 style='margin-bottom:8px;'>W-2 Filing Readiness</h2>
+            <p style='margin:0; color:#166534; font-weight:700;'>Ready</p>
         </div>
         """
 
     content = f"""
     <div class='card'>
-        <h1>W-2 Center</h1>
-        <a href='{url_for("settings.settings")}' class='btn secondary'>Back</a>
+        <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
+            <div>
+                <h1 style='margin-bottom:6px;'>W-2 Center</h1>
+                <p class='muted' style='margin:0;'>Review yearly payroll totals and print employee W-2 summaries.</p>
+            </div>
+            <div class='row-actions'>
+                <a href='{url_for("settings.settings")}' class='btn secondary'>Back</a>
+            </div>
+        </div>
     </div>
 
     {readiness_card}
 
     <div class='card'>
-        <h2>Year Summary</h2>
-        <div>Total Wages: ${total_wages:,.2f}</div>
-        <div>Federal: ${total_federal:,.2f}</div>
-        <div>SS: ${total_ss:,.2f}</div>
-        <div>Medicare: ${total_medicare:,.2f}</div>
-        <div>State: ${total_state:,.2f}</div>
-        <div>Local: ${total_local:,.2f}</div>
+        <div style='display:flex; justify-content:space-between; align-items:end; gap:12px; flex-wrap:wrap;'>
+            <div>
+                <h2 style='margin-bottom:6px;'>Year Summary</h2>
+                <p class='muted' style='margin:0;'>Viewing tax year {escape(year)}</p>
+            </div>
+
+            <form method='get' style='display:flex; gap:10px; align-items:end; flex-wrap:wrap; margin:0;'>
+                <div>
+                    <label for='year' style='display:block; margin-bottom:6px;'>Year</label>
+                    <input
+                        id='year'
+                        name='year'
+                        value='{escape(year)}'
+                        inputmode='numeric'
+                        pattern='[0-9]*'
+                        maxlength='4'
+                        placeholder='2026'
+                        style='min-width:110px;'
+                    >
+                </div>
+                <div>
+                    <button type='submit' class='btn secondary'>Load Year</button>
+                </div>
+            </form>
+        </div>
+
+        <div class='stats-grid' style='margin-top:18px; display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px;'>
+            <div class='card' style='margin:0;'>
+                <div class='muted'>Total Wages</div>
+                <div style='font-size:1.2rem; font-weight:700;'>${total_wages:,.2f}</div>
+            </div>
+            <div class='card' style='margin:0;'>
+                <div class='muted'>Federal</div>
+                <div style='font-size:1.2rem; font-weight:700;'>${total_federal:,.2f}</div>
+            </div>
+            <div class='card' style='margin:0;'>
+                <div class='muted'>Social Security</div>
+                <div style='font-size:1.2rem; font-weight:700;'>${total_ss:,.2f}</div>
+            </div>
+            <div class='card' style='margin:0;'>
+                <div class='muted'>Medicare</div>
+                <div style='font-size:1.2rem; font-weight:700;'>${total_medicare:,.2f}</div>
+            </div>
+            <div class='card' style='margin:0;'>
+                <div class='muted'>State</div>
+                <div style='font-size:1.2rem; font-weight:700;'>${total_state:,.2f}</div>
+            </div>
+            <div class='card' style='margin:0;'>
+                <div class='muted'>Local</div>
+                <div style='font-size:1.2rem; font-weight:700;'>${total_local:,.2f}</div>
+            </div>
+        </div>
     </div>
 
     <div class='card'>
         <h2>Employee W-2 Summary</h2>
-        <table>
-            <tr>
-                <th>Employee</th>
-                <th>Wages</th>
-                <th>Federal</th>
-                <th>SS</th>
-                <th>Medicare</th>
-                <th>State</th>
-                <th>Local</th>
-                <th>Print</th>
-            </tr>
-            {rows}
-        </table>
+        <div style='overflow-x:auto; width:100%;'>
+            <table style='width:100%; min-width:900px;'>
+                <thead>
+                    <tr>
+                        <th>Employee</th>
+                        <th>Wages</th>
+                        <th>Federal</th>
+                        <th>SS</th>
+                        <th>Medicare</th>
+                        <th>State</th>
+                        <th>Local</th>
+                        <th>Print</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows}
+                </tbody>
+            </table>
+        </div>
     </div>
     """
 
     return render_page(content, "W-2 Center")
-
 
 @settings_bp.route("/settings/w2/company", methods=["GET", "POST"])
 @login_required
@@ -1188,6 +1272,7 @@ def settings_w2_company():
 
     values = get_company_profile_values(existing)
     readiness = _w2_company_readiness(values)
+    csrf_token = generate_csrf()
 
     missing_html = ""
     if readiness["missing"]:
@@ -1224,7 +1309,7 @@ def settings_w2_company():
     <div class='card'>
         <h2>W-2 Filing Details</h2>
         <form method='post'>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="csrf_token" value="{csrf_token}">
             <div class='grid'>
                 <div>
                     <label>Legal Business Name</label>
