@@ -219,12 +219,18 @@ def _get_customer_phone_column(conn):
     return None
 
 
+def _build_conversation_key(company_id, phone_number):
+    normalized = _normalize_phone(phone_number)
+    if not company_id or not normalized:
+        return None
+    return f"{int(company_id)}:{normalized}"
+
+
 def ensure_messaging_tables():
     conn = get_db_connection()
     cur = conn.cursor()
 
     try:
-        # ---------- messaging_settings ----------
         cur.execute("""
             SELECT EXISTS (
                 SELECT 1
@@ -389,7 +395,6 @@ def ensure_messaging_tables():
                     if col_name not in existing_columns:
                         cur.execute(f"ALTER TABLE messaging_settings ADD COLUMN {col_name} {col_def}")
 
-        # ---------- message_log ----------
         cur.execute("""
             CREATE TABLE IF NOT EXISTS message_log (
                 id SERIAL PRIMARY KEY,
@@ -404,6 +409,7 @@ def ensure_messaging_tables():
                 provider TEXT DEFAULT 'twilio',
                 provider_message_id TEXT,
                 automation_key TEXT,
+                conversation_key TEXT,
                 sent_by_user_id INTEGER,
                 error_message TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -430,6 +436,7 @@ def ensure_messaging_tables():
             "provider": "TEXT DEFAULT 'twilio'",
             "provider_message_id": "TEXT",
             "automation_key": "TEXT",
+            "conversation_key": "TEXT",
             "sent_by_user_id": "INTEGER",
             "error_message": "TEXT",
             "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
@@ -439,6 +446,15 @@ def ensure_messaging_tables():
         for col_name, col_def in message_required_columns.items():
             if col_name not in message_cols:
                 cur.execute(f"ALTER TABLE message_log ADD COLUMN {col_name} {col_def}")
+
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_message_log_phone_created
+            ON message_log (phone_number, created_at DESC)
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_message_log_conversation_key
+            ON message_log (conversation_key)
+        """)
 
         conn.commit()
     finally:
@@ -558,6 +574,32 @@ def find_customer_by_phone(company_id, phone_number):
         conn.close()
 
 
+def get_last_conversation_for_phone(phone_number):
+    normalized_phone = _normalize_phone(phone_number)
+    if not normalized_phone:
+        return None
+
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                company_id,
+                customer_id,
+                conversation_key,
+                phone_number,
+                created_at
+            FROM message_log
+            WHERE phone_number = %s
+              AND company_id IS NOT NULL
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+        """, (normalized_phone,))
+        return cur.fetchone()
+    finally:
+        conn.close()
+
+
 def has_automation_message(company_id, automation_key):
     if not company_id or not automation_key:
         return False
@@ -590,9 +632,14 @@ def insert_message_log(
     provider="twilio",
     provider_message_id=None,
     automation_key=None,
+    conversation_key=None,
     sent_by_user_id=None,
     error_message=None,
 ):
+    normalized_phone = _normalize_phone(phone_number)
+    if not conversation_key and company_id and normalized_phone:
+        conversation_key = _build_conversation_key(company_id, normalized_phone)
+
     conn = get_db_connection()
     try:
         cur = conn.cursor()
@@ -609,12 +656,13 @@ def insert_message_log(
                 provider,
                 provider_message_id,
                 automation_key,
+                conversation_key,
                 sent_by_user_id,
                 error_message,
                 sent_at
             )
             VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 CASE WHEN %s IN ('sent', 'received', 'delivered') THEN CURRENT_TIMESTAMP ELSE NULL END
             )
         """, (
@@ -622,13 +670,14 @@ def insert_message_log(
             customer_id,
             job_id,
             invoice_id,
-            phone_number,
+            normalized_phone,
             direction,
             message_body,
             status,
             provider,
             provider_message_id,
             automation_key,
+            conversation_key,
             sent_by_user_id,
             error_message,
             status,
@@ -1416,34 +1465,44 @@ def incoming_message_webhook():
         resp = MessagingResponse()
         return Response(str(resp), mimetype="application/xml")
 
-    conn = get_db_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT company_id
-            FROM messaging_settings
-            WHERE messaging_enabled = TRUE
-            ORDER BY company_id ASC
-        """)
-        enabled_rows = cur.fetchall()
-    finally:
-        conn.close()
-
     matched_company_id = None
-    matched_customer = None
+    matched_customer_id = None
 
-    for row in enabled_rows:
-        company_id = row["company_id"]
-        customer = find_customer_by_phone(company_id, from_number)
-        if customer:
-            matched_company_id = company_id
-            matched_customer = customer
-            break
+    # Primary routing: use the most recent conversation for this phone number.
+    last_conversation = get_last_conversation_for_phone(from_number)
+    if last_conversation:
+        matched_company_id = last_conversation["company_id"]
+        matched_customer_id = last_conversation["customer_id"]
+
+    # Fallback only if this phone number has never had a conversation before.
+    if not matched_company_id:
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT company_id
+                FROM messaging_settings
+                WHERE messaging_enabled = TRUE
+                ORDER BY company_id ASC
+            """)
+            enabled_rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        matched_customer = None
+        for row in enabled_rows:
+            company_id = row["company_id"]
+            customer = find_customer_by_phone(company_id, from_number)
+            if customer:
+                matched_company_id = company_id
+                matched_customer = customer
+                matched_customer_id = customer["id"]
+                break
 
     if matched_company_id:
         insert_message_log(
             company_id=matched_company_id,
-            customer_id=matched_customer["id"] if matched_customer else None,
+            customer_id=matched_customer_id,
             phone_number=from_number,
             message_body=body,
             direction="inbound",
@@ -1729,13 +1788,11 @@ def messaging_configuration():
                 <div style="margin-bottom:14px;">
                     <label>Job Reminder Template</label>
                     <textarea name="default_job_reminder_template">{{ settings['default_job_reminder_template'] if settings and settings['default_job_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} about {{job_title}} scheduled for {{scheduled_date}}.' }}</textarea>
-                    <div class="muted small">Available placeholders: {{customer_name}}, {{company_name}}, {{job_title}}, {{scheduled_date}}</div>
                 </div>
 
                 <div style="margin-bottom:0;">
                     <label>Late Invoice Reminder Template</label>
                     <textarea name="default_late_invoice_reminder_template">{{ settings['default_late_invoice_reminder_template'] if settings and settings['default_late_invoice_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} that invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. Due date: {{due_date}}.' }}</textarea>
-                    <div class="muted small">Available placeholders: {{customer_name}}, {{company_name}}, {{invoice_number}}, {{balance_due}}, {{due_date}}</div>
                 </div>
             </div>
 
