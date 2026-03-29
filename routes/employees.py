@@ -1228,7 +1228,7 @@ def edit_employee(employee_id):
         pay_frequency = _clean_text(request.form.get("pay_frequency")) or "Weekly"
 
         w4_step2_checked = 1 if request.form.get("w4_step2_checked") else 0
-        is_indiana_resident = 1 if request.form.get("is_indiana_resident") else 0
+        is_indiana_resident = True if request.form.get("is_indiana_resident") else False
 
         w4_step3_amount = _safe_float(request.form.get("w4_step3_amount"), 0)
         w4_step4a_other_income = _safe_float(request.form.get("w4_step4a_other_income"), 0)
