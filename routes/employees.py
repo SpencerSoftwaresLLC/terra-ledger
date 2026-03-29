@@ -1208,7 +1208,7 @@ def edit_employee(employee_id):
         w2_address_line_1 = _clean_text(request.form.get("w2_address_line_1"))
         w2_address_line_2 = _clean_text(request.form.get("w2_address_line_2"))
         w2_city = _clean_text(request.form.get("w2_city"))
-        w2_state = _clean_text(request.form.get("w2_state")).upper()
+        w2_state = (_clean_text(request.form.get("w2_state")) or "").upper()
         w2_zip = _clean_text(request.form.get("w2_zip"))
 
         pay_type = _clean_text(request.form.get("pay_type")) or "Hourly"
@@ -1227,8 +1227,8 @@ def edit_employee(employee_id):
         federal_filing_status = _clean_text(request.form.get("federal_filing_status")) or "Single"
         pay_frequency = _clean_text(request.form.get("pay_frequency")) or "Weekly"
 
-        w4_step2_checked = bool(request.form.get("w4_step2_checked"))
-        is_indiana_resident = bool(request.form.get("is_indiana_resident"))
+        w4_step2_checked = 1 if request.form.get("w4_step2_checked") else 0
+        is_indiana_resident = 1 if request.form.get("is_indiana_resident") else 0
 
         w4_step3_amount = _safe_float(request.form.get("w4_step3_amount"), 0)
         w4_step4a_other_income = _safe_float(request.form.get("w4_step4a_other_income"), 0)
@@ -1242,7 +1242,9 @@ def edit_employee(employee_id):
             date.today().year
         )
 
-        full_name = " ".join(part for part in [first_name, middle_name, last_name, suffix] if part).strip()
+        full_name = " ".join(
+            part for part in [first_name, middle_name, last_name, suffix] if part
+        ).strip()
 
         conn.execute(
             """
