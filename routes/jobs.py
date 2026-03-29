@@ -397,10 +397,10 @@ def jobs():
                     <a class='btn warning small' href='{url_for("jobs.edit_job", job_id=r["id"])}'>Edit Job</a>
                     <a class='btn success small' href='{url_for("jobs.convert_job_to_invoice", job_id=r["id"])}'>Convert to Invoice</a>
                     <form method='post'
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                           action='{url_for("jobs.delete_job", job_id=r["id"])}'
                           style='display:inline;'
                           onsubmit="return confirm('Delete this job and all items?');">
-                        {{{{ csrf_input() }}}}
                         <button class='btn danger small' type='submit'>Delete Job</button>
                     </form>
                 </div>
@@ -456,7 +456,7 @@ def jobs():
         </div>
 
         <form method='post' style='margin-top:18px;'>
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class='grid'>
                 <div class='customer-search-wrap'>
                     <label>Customer</label>
@@ -834,10 +834,10 @@ def view_job(job_id):
                 <div class='row-actions'>
                     <a class='btn secondary small' href='{url_for("jobs.edit_job_item", job_id=job_id, item_id=i["id"])}'>Edit</a>
                     <form method='post'
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                           action='{url_for("jobs.delete_job_item", job_id=job_id, item_id=i["id"])}'
                           style='display:inline;'
                           onsubmit="return confirm('Delete this job item?');">
-                        {{{{ csrf_input() }}}}
                         <button class='btn danger small' type='submit'>Delete</button>
                     </form>
                 </div>
@@ -911,19 +911,19 @@ def view_job(job_id):
 
             <div id="updatesMenu" class="updates-menu">
                 <form method="post" action="{url_for("jobs.send_update_email", job_id=job_id)}">
-                    {{{{ csrf_input() }}}}
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="update_type" value="on_the_way">
                     <button type="submit">Send On The Way Email</button>
                 </form>
 
                 <form method="post" action="{url_for("jobs.send_update_email", job_id=job_id)}">
-                    {{{{ csrf_input() }}}}
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="update_type" value="job_started">
                     <button type="submit">Send Job Started Email</button>
                 </form>
 
                 <form method="post" action="{url_for("jobs.send_update_email", job_id=job_id)}">
-                    {{{{ csrf_input() }}}}
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="update_type" value="job_completed">
                     <button type="submit">Send Job Finished Email</button>
                 </form>
@@ -938,7 +938,7 @@ def view_job(job_id):
             <h3>Custom Job Update</h3>
 
             <form method="post" action="{url_for("jobs.send_custom_email", job_id=job_id)}">
-                {{{{ csrf_input() }}}}
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="grid">
                     <div>
                         <label>To Email</label>
@@ -987,7 +987,7 @@ Thank you,
             <div class="muted small" style="margin-bottom:12px;">No customer email is on file, but you can still enter one manually below.</div>
 
             <form method="post" action="{send_custom_url}">
-                {{{{ csrf_input() }}}}
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="grid">
                     <div>
                         <label>To Email</label>
@@ -1064,7 +1064,7 @@ Thank you,
             <p class='muted'>Any cost you enter here is automatically pushed into bookkeeping as an expense.</p>
 
             <form method='post'>
-                {{{{ csrf_input() }}}}
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class='grid'>
 
                     <div>
@@ -1469,7 +1469,7 @@ def edit_job(job_id):
     <div class='card'>
         <h1>Edit Job #{job['id']}</h1>
         <form method='post'>
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class='grid'>
                 <div>
                     <label>Customer</label>
@@ -1659,7 +1659,7 @@ def edit_job_item(job_id, item_id):
         </p>
 
         <form method='post'>
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class='grid'>
                 <div>
                     <label>Type</label>

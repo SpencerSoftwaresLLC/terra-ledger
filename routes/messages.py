@@ -271,7 +271,7 @@ def messages_page():
         <div class="card">
             <h3>Send Message</h3>
             <form method="post" action="{{ url_for('messages.send_message') }}">
-                {{ csrf_input() }}
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div style="margin-bottom:14px;">
                     <label>Customer</label>
                     <select id="customerSelect" onchange="fillCustomerPhoneFromDropdown()">
@@ -670,7 +670,7 @@ def messaging_configuration():
 
     <div class="card">
         <form method="post">
-            {{ csrf_input() }}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="card" style="margin-top:0; margin-bottom:18px;">
                 <h3>Platform Messaging</h3>
 

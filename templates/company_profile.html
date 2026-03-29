@@ -8,6 +8,7 @@ COMPANY_PROFILE_HTML = """
     </div>
 
     <form method="POST" class="card">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="settings-section-title">
             <h2 style="margin-bottom:6px;">Business Details</h2>
             <div class="muted">These details identify your company throughout YardLedger.</div>

@@ -934,7 +934,7 @@ def employee_payroll():
                   action='{url_for("payroll.delete_payroll_entry", payroll_id=r["id"])}'
                   onsubmit="return confirm('Delete this payroll entry?');"
                   style='margin:0;'>
-                {{{{ csrf_input() }}}}
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button class='btn danger small' type='submit'>Delete</button>
             </form>
             """
@@ -997,7 +997,7 @@ def employee_payroll():
     <div class='card'>
         <h2>New Payroll Entry</h2>
         <form method='post' id='payroll_form'>
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class='grid'>
                 <div>
                     <label>Employee</label>

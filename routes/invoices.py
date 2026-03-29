@@ -1123,7 +1123,7 @@ def new_invoice():
 
     <div class='card'>
         <form method='post'>
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class='grid'>
                 <div class='customer-search-wrap'>
                     <label>Customer</label>
@@ -1344,7 +1344,7 @@ def view_invoice(invoice_id):
                 <div class='row-actions'>
                     <a class='btn small' href='{url_for("invoices.edit_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}'>Edit</a>
                     <form method='post' action='{url_for("invoices.delete_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}' style='display:inline;'>
-                        {{{{ csrf_input() }}}}
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button class='btn secondary small' type='submit'>Delete</button>
                     </form>
                 </div>
@@ -1361,7 +1361,7 @@ def view_invoice(invoice_id):
 
     toggle_button_html = f"""
     <form method='post' action='{url_for("invoices.toggle_invoice_paid", invoice_id=invoice_id)}' style='display:inline;'>
-        {{{{ csrf_input() }}}}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class='btn {"secondary" if is_paid else "success"}' type='submit'>
             {"Mark Unpaid" if is_paid else "Mark Paid"}
         </button>
@@ -1393,7 +1393,7 @@ def view_invoice(invoice_id):
                 <form method='post'
                       action='{url_for("invoices.delete_invoice", invoice_id=invoice_id)}'
                       onsubmit="return confirm('Delete this invoice? This will also remove its items and payments.');">
-                    {{{{ csrf_input() }}}}
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class='btn danger small' type='submit'>Delete Invoice</button>
                 </form>
             </div>
@@ -1425,7 +1425,7 @@ def view_invoice(invoice_id):
         </p>
 
         <form method='post' action='{url_for("invoices.add_invoice_payment", invoice_id=invoice_id)}'>
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class='grid'>
                 <div>
                     <label>Amount</label>
@@ -1631,7 +1631,7 @@ def email_invoice_preview(invoice_id):
         {"<div class='notice warning'>This customer does not have an email address yet. Add one before sending.</div>" if not recipient else ""}
 
         <form method='post' action='{send_url}' onsubmit="return confirm('Send this invoice by email now?');">
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class='btn' type='submit' {"disabled" if not recipient else ""}>Send Email Now</button>
         </form>
     </div>
@@ -2015,7 +2015,7 @@ def edit_invoice_payment(invoice_id, payment_id):
     <div class='card'>
         <h1>Edit Payment</h1>
         <form method='post'>
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class='grid'>
                 <div>
                     <label>Amount</label>

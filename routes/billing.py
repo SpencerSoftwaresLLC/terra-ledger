@@ -278,7 +278,7 @@ def subscription_required_page():
 
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">
                     <form method="post" action="{refresh_url}" style="display:inline;">
-                        {{ csrf_input() }}
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button class="btn secondary" type="submit">Refresh Access</button>
                     </form>
                     <a class="btn secondary" href="{billing_url}">View Billing Page</a>
@@ -387,7 +387,7 @@ def billing_page():
                     <a class="btn secondary" href="{{ url_for('billing.create_checkout_session', plan='yearly') }}">Start Yearly</a>
 
                     <form method="post" action="{{ url_for('billing.refresh_billing_status') }}" style="display:inline;">
-                        {{ csrf_input() }}
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button class="btn secondary" type="submit">Refresh Status</button>
                     </form>
                 {% endif %}

@@ -660,23 +660,23 @@ def payment_setup():
                     <div class="btn-row">
                         {% if not stripe_connected %}
                             <form method="POST" action="{{ url_for('payment_setup.connect_stripe_account') }}" style="display:inline;">
-                                {{ csrf_input() }}
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn-tl btn-primary-tl">Connect Stripe</button>
                             </form>
                         {% elif not onboarding_complete %}
                             <form method="POST" action="{{ url_for('payment_setup.connect_stripe_account') }}" style="display:inline;">
-                                {{ csrf_input() }}
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn-tl btn-warning-tl">Continue Setup</button>
                             </form>
                         {% else %}
                             <form method="POST" action="{{ url_for('payment_setup.connect_stripe_account') }}" style="display:inline;">
-                                {{ csrf_input() }}
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn-tl btn-secondary-tl">Reconnect Stripe</button>
                             </form>
                         {% endif %}
 
                         <form method="POST" action="{{ url_for('payment_setup.payment_setup_refresh') }}" style="display:inline;">
-                            {{ csrf_input() }}
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn-tl btn-secondary-tl">Refresh Status</button>
                         </form>
                     </div>
@@ -691,7 +691,7 @@ def payment_setup():
                     <h3>Invoice Payment Settings</h3>
 
                     <form method="POST" action="{{ url_for('payment_setup.save_payment_preferences') }}">
-                        {{ csrf_input() }}
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <div class="form-section">
                             <label class="form-label">Default payment message for invoice emails</label>
                             <textarea

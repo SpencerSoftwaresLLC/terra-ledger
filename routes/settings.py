@@ -637,7 +637,7 @@ def settings_company():
 
     <div class='card'>
         <form method='post'>
-            {{ csrf_input() }}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class='grid'>
                 <div>
                     <label>Company Name</label>
@@ -847,7 +847,7 @@ def settings_taxes():
     <div class='card'>
         <h2>Edit Tax Defaults</h2>
         <form method='post'>
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div style='display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px; align-items:end;'>
 
                 <div>
@@ -1219,7 +1219,7 @@ def settings_w2_company():
     <div class='card'>
         <h2>W-2 Filing Details</h2>
         <form method='post'>
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class='grid'>
                 <div>
                     <label>Legal Business Name</label>
@@ -1693,7 +1693,7 @@ def settings_branding():
     <div class='card'>
         <h2>Branding Details</h2>
         <form method='post' enctype='multipart/form-data'>
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div style='display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px;'>
 
                 <div>
@@ -1975,7 +1975,7 @@ def settings_email():
     <div class='card'>
         <h2>Email Delivery Identity</h2>
         <form method='post'>
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div style='display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px;'>
 
                 <div>
@@ -2021,7 +2021,7 @@ def settings_email():
         <p class='muted'>Use this to confirm your platform email sending is working before testing quote or invoice emails.</p>
 
         <form method='post' action='{url_for("settings.test_email")}'>
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class='grid'>
                 <div>
                     <label>Send Test To</label>
@@ -2145,7 +2145,7 @@ def restore_backup():
         </p>
 
         <form method='post' enctype='multipart/form-data'>
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class='grid'>
                 <div>
                     <label>Backup File (.json)</label>

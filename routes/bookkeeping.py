@@ -1441,10 +1441,10 @@ def _render_bookkeeping_page(conn, cid):
             actions.append(
                 f"""
                 <form method='post'
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                       action='{url_for("bookkeeping.delete_bookkeeping_entry", entry_id=r.get("id"))}'
                       onsubmit="return confirm('Delete this bookkeeping entry?');"
                       style='display:inline;'>
-                    {{{{ csrf_input() }}}}
                     <button class='btn danger small' type='submit'>Delete</button>
                 </form>
                 """
@@ -1510,7 +1510,7 @@ def _render_bookkeeping_page(conn, cid):
     <div class='card'>
         <h2>Add Manual Bookkeeping Entry</h2>
         <form method='post'>
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class='grid'>
                 <div>
                     <label>Date</label>

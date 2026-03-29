@@ -8,6 +8,7 @@ TAX_SETTINGS_HTML = """
     </div>
 
     <form method="POST" class="card">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="settings-section-title">
             <h2 style="margin-bottom:6px;">Payroll Tax Rates</h2>
             <div class="muted">Enter percentages only. Example: 6.2 for Social Security.</div>

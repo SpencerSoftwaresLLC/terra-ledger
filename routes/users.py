@@ -128,7 +128,7 @@ def users():
                           action='{url_for("users.toggle_user_active", user_id=r["id"])}'
                           style='display:inline;'
                           onsubmit="return confirm('Change this user\\'s active status?');">
-                        {{{{ csrf_input() }}}}
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button class='btn warning small' type='submit'>{"Deactivate" if r["is_active"] else "Activate"}</button>
                     </form>
                     '''
@@ -141,7 +141,7 @@ def users():
                           action='{url_for("users.delete_user", user_id=r["id"])}'
                           style='display:inline;'
                           onsubmit="return confirm('Delete this user?');">
-                        {{{{ csrf_input() }}}}
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button class='btn danger small' type='submit'>Delete</button>
                     </form>
                     '''
@@ -163,7 +163,7 @@ def users():
     <div class='card'>
         <h2>Add User</h2>
         <form method='post'>
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class='grid'>
                 <div>
                     <label>Name</label>
@@ -296,7 +296,7 @@ def edit_user_permissions(user_id):
         <p class='muted'><strong>User:</strong> {escape(user['name'] or '-')} ({escape(user['email'] or '-')})</p>
 
         <form method='post'>
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class='grid'>
                 <div>
                     <label>Role</label>

@@ -65,7 +65,7 @@ def customers():
                 <a class='btn secondary' href='{url_for("customers.edit_customer", customer_id=customer_id)}'>Edit</a>
 
                 <form method='post' action='{url_for("customers.delete_customer", customer_id=customer_id)}' style='display:inline;' onsubmit='return confirm("Delete this customer?");'>
-                    {{{{ csrf_input() }}}}
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class='btn danger' type='submit'>Delete</button>
                 </form>
             </td>
@@ -171,7 +171,7 @@ def add_customer():
     <div class='card'>
         <h1>Add Customer</h1>
         <form method='post'>
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class='grid'>
                 <div>
                     <label>Name</label>
@@ -294,7 +294,7 @@ def edit_customer(customer_id):
     <div class='card'>
         <h1>Edit Customer #{customer['id']}</h1>
         <form method='post'>
-            {{{{ csrf_input() }}}}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class='grid'>
                 <div>
                     <label>Name</label>

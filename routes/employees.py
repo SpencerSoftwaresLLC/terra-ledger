@@ -226,7 +226,7 @@ def _employee_form_html(employee=None, form_action="", submit_label="Save Employ
     </div>
 
     <form method='post' action='{form_action}'>
-        {{{{ csrf_input() }}}}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class='card'>
             <h2>Employee Information</h2>
             <div class='grid'>
@@ -594,13 +594,13 @@ def employees():
 
                     {
                         f"<form method='post' action='{url_for('employees.deactivate_employee', employee_id=r['id'])}' class='inline-form'>"
-                        f"{{{{ csrf_input() }}}}"
+                        f"<input type='hidden' name='csrf_token' value='{{ csrf_token() }}'>"
                         f"<button class='btn warning small' type='submit'>Set Inactive</button>"
                         f"</form>"
                         if bool(r['is_active'])
                         else
                         f"<form method='post' action='{url_for('employees.activate_employee', employee_id=r['id'])}' class='inline-form'>"
-                        f"{{{{ csrf_input() }}}}"
+                        f"<input type='hidden' name='csrf_token' value='{{ csrf_token() }}'>"
                         f"<button class='btn success small' type='submit'>Set Active</button>"
                         f"</form>"
                     }
@@ -609,7 +609,7 @@ def employees():
                         action='{url_for("employees.delete_employee", employee_id=r["id"])}'
                         class='inline-form'
                         onsubmit="return confirm('Delete this employee? This cannot be undone.');">
-                        {{{{ csrf_input() }}}}
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button class='btn danger small' type='submit'>Delete</button>
                     </form>
                 </div>
@@ -1568,7 +1568,7 @@ def time_clock():
     <div class='card'>
         <h2>Pay Period Settings</h2>
         <form method='post' action='{{ url_for("employees.update_time_clock_settings") }}'>
-            {{ csrf_input() }}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div style='display:grid; grid-template-columns:minmax(220px, 1fr) auto; gap:12px; align-items:end;'>
                 <div>
                     <label>Pay Period Start Day</label>
@@ -1611,7 +1611,7 @@ def time_clock():
         <h2>Clock Actions</h2>
 
         <form method='post' action='{{ url_for("employees.time_clock_clock_in") }}' style='margin-bottom:14px;'>
-            {{ csrf_input() }}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div style='display:grid; grid-template-columns:minmax(220px, 1fr) auto; gap:12px; align-items:end;'>
                 <div>
                     <label>Select Employee to Clock In</label>
@@ -1630,7 +1630,7 @@ def time_clock():
         </form>
 
         <form method='post' action='{{ url_for("employees.time_clock_clock_out") }}'>
-            {{ csrf_input() }}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div style='display:grid; grid-template-columns:minmax(220px, 1fr) auto; gap:12px; align-items:end;'>
                 <div>
                     <label>Select Employee to Clock Out</label>
@@ -1695,7 +1695,7 @@ def time_clock():
             </div>
 
             <form method='post' action='{{ url_for("employees.send_time_clock_summary_now") }}' style='margin:0;'>
-                {{ csrf_input() }}
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button class='btn warning' type='submit'>Send Last Pay Period Summary</button>
             </form>
         </div>

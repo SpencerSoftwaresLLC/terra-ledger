@@ -11,6 +11,16 @@ auth_bp = Blueprint("auth", __name__)
 
 MAX_LOGIN_ATTEMPTS = 5
 
+def _get_csrf_token():
+    token = session.get("_csrf_token")
+    if not token:
+        token = secrets.token_hex(32)
+        session["_csrf_token"] = token
+    return token
+
+
+def csrf_input():
+    return f'<input type="hidden" name="csrf_token" value="{_get_csrf_token()}">'
 
 def _check_password_strength(password: str) -> bool:
     return (
@@ -109,7 +119,7 @@ def register():
     <div class="card">
         <h1>Create Account</h1>
         <form method="post">
-            {{ csrf_input() }}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
             <div class="grid">
                 <div>
@@ -194,7 +204,7 @@ def login():
     <div class="card">
         <h1>Login</h1>
         <form method="post">
-            {{ csrf_input() }}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
             <div class="grid">
                 <div>
@@ -275,7 +285,7 @@ def forgot_password():
     <div class="card">
         <h1>Forgot Password</h1>
         <form method="post">
-            {{ csrf_input() }}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
             <div class="grid">
                 <div>
@@ -347,7 +357,7 @@ def reset_password(token):
     <div class="card">
         <h1>Reset Password</h1>
         <form method="post">
-            {{ csrf_input() }}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
             <div class="grid">
                 <div>
