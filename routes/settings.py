@@ -1383,7 +1383,8 @@ def settings_w2_company():
 @require_permission("can_manage_settings")
 def print_w2_summary(employee_id):
     cid = session["company_id"]
-    year = request.args.get("year", str(datetime.utcnow().year)).strip()
+
+    year = (request.args.get("year") or str(datetime.utcnow().year)).strip()
     if not year.isdigit():
         year = str(datetime.utcnow().year)
 
@@ -1415,7 +1416,9 @@ def print_w2_summary(employee_id):
         FROM payroll_entries
         WHERE company_id = %s
           AND employee_id = %s
-          AND EXTRACT(YEAR FROM pay_date) = %s
+          AND pay_date IS NOT NULL
+          AND NULLIF(pay_date::text, '') IS NOT NULL
+          AND EXTRACT(YEAR FROM NULLIF(pay_date::text, '')::date) = %s
         """,
         (cid, employee_id, int(year)),
     ).fetchone()
@@ -1431,9 +1434,16 @@ def print_w2_summary(employee_id):
     company_name = _company_display_name_for_reports(cid)
     pdf_data = _build_w2_summary_pdf(company_name, year, employee_name, summary or {})
 
+    safe_employee_name = "".join(
+        ch if ch.isalnum() or ch in ("-", "_") else "_"
+        for ch in employee_name.replace(" ", "_")
+    ).strip("_") or f"employee_{employee_id}"
+
     response = make_response(pdf_data)
     response.headers["Content-Type"] = "application/pdf"
-    response.headers["Content-Disposition"] = f"inline; filename=w2_summary_{employee_name.replace(' ', '_')}_{year}.pdf"
+    response.headers["Content-Disposition"] = (
+        f"inline; filename=w2_summary_{safe_employee_name}_{year}.pdf"
+    )
     return response
 
 
