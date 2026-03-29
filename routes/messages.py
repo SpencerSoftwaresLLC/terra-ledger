@@ -80,6 +80,16 @@ def _is_reasonable_phone(value):
     return 10 <= len(digits) <= 15
 
 
+def _to_bool(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+
+    text = str(value).strip().lower()
+    return text in {"1", "true", "t", "yes", "y", "on"}
+
+
 def _get_twilio_client():
     account_sid = _safe_text(os.environ.get("TWILIO_ACCOUNT_SID"))
     auth_token = _safe_text(os.environ.get("TWILIO_AUTH_TOKEN"))
@@ -108,11 +118,14 @@ def _validate_twilio_request(req):
 
     validator = RequestValidator(auth_token)
 
-    return validator.validate(
-        req.url,
-        req.form,
-        signature,
-    )
+    try:
+        return validator.validate(
+            req.url,
+            req.form,
+            signature,
+        )
+    except Exception:
+        return False
 
 
 def ensure_messaging_tables():
@@ -158,11 +171,11 @@ def ensure_messaging_tables():
         """)
 
         cur.execute("""
-            SELECT column_name
+            SELECT column_name, data_type
             FROM information_schema.columns
             WHERE table_name = 'messaging_settings'
         """)
-        existing_cols = [row["column_name"] for row in cur.fetchall()]
+        settings_columns = {row["column_name"]: row["data_type"] for row in cur.fetchall()}
 
         required_columns = {
             "messaging_enabled": "BOOLEAN NOT NULL DEFAULT FALSE",
@@ -178,8 +191,100 @@ def ensure_messaging_tables():
         }
 
         for col_name, col_def in required_columns.items():
-            if col_name not in existing_cols:
+            if col_name not in settings_columns:
                 cur.execute(f"ALTER TABLE messaging_settings ADD COLUMN {col_name} {col_def}")
+
+        # Convert old integer-based columns to boolean safely for PostgreSQL.
+        bool_columns = [
+            "messaging_enabled",
+            "send_job_updates",
+            "send_invoice_reminders",
+            "send_manual_messages",
+        ]
+
+        cur.execute("""
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_name = 'messaging_settings'
+              AND column_name IN (
+                  'messaging_enabled',
+                  'send_job_updates',
+                  'send_invoice_reminders',
+                  'send_manual_messages'
+              )
+        """)
+        current_bool_types = {row["column_name"]: row["data_type"] for row in cur.fetchall()}
+
+        for col_name in bool_columns:
+            current_type = current_bool_types.get(col_name)
+            if current_type and current_type != "boolean":
+                cur.execute(f"""
+                    ALTER TABLE messaging_settings
+                    ALTER COLUMN {col_name}
+                    TYPE BOOLEAN
+                    USING CASE
+                        WHEN {col_name} IS NULL THEN FALSE
+                        WHEN {col_name} IN (1, '1', 'true', 'TRUE', 't', 'T', 'yes', 'on') THEN TRUE
+                        ELSE FALSE
+                    END
+                """)
+
+                if col_name == "messaging_enabled":
+                    cur.execute("""
+                        ALTER TABLE messaging_settings
+                        ALTER COLUMN messaging_enabled SET DEFAULT FALSE
+                    """)
+                    cur.execute("""
+                        UPDATE messaging_settings
+                        SET messaging_enabled = FALSE
+                        WHERE messaging_enabled IS NULL
+                    """)
+                    cur.execute("""
+                        ALTER TABLE messaging_settings
+                        ALTER COLUMN messaging_enabled SET NOT NULL
+                    """)
+                elif col_name == "send_job_updates":
+                    cur.execute("""
+                        ALTER TABLE messaging_settings
+                        ALTER COLUMN send_job_updates SET DEFAULT TRUE
+                    """)
+                    cur.execute("""
+                        UPDATE messaging_settings
+                        SET send_job_updates = TRUE
+                        WHERE send_job_updates IS NULL
+                    """)
+                    cur.execute("""
+                        ALTER TABLE messaging_settings
+                        ALTER COLUMN send_job_updates SET NOT NULL
+                    """)
+                elif col_name == "send_invoice_reminders":
+                    cur.execute("""
+                        ALTER TABLE messaging_settings
+                        ALTER COLUMN send_invoice_reminders SET DEFAULT FALSE
+                    """)
+                    cur.execute("""
+                        UPDATE messaging_settings
+                        SET send_invoice_reminders = FALSE
+                        WHERE send_invoice_reminders IS NULL
+                    """)
+                    cur.execute("""
+                        ALTER TABLE messaging_settings
+                        ALTER COLUMN send_invoice_reminders SET NOT NULL
+                    """)
+                elif col_name == "send_manual_messages":
+                    cur.execute("""
+                        ALTER TABLE messaging_settings
+                        ALTER COLUMN send_manual_messages SET DEFAULT TRUE
+                    """)
+                    cur.execute("""
+                        UPDATE messaging_settings
+                        SET send_manual_messages = TRUE
+                        WHERE send_manual_messages IS NULL
+                    """)
+                    cur.execute("""
+                        ALTER TABLE messaging_settings
+                        ALTER COLUMN send_manual_messages SET NOT NULL
+                    """)
 
         cur.execute("""
             SELECT column_name
@@ -215,7 +320,13 @@ def get_messaging_settings(company_id):
             FROM messaging_settings
             WHERE company_id = %s
         """, (company_id,))
-        return cur.fetchone()
+        row = cur.fetchone()
+        if row:
+            row["messaging_enabled"] = _to_bool(row.get("messaging_enabled"))
+            row["send_job_updates"] = _to_bool(row.get("send_job_updates"))
+            row["send_invoice_reminders"] = _to_bool(row.get("send_invoice_reminders"))
+            row["send_manual_messages"] = _to_bool(row.get("send_manual_messages"))
+        return row
     finally:
         conn.close()
 
@@ -413,7 +524,7 @@ def send_text_message(to_number, message_body, settings_row=None):
     if not message_body:
         return False, None, "Message body is empty."
 
-    if settings_row and not settings_row["messaging_enabled"]:
+    if settings_row and not _to_bool(settings_row.get("messaging_enabled")):
         return False, None, "Messaging is disabled for this company."
 
     from_number = _get_from_number()
@@ -651,6 +762,7 @@ def messages_page():
                                 {% endif %}
                                 {% if not row['job_title'] and not row['invoice_number'] %}
                                     —
+
                                 {% endif %}
                             </td>
                         </tr>
