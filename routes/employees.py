@@ -68,6 +68,38 @@ def _normalize_ssn(value):
     return str(value or "").strip()
 
 
+def _employee_is_active_is_boolean():
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT data_type
+            FROM information_schema.columns
+            WHERE table_name = 'employees'
+              AND column_name = 'is_active'
+            """
+        ).fetchone()
+
+        if not row:
+            return False
+
+        return str(row["data_type"]).lower() == "boolean"
+    finally:
+        conn.close()
+
+
+def _active_where_sql(column_name="is_active"):
+    if _employee_is_active_is_boolean():
+        return f"COALESCE({column_name}, TRUE) = TRUE"
+    return f"COALESCE({column_name}, 1) = 1"
+
+
+def _active_update_value(is_active: bool):
+    if _employee_is_active_is_boolean():
+        return True if is_active else False
+    return 1 if is_active else 0
+
+
 def ensure_employee_profile_columns():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -553,6 +585,7 @@ def employees():
 
     phone_col = "phone" if "phone" in cols else None
     email_col = "email" if "email" in cols else None
+    active_sql = _active_where_sql("is_active")
 
     if show == "all":
         rows = conn.execute(
@@ -560,7 +593,7 @@ def employees():
             SELECT *
             FROM employees
             WHERE company_id = %s
-            ORDER BY is_active DESC, {name_col} ASC, id DESC
+            ORDER BY {name_col} ASC, id DESC
             """,
             (cid,),
         ).fetchall()
@@ -569,7 +602,8 @@ def employees():
             f"""
             SELECT *
             FROM employees
-            WHERE company_id = %s AND COALESCE(is_active, 1) = 1
+            WHERE company_id = %s
+              AND {active_sql}
             ORDER BY {name_col} ASC, id DESC
             """,
             (cid,),
@@ -756,7 +790,7 @@ def new_employee():
 
         full_name = " ".join(part for part in [first_name, middle_name, last_name, suffix] if part).strip()
 
-        is_active = True
+        is_active = _active_update_value(True)
         w4_step2_checked = bool(request.form.get("w4_step2_checked"))
         is_indiana_resident = bool(request.form.get("is_indiana_resident"))
 
@@ -1325,10 +1359,10 @@ def activate_employee(employee_id):
     conn.execute(
         """
         UPDATE employees
-        SET is_active = TRUE
+        SET is_active = %s
         WHERE id = %s AND company_id = %s
         """,
-        (employee_id, cid),
+        (_active_update_value(True), employee_id, cid),
     )
     conn.commit()
     conn.close()
@@ -1351,10 +1385,10 @@ def deactivate_employee(employee_id):
     conn.execute(
         """
         UPDATE employees
-        SET is_active = FALSE
+        SET is_active = %s
         WHERE id = %s AND company_id = %s
         """,
-        (employee_id, cid),
+        (_active_update_value(False), employee_id, cid),
     )
     conn.commit()
     conn.close()
@@ -1441,6 +1475,7 @@ def delete_employee(employee_id):
 
 @employees_bp.route("/employees/time-clock", methods=["GET"])
 @login_required
+@subscription_required
 @require_permission("can_manage_employees")
 def time_clock():
     ensure_employee_profile_columns()
@@ -1455,8 +1490,11 @@ def time_clock():
     pay_period_start, pay_period_end = _get_current_pay_period(pay_period_start_day)
     pay_period_end_day = (pay_period_start_day - 1) % 7
 
+    active_sql = _active_where_sql("is_active")
+    status_active_sql = _active_where_sql("e.is_active")
+
     employees = conn.execute(
-        """
+        f"""
         SELECT
             id,
             first_name,
@@ -1466,7 +1504,7 @@ def time_clock():
             is_active
         FROM employees
         WHERE company_id = %s
-          AND COALESCE(is_active, 1) = 1
+          AND {active_sql}
         ORDER BY
             COALESCE(NULLIF(last_name, ''), NULLIF(full_name, ''), NULLIF(first_name, ''), 'ZZZ'),
             COALESCE(NULLIF(first_name, ''), ''),
@@ -1476,7 +1514,7 @@ def time_clock():
     ).fetchall()
 
     status_rows = conn.execute(
-        """
+        f"""
         SELECT
             e.id AS employee_id,
             e.first_name,
@@ -1492,7 +1530,7 @@ def time_clock():
            AND t.company_id = e.company_id
            AND t.clock_out IS NULL
         WHERE e.company_id = %s
-          AND COALESCE(e.is_active, 1) = 1
+          AND {status_active_sql}
         ORDER BY
             COALESCE(NULLIF(e.last_name, ''), NULLIF(e.full_name, ''), NULLIF(e.first_name, ''), 'ZZZ'),
             COALESCE(NULLIF(e.first_name, ''), ''),
@@ -1869,13 +1907,15 @@ def time_clock_clock_in():
         flash("Please select an employee.")
         return redirect(url_for("employees.time_clock"))
 
+    active_sql = _active_where_sql("is_active")
+
     employee = conn.execute(
-        """
+        f"""
         SELECT id, first_name, last_name, full_name
         FROM employees
         WHERE id = %s
-        AND company_id = %s
-        AND COALESCE(is_active, 1) = 1
+          AND company_id = %s
+          AND {active_sql}
         """,
         (employee_id, cid),
     ).fetchone()

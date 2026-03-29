@@ -108,39 +108,39 @@ def register():
         return redirect(url_for("dashboard.dashboard"))
 
     content = render_template_string("""
-    <div class="card">
-        <h1>Create Account</h1>
-        <form method="post">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <h1>Create Account</h1>
+    <p class="muted">Create your TerraLedger workspace and owner account.</p>
 
-            <div class="grid">
-                <div>
-                    <label>Company Name</label>
-                    <input name="company_name" required>
-                </div>
+    <form method="post" style="margin-top:18px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-                <div>
-                    <label>Your Name</label>
-                    <input name="user_name" required>
-                </div>
-
-                <div>
-                    <label>Email</label>
-                    <input type="email" name="email" required>
-                </div>
-
-                <div>
-                    <label>Password</label>
-                    <input type="password" name="password" required>
-                </div>
+        <div class="grid">
+            <div>
+                <label>Company Name</label>
+                <input name="company_name" required>
             </div>
 
-            <div class="row-actions" style="margin-top:16px;">
-                <button class="btn" type="submit">Create Account</button>
-                <a class="btn secondary" href="{{ url_for('auth.login') }}">Back to Login</a>
+            <div>
+                <label>Your Name</label>
+                <input name="user_name" required>
             </div>
-        </form>
-    </div>
+
+            <div>
+                <label>Email</label>
+                <input type="email" name="email" required>
+            </div>
+
+            <div>
+                <label>Password</label>
+                <input type="password" name="password" required>
+            </div>
+        </div>
+
+        <div class="row-actions" style="margin-top:18px;">
+            <button class="btn" type="submit">Create Account</button>
+            <a class="btn secondary" href="{{ url_for('auth.login') }}">Back to Login</a>
+        </div>
+    </form>
     """)
     return render_public_page(content, "Register")
 
@@ -193,33 +193,33 @@ def login():
         return redirect(url_for("dashboard.dashboard"))
 
     content = render_template_string("""
-    <div class="card">
-        <h1>Login</h1>
-        <form method="post">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <h1>Login</h1>
+    <p class="muted">Sign in to access your TerraLedger workspace.</p>
 
-            <div class="grid">
-                <div>
-                    <label>Email</label>
-                    <input type="email" name="email" required>
-                </div>
+    <form method="post" style="margin-top:18px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-                <div>
-                    <label>Password</label>
-                    <input type="password" name="password" required>
-                </div>
+        <div class="grid">
+            <div>
+                <label>Email</label>
+                <input type="email" name="email" required>
             </div>
 
-            <div class="row-actions" style="margin-top:16px;">
-                <button class="btn" type="submit">Login</button>
-                <a class="btn secondary" href="{{ url_for('auth.forgot_password') }}">Forgot Password</a>
+            <div>
+                <label>Password</label>
+                <input type="password" name="password" required>
             </div>
+        </div>
 
-            <div style="margin-top:12px;">
-                <a href="{{ url_for('auth.register') }}">Create an account</a>
-            </div>
-        </form>
-    </div>
+        <div class="row-actions" style="margin-top:18px;">
+            <button class="btn" type="submit">Login</button>
+            <a class="btn secondary" href="{{ url_for('auth.register') }}">Create Account</a>
+        </div>
+
+        <div style="margin-top:14px;">
+            <a href="{{ url_for('auth.forgot_password') }}">Forgot Password?</a>
+        </div>
+    </form>
     """)
     return render_public_page(content, "Login")
 
@@ -274,24 +274,24 @@ def forgot_password():
         conn.close()
 
     content = render_template_string("""
-    <div class="card">
-        <h1>Forgot Password</h1>
-        <form method="post">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <h1>Forgot Password</h1>
+    <p class="muted">Enter your email and we’ll send you a password reset link.</p>
 
-            <div class="grid">
-                <div>
-                    <label>Email</label>
-                    <input type="email" name="email" required>
-                </div>
-            </div>
+    <form method="post" style="margin-top:18px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-            <div class="row-actions" style="margin-top:16px;">
-                <button class="btn" type="submit">Send Reset Link</button>
-                <a class="btn secondary" href="{{ url_for('auth.login') }}">Back to Login</a>
+        <div class="grid">
+            <div>
+                <label>Email</label>
+                <input type="email" name="email" required>
             </div>
-        </form>
-    </div>
+        </div>
+
+        <div class="row-actions" style="margin-top:18px;">
+            <button class="btn" type="submit">Send Reset Link</button>
+            <a class="btn secondary" href="{{ url_for('auth.login') }}">Back to Login</a>
+        </div>
+    </form>
     """)
     return render_public_page(content, "Forgot Password")
 
@@ -346,24 +346,24 @@ def reset_password(token):
         conn.close()
 
     content = render_template_string("""
-    <div class="card">
-        <h1>Reset Password</h1>
-        <form method="post">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <h1>Reset Password</h1>
+    <p class="muted">Choose a new password for your TerraLedger account.</p>
 
-            <div class="grid">
-                <div>
-                    <label>New Password</label>
-                    <input type="password" name="password" required>
-                </div>
-            </div>
+    <form method="post" style="margin-top:18px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-            <div class="row-actions" style="margin-top:16px;">
-                <button class="btn" type="submit">Reset Password</button>
-                <a class="btn secondary" href="{{ url_for('auth.login') }}">Back to Login</a>
+        <div class="grid">
+            <div>
+                <label>New Password</label>
+                <input type="password" name="password" required>
             </div>
-        </form>
-    </div>
+        </div>
+
+        <div class="row-actions" style="margin-top:18px;">
+            <button class="btn" type="submit">Reset Password</button>
+            <a class="btn secondary" href="{{ url_for('auth.login') }}">Back to Login</a>
+        </div>
+    </form>
     """)
     return render_public_page(content, "Reset Password")
 
