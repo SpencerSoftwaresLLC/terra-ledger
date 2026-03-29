@@ -1,4 +1,4 @@
-from flask import Blueprint, request, redirect, url_for, session, flash
+from flask import Blueprint, request, redirect, url_for, session, flash, render_template_string
 from werkzeug.security import generate_password_hash, check_password_hash
 import secrets
 from datetime import datetime, timedelta
@@ -9,7 +9,6 @@ from utils.emailing import send_company_email
 
 auth_bp = Blueprint("auth", __name__)
 
-# 🔒 SIMPLE LOGIN ATTEMPT TRACKER (per session)
 MAX_LOGIN_ATTEMPTS = 5
 
 
@@ -34,9 +33,6 @@ def _too_many_attempts():
     return session.get("login_attempts", 0) >= MAX_LOGIN_ATTEMPTS
 
 
-# =========================
-# HOME
-# =========================
 @auth_bp.route("/")
 def home():
     if session.get("user_id"):
@@ -44,9 +40,6 @@ def home():
     return redirect(url_for("auth.login"))
 
 
-# =========================
-# REGISTER
-# =========================
 @auth_bp.route("/register", methods=["GET", "POST"])
 def register():
     if session.get("user_id"):
@@ -100,9 +93,7 @@ def register():
             password_hash=generate_password_hash(password),
         )
 
-        # 🔒 SESSION FIXATION PROTECTION
         session.clear()
-
         session["user_id"] = user_id
         session["user_name"] = user_name
         session["user_email"] = email
@@ -114,7 +105,7 @@ def register():
         flash("Account created.")
         return redirect(url_for("dashboard.dashboard"))
 
-    content = """
+    content = render_template_string("""
     <div class="card">
         <h1>Create Account</h1>
         <form method="post">
@@ -148,13 +139,10 @@ def register():
             </div>
         </form>
     </div>
-    """
+    """)
     return render_public_page(content, "Register")
 
 
-# =========================
-# LOGIN
-# =========================
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     if session.get("user_id"):
@@ -191,9 +179,7 @@ def login():
             flash("This user account is inactive.")
             return redirect(url_for("auth.login"))
 
-        # 🔒 SESSION FIXATION PROTECTION
         session.clear()
-
         session["user_id"] = user["id"]
         session["user_name"] = user["name"]
         session["user_email"] = email
@@ -204,7 +190,7 @@ def login():
 
         return redirect(url_for("dashboard.dashboard"))
 
-    content = """
+    content = render_template_string("""
     <div class="card">
         <h1>Login</h1>
         <form method="post">
@@ -232,13 +218,10 @@ def login():
             </div>
         </form>
     </div>
-    """
+    """)
     return render_public_page(content, "Login")
 
 
-# =========================
-# FORGOT PASSWORD
-# =========================
 @auth_bp.route("/forgot-password", methods=["GET", "POST"])
 def forgot_password():
     ensure_password_reset_table()
@@ -259,7 +242,6 @@ def forgot_password():
             ).fetchone()
 
             if user:
-                # 🔒 DELETE OLD TOKENS FIRST
                 conn.execute(
                     "DELETE FROM password_resets WHERE email = %s",
                     (email,),
@@ -289,7 +271,7 @@ def forgot_password():
     finally:
         conn.close()
 
-    content = """
+    content = render_template_string("""
     <div class="card">
         <h1>Forgot Password</h1>
         <form method="post">
@@ -308,13 +290,10 @@ def forgot_password():
             </div>
         </form>
     </div>
-    """
+    """)
     return render_public_page(content, "Forgot Password")
 
 
-# =========================
-# RESET PASSWORD
-# =========================
 @auth_bp.route("/reset-password/<token>", methods=["GET", "POST"])
 def reset_password(token):
     ensure_password_reset_table()
@@ -352,7 +331,6 @@ def reset_password(token):
                 (generate_password_hash(password), row["email"]),
             )
 
-            # 🔒 DELETE ALL TOKENS FOR THIS USER
             conn.execute(
                 "DELETE FROM password_resets WHERE email = %s",
                 (row["email"],),
@@ -365,7 +343,7 @@ def reset_password(token):
     finally:
         conn.close()
 
-    content = """
+    content = render_template_string("""
     <div class="card">
         <h1>Reset Password</h1>
         <form method="post">
@@ -384,13 +362,10 @@ def reset_password(token):
             </div>
         </form>
     </div>
-    """
+    """)
     return render_public_page(content, "Reset Password")
 
 
-# =========================
-# LOGOUT
-# =========================
 @auth_bp.route("/logout")
 def logout():
     session.clear()
