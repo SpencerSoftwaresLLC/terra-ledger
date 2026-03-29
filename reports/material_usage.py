@@ -170,10 +170,6 @@ def display_unit(unit_key):
 def canonicalize_description(description, item_type):
     """
     Merge obvious aliases while keeping truly different products separate.
-    Example:
-    - blk mulch -> Black Mulch
-    - black mulch -> Black Mulch
-    - enhanced black mulch -> Enhanced Black Mulch
     """
     text = normalize_spaces(description).lower()
     item_type = clean_text_input(item_type).lower()
@@ -183,7 +179,7 @@ def canonicalize_description(description, item_type):
 
     text = text.replace('"', " in ")
     text = text.replace("'", "")
-    text = re.sub(r"[_\-\/]+", " ", text)
+    text = re.sub(r"[_\\-/]+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
 
     replacements = {
@@ -286,6 +282,7 @@ def fetch_job_items_for_range(company_id, start_date, end_date):
             JOIN jobs j ON j.id = ji.job_id
             WHERE j.company_id = %s
               AND COALESCE(TRIM(j.scheduled_date), '') <> ''
+              AND j.scheduled_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
               AND j.scheduled_date::date >= %s
               AND j.scheduled_date::date <= %s
               AND COALESCE(TRIM(ji.description), '') <> ''
@@ -541,46 +538,46 @@ def annual_reports():
     <div class="grid">
         <div class="card">
             <div class="muted small">Current Gross Income</div>
-            <div style="font-size:28px; font-weight:700;">{{ format_money(current_summary.grand.gross_income) }}</div>
+            <div style="font-size:28px; font-weight:700;">{{ format_money(current_summary["grand"]["gross_income"]) }}</div>
             <div class="muted small" style="margin-top:8px;">
-                Prev: {{ format_money(previous_summary.grand.gross_income) }}
+                Prev: {{ format_money(previous_summary["grand"]["gross_income"]) }}
                 |
-                {{ format_percent_change(current_summary.grand.gross_income, previous_summary.grand.gross_income) }}
+                {{ format_percent_change(current_summary["grand"]["gross_income"], previous_summary["grand"]["gross_income"]) }}
             </div>
         </div>
         <div class="card">
             <div class="muted small">Current Expense</div>
-            <div style="font-size:28px; font-weight:700;">{{ format_money(current_summary.grand.expense) }}</div>
+            <div style="font-size:28px; font-weight:700;">{{ format_money(current_summary["grand"]["expense"]) }}</div>
             <div class="muted small" style="margin-top:8px;">
-                Prev: {{ format_money(previous_summary.grand.expense) }}
+                Prev: {{ format_money(previous_summary["grand"]["expense"]) }}
                 |
-                {{ format_percent_change(current_summary.grand.expense, previous_summary.grand.expense) }}
+                {{ format_percent_change(current_summary["grand"]["expense"], previous_summary["grand"]["expense"]) }}
             </div>
         </div>
         <div class="card">
             <div class="muted small">Current Gross Profit</div>
-            <div style="font-size:28px; font-weight:700;">{{ format_money(current_summary.grand.gross_profit) }}</div>
+            <div style="font-size:28px; font-weight:700;">{{ format_money(current_summary["grand"]["gross_profit"]) }}</div>
             <div class="muted small" style="margin-top:8px;">
-                Prev: {{ format_money(previous_summary.grand.gross_profit) }}
+                Prev: {{ format_money(previous_summary["grand"]["gross_profit"]) }}
                 |
-                {{ format_percent_change(current_summary.grand.gross_profit, previous_summary.grand.gross_profit) }}
+                {{ format_percent_change(current_summary["grand"]["gross_profit"], previous_summary["grand"]["gross_profit"]) }}
             </div>
         </div>
         <div class="card">
             <div class="muted small">Current Net Profit</div>
-            <div style="font-size:28px; font-weight:700;">{{ format_money(current_summary.grand.net_profit) }}</div>
+            <div style="font-size:28px; font-weight:700;">{{ format_money(current_summary["grand"]["net_profit"]) }}</div>
             <div class="muted small" style="margin-top:8px;">
-                Prev: {{ format_money(previous_summary.grand.net_profit) }}
+                Prev: {{ format_money(previous_summary["grand"]["net_profit"]) }}
                 |
-                {{ format_percent_change(current_summary.grand.net_profit, previous_summary.grand.net_profit) }}
+                {{ format_percent_change(current_summary["grand"]["net_profit"], previous_summary["grand"]["net_profit"]) }}
             </div>
         </div>
     </div>
 
-    {% if current_summary.categories %}
-        {% for category in current_summary.categories %}
+    {% if current_summary["categories"] %}
+        {% for category in current_summary["categories"] %}
             <div class="card">
-                <h2 style="margin-top:0;">{{ category.category_label }}</h2>
+                <h2 style="margin-top:0;">{{ category["category_label"] }}</h2>
 
                 <div class="table-wrap">
                     <table>
@@ -602,38 +599,38 @@ def annual_reports():
                         </tr>
 
                         <tr style="background:#f7f7f5; font-weight:700;">
-                            <td>{{ category.category_label }} Total</td>
+                            <td>{{ category["category_label"] }} Total</td>
                             <td>-</td>
-                            <td class="text-right">{{ format_qty(category.quantity) }}</td>
-                            <td class="text-right">{{ format_qty(category.previous.quantity) }}</td>
-                            <td class="text-right">{{ format_percent_change(category.quantity, category.previous.quantity) }}</td>
-                            <td class="text-right">{{ format_money(category.expense) }}</td>
-                            <td class="text-right">{{ format_money(category.previous.expense) }}</td>
-                            <td class="text-right">{{ format_percent_change(category.expense, category.previous.expense) }}</td>
-                            <td class="text-right">{{ format_money(category.gross_income) }}</td>
-                            <td class="text-right">{{ format_money(category.previous.gross_income) }}</td>
-                            <td class="text-right">{{ format_percent_change(category.gross_income, category.previous.gross_income) }}</td>
-                            <td class="text-right">{{ format_money(category.net_profit) }}</td>
-                            <td class="text-right">{{ format_money(category.previous.net_profit) }}</td>
-                            <td class="text-right">{{ format_percent_change(category.net_profit, category.previous.net_profit) }}</td>
+                            <td class="text-right">{{ format_qty(category["quantity"]) }}</td>
+                            <td class="text-right">{{ format_qty(category["previous"]["quantity"]) }}</td>
+                            <td class="text-right">{{ format_percent_change(category["quantity"], category["previous"]["quantity"]) }}</td>
+                            <td class="text-right">{{ format_money(category["expense"]) }}</td>
+                            <td class="text-right">{{ format_money(category["previous"]["expense"]) }}</td>
+                            <td class="text-right">{{ format_percent_change(category["expense"], category["previous"]["expense"]) }}</td>
+                            <td class="text-right">{{ format_money(category["gross_income"]) }}</td>
+                            <td class="text-right">{{ format_money(category["previous"]["gross_income"]) }}</td>
+                            <td class="text-right">{{ format_percent_change(category["gross_income"], category["previous"]["gross_income"]) }}</td>
+                            <td class="text-right">{{ format_money(category["net_profit"]) }}</td>
+                            <td class="text-right">{{ format_money(category["previous"]["net_profit"]) }}</td>
+                            <td class="text-right">{{ format_percent_change(category["net_profit"], category["previous"]["net_profit"]) }}</td>
                         </tr>
 
-                        {% for item in category.items %}
+                        {% for item in category["items"] %}
                             <tr>
-                                <td style="padding-left:24px;">{{ item.description }}</td>
-                                <td>{{ item.unit or "-" }}</td>
-                                <td class="text-right">{{ format_qty(item.quantity) }}</td>
-                                <td class="text-right">{{ format_qty(item.previous.quantity) }}</td>
-                                <td class="text-right">{{ format_percent_change(item.quantity, item.previous.quantity) }}</td>
-                                <td class="text-right">{{ format_money(item.expense) }}</td>
-                                <td class="text-right">{{ format_money(item.previous.expense) }}</td>
-                                <td class="text-right">{{ format_percent_change(item.expense, item.previous.expense) }}</td>
-                                <td class="text-right">{{ format_money(item.gross_income) }}</td>
-                                <td class="text-right">{{ format_money(item.previous.gross_income) }}</td>
-                                <td class="text-right">{{ format_percent_change(item.gross_income, item.previous.gross_income) }}</td>
-                                <td class="text-right">{{ format_money(item.net_profit) }}</td>
-                                <td class="text-right">{{ format_money(item.previous.net_profit) }}</td>
-                                <td class="text-right">{{ format_percent_change(item.net_profit, item.previous.net_profit) }}</td>
+                                <td style="padding-left:24px;">{{ item["description"] }}</td>
+                                <td>{{ item["unit"] or "-" }}</td>
+                                <td class="text-right">{{ format_qty(item["quantity"]) }}</td>
+                                <td class="text-right">{{ format_qty(item["previous"]["quantity"]) }}</td>
+                                <td class="text-right">{{ format_percent_change(item["quantity"], item["previous"]["quantity"]) }}</td>
+                                <td class="text-right">{{ format_money(item["expense"]) }}</td>
+                                <td class="text-right">{{ format_money(item["previous"]["expense"]) }}</td>
+                                <td class="text-right">{{ format_percent_change(item["expense"], item["previous"]["expense"]) }}</td>
+                                <td class="text-right">{{ format_money(item["gross_income"]) }}</td>
+                                <td class="text-right">{{ format_money(item["previous"]["gross_income"]) }}</td>
+                                <td class="text-right">{{ format_percent_change(item["gross_income"], item["previous"]["gross_income"]) }}</td>
+                                <td class="text-right">{{ format_money(item["net_profit"]) }}</td>
+                                <td class="text-right">{{ format_money(item["previous"]["net_profit"]) }}</td>
+                                <td class="text-right">{{ format_percent_change(item["net_profit"], item["previous"]["net_profit"]) }}</td>
                             </tr>
                         {% endfor %}
                     </table>
@@ -653,33 +650,33 @@ def annual_reports():
                     </tr>
                     <tr>
                         <td>Total Quantity</td>
-                        <td class="text-right">{{ format_qty(current_summary.grand.quantity) }}</td>
-                        <td class="text-right">{{ format_qty(previous_summary.grand.quantity) }}</td>
-                        <td class="text-right">{{ format_percent_change(current_summary.grand.quantity, previous_summary.grand.quantity) }}</td>
+                        <td class="text-right">{{ format_qty(current_summary["grand"]["quantity"]) }}</td>
+                        <td class="text-right">{{ format_qty(previous_summary["grand"]["quantity"]) }}</td>
+                        <td class="text-right">{{ format_percent_change(current_summary["grand"]["quantity"], previous_summary["grand"]["quantity"]) }}</td>
                     </tr>
                     <tr>
                         <td>Total Expense</td>
-                        <td class="text-right">{{ format_money(current_summary.grand.expense) }}</td>
-                        <td class="text-right">{{ format_money(previous_summary.grand.expense) }}</td>
-                        <td class="text-right">{{ format_percent_change(current_summary.grand.expense, previous_summary.grand.expense) }}</td>
+                        <td class="text-right">{{ format_money(current_summary["grand"]["expense"]) }}</td>
+                        <td class="text-right">{{ format_money(previous_summary["grand"]["expense"]) }}</td>
+                        <td class="text-right">{{ format_percent_change(current_summary["grand"]["expense"], previous_summary["grand"]["expense"]) }}</td>
                     </tr>
                     <tr>
                         <td>Total Gross Income</td>
-                        <td class="text-right">{{ format_money(current_summary.grand.gross_income) }}</td>
-                        <td class="text-right">{{ format_money(previous_summary.grand.gross_income) }}</td>
-                        <td class="text-right">{{ format_percent_change(current_summary.grand.gross_income, previous_summary.grand.gross_income) }}</td>
+                        <td class="text-right">{{ format_money(current_summary["grand"]["gross_income"]) }}</td>
+                        <td class="text-right">{{ format_money(previous_summary["grand"]["gross_income"]) }}</td>
+                        <td class="text-right">{{ format_percent_change(current_summary["grand"]["gross_income"], previous_summary["grand"]["gross_income"]) }}</td>
                     </tr>
                     <tr>
                         <td>Total Gross Profit</td>
-                        <td class="text-right">{{ format_money(current_summary.grand.gross_profit) }}</td>
-                        <td class="text-right">{{ format_money(previous_summary.grand.gross_profit) }}</td>
-                        <td class="text-right">{{ format_percent_change(current_summary.grand.gross_profit, previous_summary.grand.gross_profit) }}</td>
+                        <td class="text-right">{{ format_money(current_summary["grand"]["gross_profit"]) }}</td>
+                        <td class="text-right">{{ format_money(previous_summary["grand"]["gross_profit"]) }}</td>
+                        <td class="text-right">{{ format_percent_change(current_summary["grand"]["gross_profit"], previous_summary["grand"]["gross_profit"]) }}</td>
                     </tr>
                     <tr>
                         <td>Total Net Profit</td>
-                        <td class="text-right">{{ format_money(current_summary.grand.net_profit) }}</td>
-                        <td class="text-right">{{ format_money(previous_summary.grand.net_profit) }}</td>
-                        <td class="text-right">{{ format_percent_change(current_summary.grand.net_profit, previous_summary.grand.net_profit) }}</td>
+                        <td class="text-right">{{ format_money(current_summary["grand"]["net_profit"]) }}</td>
+                        <td class="text-right">{{ format_money(previous_summary["grand"]["net_profit"]) }}</td>
+                        <td class="text-right">{{ format_percent_change(current_summary["grand"]["net_profit"], previous_summary["grand"]["net_profit"]) }}</td>
                     </tr>
                 </table>
             </div>
