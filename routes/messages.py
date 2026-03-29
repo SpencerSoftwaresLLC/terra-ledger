@@ -1,11 +1,25 @@
 import os
 import re
 
-from flask import Blueprint, request, redirect, url_for, flash, session, render_template_string
+from flask import (
+    Blueprint,
+    request,
+    redirect,
+    url_for,
+    flash,
+    session,
+    render_template_string,
+    Response,
+)
+from twilio.rest import Client
+from twilio.base.exceptions import TwilioRestException
+from twilio.twiml.messaging_response import MessagingResponse
+from twilio.request_validator import RequestValidator
 
 from db import get_db_connection, table_columns
 from decorators import login_required, require_permission, subscription_required
 from page_helpers import render_page
+from extensions import csrf
 
 
 messages_bp = Blueprint("messages", __name__)
@@ -30,19 +44,75 @@ def _safe_int(value, default=None):
 
 
 def _normalize_phone(value):
+    """
+    Normalize to E.164 when possible.
+    Assumes US/Canada for 10-digit local numbers.
+    """
     text = _safe_text(value)
     if not text:
         return ""
 
-    allowed = re.sub(r"[^0-9+()\-.\s]", "", text).strip()
-    return allowed
+    digits = re.sub(r"\D", "", text)
+
+    if not digits:
+        return ""
+
+    if len(digits) == 10:
+        return f"+1{digits}"
+
+    if len(digits) == 11 and digits.startswith("1"):
+        return f"+{digits}"
+
+    if 10 <= len(digits) <= 15:
+        return f"+{digits}"
+
+    return ""
+
+
+def _digits_only(value):
+    return re.sub(r"\D", "", _safe_text(value))
 
 
 def _is_reasonable_phone(value):
     if not value:
         return False
-    digits = re.sub(r"\D", "", value)
+    digits = _digits_only(value)
     return 10 <= len(digits) <= 15
+
+
+def _get_twilio_client():
+    account_sid = _safe_text(os.environ.get("TWILIO_ACCOUNT_SID"))
+    auth_token = _safe_text(os.environ.get("TWILIO_AUTH_TOKEN"))
+
+    if not account_sid or not auth_token:
+        return None, "Twilio credentials are missing."
+
+    try:
+        return Client(account_sid, auth_token), None
+    except Exception as e:
+        return None, f"Twilio client error: {e}"
+
+
+def _get_from_number():
+    return _normalize_phone(os.environ.get("TWILIO_FROM_NUMBER"))
+
+
+def _validate_twilio_request(req):
+    auth_token = _safe_text(os.environ.get("TWILIO_AUTH_TOKEN"))
+    if not auth_token:
+        return False
+
+    signature = req.headers.get("X-Twilio-Signature", "")
+    if not signature:
+        return False
+
+    validator = RequestValidator(auth_token)
+
+    return validator.validate(
+        req.url,
+        req.form,
+        signature,
+    )
 
 
 def ensure_messaging_tables():
@@ -78,7 +148,7 @@ def ensure_messaging_tables():
                 direction TEXT NOT NULL DEFAULT 'outbound',
                 message_body TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'queued',
-                provider TEXT DEFAULT 'email',
+                provider TEXT DEFAULT 'twilio',
                 provider_message_id TEXT,
                 sent_by_user_id INTEGER,
                 error_message TEXT,
@@ -110,6 +180,26 @@ def ensure_messaging_tables():
         for col_name, col_def in required_columns.items():
             if col_name not in existing_cols:
                 cur.execute(f"ALTER TABLE messaging_settings ADD COLUMN {col_name} {col_def}")
+
+        cur.execute("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'message_log'
+        """)
+        message_cols = [row["column_name"] for row in cur.fetchall()]
+
+        message_required_columns = {
+            "direction": "TEXT NOT NULL DEFAULT 'outbound'",
+            "provider": "TEXT DEFAULT 'twilio'",
+            "provider_message_id": "TEXT",
+            "sent_by_user_id": "INTEGER",
+            "error_message": "TEXT",
+            "sent_at": "TIMESTAMP",
+        }
+
+        for col_name, col_def in message_required_columns.items():
+            if col_name not in message_cols:
+                cur.execute(f"ALTER TABLE message_log ADD COLUMN {col_name} {col_def}")
 
         conn.commit()
     finally:
@@ -187,10 +277,56 @@ def get_customers_for_messages(company_id):
         conn.close()
 
 
+def find_customer_by_phone(company_id, phone_number):
+    conn = get_db_connection()
+    try:
+        cols = table_columns(conn, "customers")
+        if not cols:
+            return None
+
+        phone_col = None
+        if "phone" in cols:
+            phone_col = "phone"
+        elif "phone_number" in cols:
+            phone_col = "phone_number"
+
+        if not phone_col:
+            return None
+
+        search_digits = _digits_only(phone_number)
+        if not search_digits:
+            return None
+
+        cur = conn.cursor()
+        cur.execute(f"""
+            SELECT id, name, {phone_col} AS phone
+            FROM customers
+            WHERE company_id = %s
+            ORDER BY id DESC
+        """, (company_id,))
+        rows = cur.fetchall()
+
+        for row in rows:
+            existing_digits = _digits_only(row["phone"])
+            if not existing_digits:
+                continue
+
+            if existing_digits == search_digits:
+                return row
+
+            if existing_digits.endswith(search_digits) or search_digits.endswith(existing_digits):
+                return row
+
+        return None
+    finally:
+        conn.close()
+
+
 def insert_message_log(
     company_id,
     phone_number,
     message_body,
+    direction="outbound",
     status="queued",
     customer_id=None,
     job_id=None,
@@ -219,19 +355,51 @@ def insert_message_log(
                 error_message,
                 sent_at
             )
-            VALUES (%s, %s, %s, %s, %s, 'outbound', %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+            VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                CASE WHEN %s IN ('sent', 'received', 'delivered') THEN CURRENT_TIMESTAMP ELSE NULL END
+            )
         """, (
             company_id,
             customer_id,
             job_id,
             invoice_id,
             phone_number,
+            direction,
             message_body,
             status,
             provider,
             provider_message_id,
             sent_by_user_id,
             error_message,
+            status,
+        ))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_message_status_by_provider_id(provider_message_id, status, error_message=None):
+    if not provider_message_id:
+        return
+
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE message_log
+            SET status = %s,
+                error_message = COALESCE(%s, error_message),
+                sent_at = CASE
+                    WHEN %s IN ('sent', 'delivered') THEN CURRENT_TIMESTAMP
+                    ELSE sent_at
+                END
+            WHERE provider_message_id = %s
+        """, (
+            status,
+            error_message,
+            status,
+            provider_message_id,
         ))
         conn.commit()
     finally:
@@ -239,7 +407,42 @@ def insert_message_log(
 
 
 def send_text_message(to_number, message_body, settings_row=None):
-    return False, None, "SMS sending is temporarily disabled."
+    if not to_number:
+        return False, None, "Recipient phone number is missing."
+
+    if not message_body:
+        return False, None, "Message body is empty."
+
+    if settings_row and not settings_row["messaging_enabled"]:
+        return False, None, "Messaging is disabled for this company."
+
+    from_number = _get_from_number()
+    if not from_number:
+        return False, None, "TWILIO_FROM_NUMBER is missing or invalid."
+
+    client, client_error = _get_twilio_client()
+    if client_error:
+        return False, None, client_error
+
+    status_callback_url = _safe_text(os.environ.get("TWILIO_STATUS_CALLBACK_URL"))
+
+    try:
+        create_kwargs = {
+            "body": message_body,
+            "from_": from_number,
+            "to": to_number,
+        }
+
+        if status_callback_url:
+            create_kwargs["status_callback"] = status_callback_url
+
+        msg = client.messages.create(**create_kwargs)
+        return True, msg.sid, None
+
+    except TwilioRestException as e:
+        return False, None, e.msg or str(e)
+    except Exception as e:
+        return False, None, str(e)
 
 
 @messages_bp.route("/messages")
@@ -257,14 +460,14 @@ def messages_page():
     settings = get_messaging_settings(company_id)
     history = get_message_history(company_id, limit=100)
     customers = get_customers_for_messages(company_id)
-    from_number = _safe_text(os.environ.get("TWILIO_FROM_NUMBER"))
+    from_number = _get_from_number()
 
     page_html = """
     <div class="card">
         <div class="section-head">
             <div>
                 <h1 style="margin-bottom:6px;">Messages</h1>
-                <div class="muted">Send manual customer texts and review message history.</div>
+                <div class="muted">Send manual customer texts, receive replies, and review message history.</div>
             </div>
             <div class="row-actions">
                 <a class="btn secondary" href="{{ url_for('messages.messaging_configuration') }}">
@@ -279,6 +482,7 @@ def messages_page():
             <h3>Send Message</h3>
             <form method="post" action="{{ url_for('messages.send_message') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
                 <div style="margin-bottom:14px;">
                     <label>Customer</label>
                     <select id="customerSelect" onchange="fillCustomerPhoneFromDropdown()">
@@ -397,7 +601,7 @@ def messages_page():
         <div class="section-head">
             <div>
                 <h3 style="margin-bottom:6px;">Message History</h3>
-                <div class="muted">Latest outbound messages for your company.</div>
+                <div class="muted">Latest inbound and outbound messages for your company.</div>
             </div>
         </div>
 
@@ -407,6 +611,7 @@ def messages_page():
                     <thead>
                         <tr>
                             <th>Date</th>
+                            <th>Direction</th>
                             <th>Customer</th>
                             <th>Phone</th>
                             <th>Message</th>
@@ -418,12 +623,19 @@ def messages_page():
                         {% for row in history %}
                         <tr>
                             <td>{{ row['created_at'] or '' }}</td>
+                            <td>
+                                {% if row['direction'] == 'inbound' %}
+                                    <span class="pill" style="background:#d7ebff;color:#15406b;">Inbound</span>
+                                {% else %}
+                                    <span class="pill" style="background:#ece8ff;color:#40307a;">Outbound</span>
+                                {% endif %}
+                            </td>
                             <td>{{ row['customer_name'] or '—' }}</td>
                             <td>{{ row['phone_number'] or '—' }}</td>
-                            <td>{{ row['message_body'] or '' }}</td>
+                            <td style="max-width:420px; white-space:normal;">{{ row['message_body'] or '' }}</td>
                             <td>
-                                {% if row['status'] == 'sent' %}
-                                    <span class="pill" style="background:#dff3d2;color:#254314;">Sent</span>
+                                {% if row['status'] in ['sent', 'received', 'delivered'] %}
+                                    <span class="pill" style="background:#dff3d2;color:#254314;">{{ row['status']|title }}</span>
                                 {% elif row['status'] == 'failed' %}
                                     <span class="pill" style="background:#f6d5d2;color:#7a1f17;">Failed</span>
                                 {% else %}
@@ -552,6 +764,7 @@ def send_message():
             customer_id=customer_id,
             phone_number=phone_number,
             message_body=message_body,
+            direction="outbound",
             status="sent",
             provider="twilio",
             provider_message_id=provider_message_id,
@@ -564,6 +777,7 @@ def send_message():
             customer_id=customer_id,
             phone_number=phone_number,
             message_body=message_body,
+            direction="outbound",
             status="failed",
             provider="twilio",
             sent_by_user_id=user_id,
@@ -572,6 +786,105 @@ def send_message():
         flash(f"Message failed: {error_message}")
 
     return redirect(url_for("messages.messages_page"))
+
+
+@messages_bp.route("/messages/webhook", methods=["POST"])
+@csrf.exempt
+def incoming_message_webhook():
+    ensure_messaging_tables()
+
+    if not _validate_twilio_request(request):
+        return Response("Forbidden", status=403)
+
+    from_number = _normalize_phone(request.form.get("From"))
+    to_number = _normalize_phone(request.form.get("To"))
+    body = _safe_text(request.form.get("Body"))
+    provider_message_id = _safe_text(request.form.get("MessageSid"))
+
+    if not from_number or not body:
+        resp = MessagingResponse()
+        return Response(str(resp), mimetype="application/xml")
+
+    platform_number = _get_from_number()
+    if not platform_number or to_number != platform_number:
+        resp = MessagingResponse()
+        return Response(str(resp), mimetype="application/xml")
+
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT company_id
+            FROM messaging_settings
+            WHERE messaging_enabled = TRUE
+            ORDER BY company_id ASC
+        """)
+        enabled_rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    matched_company_id = None
+    matched_customer = None
+
+    for row in enabled_rows:
+        company_id = row["company_id"]
+        customer = find_customer_by_phone(company_id, from_number)
+        if customer:
+            matched_company_id = company_id
+            matched_customer = customer
+            break
+
+    if matched_company_id:
+        insert_message_log(
+            company_id=matched_company_id,
+            customer_id=matched_customer["id"] if matched_customer else None,
+            phone_number=from_number,
+            message_body=body,
+            direction="inbound",
+            status="received",
+            provider="twilio",
+            provider_message_id=provider_message_id,
+        )
+
+    resp = MessagingResponse()
+    return Response(str(resp), mimetype="application/xml")
+
+
+@messages_bp.route("/messages/status-callback", methods=["POST"])
+@csrf.exempt
+def message_status_callback():
+    if not _validate_twilio_request(request):
+        return Response("Forbidden", status=403)
+
+    provider_message_id = _safe_text(request.form.get("MessageSid"))
+    message_status = _safe_text(request.form.get("MessageStatus")).lower()
+    error_code = _safe_text(request.form.get("ErrorCode"))
+    error_message = _safe_text(request.form.get("ErrorMessage"))
+
+    normalized_status = "queued"
+    if message_status in {"sent", "accepted", "queued", "sending"}:
+        normalized_status = "sent"
+    elif message_status in {"delivered"}:
+        normalized_status = "delivered"
+    elif message_status in {"failed", "undelivered"}:
+        normalized_status = "failed"
+
+    final_error = ""
+    if normalized_status == "failed":
+        if error_message:
+            final_error = error_message
+        elif error_code:
+            final_error = f"Twilio error code: {error_code}"
+        else:
+            final_error = "Message delivery failed."
+
+    update_message_status_by_provider_id(
+        provider_message_id=provider_message_id,
+        status=normalized_status,
+        error_message=final_error or None,
+    )
+
+    return Response("OK", status=200)
 
 
 @messages_bp.route("/messaging/configuration", methods=["GET", "POST"])
@@ -660,7 +973,7 @@ def messaging_configuration():
         conn.close()
 
     settings = get_messaging_settings(company_id)
-    from_number = _safe_text(os.environ.get("TWILIO_FROM_NUMBER"))
+    from_number = _get_from_number()
 
     page_html = """
     <div class="card">
@@ -678,6 +991,7 @@ def messaging_configuration():
     <div class="card">
         <form method="post">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
             <div class="card" style="margin-top:0; margin-bottom:18px;">
                 <h3>Platform Messaging</h3>
 
@@ -686,9 +1000,14 @@ def messaging_configuration():
                     <span class="muted">TerraLedger Messaging (Twilio)</span>
                 </div>
 
-                <div style="margin-bottom:0;">
+                <div style="margin-bottom:10px;">
                     <strong>Sending Number:</strong>
                     <span class="muted">{{ from_number if from_number else 'Platform number not configured yet' }}</span>
+                </div>
+
+                <div style="margin-bottom:0;">
+                    <strong>Inbound Webhook:</strong>
+                    <span class="muted">/messages/webhook</span>
                 </div>
 
                 <div class="muted small" style="margin-top:12px;">
