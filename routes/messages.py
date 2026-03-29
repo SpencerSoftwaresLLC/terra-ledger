@@ -1,5 +1,6 @@
 import os
 import re
+from datetime import datetime, date, time, timedelta
 
 from flask import (
     Blueprint,
@@ -39,6 +40,15 @@ def _safe_int(value, default=None):
         if value is None or str(value).strip() == "":
             return default
         return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value, default=0.0):
+    try:
+        if value is None or str(value).strip() == "":
+            return default
+        return float(value)
     except (TypeError, ValueError):
         return default
 
@@ -90,6 +100,62 @@ def _to_bool(value):
     return text in {"1", "true", "t", "yes", "y", "on"}
 
 
+def _utcnow():
+    return datetime.utcnow()
+
+
+def _coerce_datetime(value):
+    if value is None:
+        return None
+
+    if isinstance(value, datetime):
+        return value
+
+    if isinstance(value, date):
+        return datetime.combine(value, time.min)
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    formats = [
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+        "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%Y %H:%M",
+        "%m/%d/%Y",
+    ]
+
+    for fmt in formats:
+        try:
+            parsed = datetime.strptime(text, fmt)
+            if fmt in ("%Y-%m-%d", "%m/%d/%Y"):
+                return datetime.combine(parsed.date(), time.min)
+            return parsed
+        except ValueError:
+            continue
+
+    try:
+        return datetime.fromisoformat(text)
+    except Exception:
+        return None
+
+
+def _format_datetime_for_message(value):
+    dt = _coerce_datetime(value)
+    if not dt:
+        return ""
+    return dt.strftime("%m/%d/%Y at %I:%M %p")
+
+
+def _format_currency(value):
+    try:
+        return f"${float(value):,.2f}"
+    except Exception:
+        return "$0.00"
+
+
 def _get_twilio_client():
     account_sid = _safe_text(os.environ.get("TWILIO_ACCOUNT_SID"))
     auth_token = _safe_text(os.environ.get("TWILIO_AUTH_TOKEN"))
@@ -128,6 +194,31 @@ def _validate_twilio_request(req):
         return False
 
 
+def _validate_automation_request(req):
+    token = _safe_text(os.environ.get("MESSAGING_AUTOMATION_TOKEN"))
+    if not token:
+        return False
+
+    provided = (
+        _safe_text(req.headers.get("X-Automation-Token"))
+        or _safe_text(req.args.get("token"))
+        or _safe_text(req.form.get("token"))
+    )
+    return provided == token
+
+
+def _get_customer_phone_column(conn):
+    cols = table_columns(conn, "customers")
+    if not cols:
+        return None
+
+    if "phone" in cols:
+        return "phone"
+    if "phone_number" in cols:
+        return "phone_number"
+    return None
+
+
 def ensure_messaging_tables():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -152,10 +243,16 @@ def ensure_messaging_tables():
                     send_job_updates BOOLEAN NOT NULL DEFAULT TRUE,
                     send_invoice_reminders BOOLEAN NOT NULL DEFAULT FALSE,
                     send_manual_messages BOOLEAN NOT NULL DEFAULT TRUE,
+                    enable_job_reminders BOOLEAN NOT NULL DEFAULT TRUE,
+                    job_reminder_hours INTEGER NOT NULL DEFAULT 24,
+                    enable_late_invoice_reminders BOOLEAN NOT NULL DEFAULT FALSE,
+                    late_invoice_days INTEGER NOT NULL DEFAULT 30,
                     default_on_the_way_template TEXT,
                     default_job_started_template TEXT,
                     default_job_completed_template TEXT,
                     default_invoice_reminder_template TEXT,
+                    default_job_reminder_template TEXT,
+                    default_late_invoice_reminder_template TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -169,26 +266,32 @@ def ensure_messaging_tables():
             existing_columns = {row["column_name"]: row["data_type"] for row in cur.fetchall()}
 
             required_columns = {
-                "id": "SERIAL PRIMARY KEY",
                 "company_id": "INTEGER NOT NULL UNIQUE",
                 "messaging_enabled": "BOOLEAN NOT NULL DEFAULT FALSE",
                 "send_job_updates": "BOOLEAN NOT NULL DEFAULT TRUE",
                 "send_invoice_reminders": "BOOLEAN NOT NULL DEFAULT FALSE",
                 "send_manual_messages": "BOOLEAN NOT NULL DEFAULT TRUE",
+                "enable_job_reminders": "BOOLEAN NOT NULL DEFAULT TRUE",
+                "job_reminder_hours": "INTEGER NOT NULL DEFAULT 24",
+                "enable_late_invoice_reminders": "BOOLEAN NOT NULL DEFAULT FALSE",
+                "late_invoice_days": "INTEGER NOT NULL DEFAULT 30",
                 "default_on_the_way_template": "TEXT",
                 "default_job_started_template": "TEXT",
                 "default_job_completed_template": "TEXT",
                 "default_invoice_reminder_template": "TEXT",
+                "default_job_reminder_template": "TEXT",
+                "default_late_invoice_reminder_template": "TEXT",
                 "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
                 "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
             }
 
-            # If any of the boolean columns are not actually boolean, rebuild the table cleanly.
             bool_columns = [
                 "messaging_enabled",
                 "send_job_updates",
                 "send_invoice_reminders",
                 "send_manual_messages",
+                "enable_job_reminders",
+                "enable_late_invoice_reminders",
             ]
 
             needs_rebuild = False
@@ -206,10 +309,16 @@ def ensure_messaging_tables():
                         send_job_updates BOOLEAN NOT NULL DEFAULT TRUE,
                         send_invoice_reminders BOOLEAN NOT NULL DEFAULT FALSE,
                         send_manual_messages BOOLEAN NOT NULL DEFAULT TRUE,
+                        enable_job_reminders BOOLEAN NOT NULL DEFAULT TRUE,
+                        job_reminder_hours INTEGER NOT NULL DEFAULT 24,
+                        enable_late_invoice_reminders BOOLEAN NOT NULL DEFAULT FALSE,
+                        late_invoice_days INTEGER NOT NULL DEFAULT 30,
                         default_on_the_way_template TEXT,
                         default_job_started_template TEXT,
                         default_job_completed_template TEXT,
                         default_invoice_reminder_template TEXT,
+                        default_job_reminder_template TEXT,
+                        default_late_invoice_reminder_template TEXT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
@@ -222,10 +331,16 @@ def ensure_messaging_tables():
                         send_job_updates,
                         send_invoice_reminders,
                         send_manual_messages,
+                        enable_job_reminders,
+                        job_reminder_hours,
+                        enable_late_invoice_reminders,
+                        late_invoice_days,
                         default_on_the_way_template,
                         default_job_started_template,
                         default_job_completed_template,
                         default_invoice_reminder_template,
+                        default_job_reminder_template,
+                        default_late_invoice_reminder_template,
                         created_at,
                         updated_at
                     )
@@ -251,10 +366,16 @@ def ensure_messaging_tables():
                             WHEN LOWER(BTRIM(send_manual_messages::text)) IN ('1', 'true', 't', 'yes', 'y', 'on') THEN TRUE
                             ELSE FALSE
                         END,
+                        TRUE,
+                        24,
+                        FALSE,
+                        30,
                         default_on_the_way_template,
                         default_job_started_template,
                         default_job_completed_template,
                         default_invoice_reminder_template,
+                        NULL,
+                        NULL,
                         COALESCE(created_at, CURRENT_TIMESTAMP),
                         COALESCE(updated_at, CURRENT_TIMESTAMP)
                     FROM messaging_settings
@@ -264,9 +385,8 @@ def ensure_messaging_tables():
                 cur.execute("DROP TABLE messaging_settings")
                 cur.execute("ALTER TABLE messaging_settings_new RENAME TO messaging_settings")
             else:
-                # Add any missing columns without rebuilding.
                 for col_name, col_def in required_columns.items():
-                    if col_name not in existing_columns and col_name != "id":
+                    if col_name not in existing_columns:
                         cur.execute(f"ALTER TABLE messaging_settings ADD COLUMN {col_name} {col_def}")
 
         # ---------- message_log ----------
@@ -283,6 +403,7 @@ def ensure_messaging_tables():
                 status TEXT NOT NULL DEFAULT 'queued',
                 provider TEXT DEFAULT 'twilio',
                 provider_message_id TEXT,
+                automation_key TEXT,
                 sent_by_user_id INTEGER,
                 error_message TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -308,6 +429,7 @@ def ensure_messaging_tables():
             "status": "TEXT NOT NULL DEFAULT 'queued'",
             "provider": "TEXT DEFAULT 'twilio'",
             "provider_message_id": "TEXT",
+            "automation_key": "TEXT",
             "sent_by_user_id": "INTEGER",
             "error_message": "TEXT",
             "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
@@ -338,6 +460,10 @@ def get_messaging_settings(company_id):
             row["send_job_updates"] = _to_bool(row.get("send_job_updates"))
             row["send_invoice_reminders"] = _to_bool(row.get("send_invoice_reminders"))
             row["send_manual_messages"] = _to_bool(row.get("send_manual_messages"))
+            row["enable_job_reminders"] = _to_bool(row.get("enable_job_reminders"))
+            row["enable_late_invoice_reminders"] = _to_bool(row.get("enable_late_invoice_reminders"))
+            row["job_reminder_hours"] = _safe_int(row.get("job_reminder_hours"), 24)
+            row["late_invoice_days"] = _safe_int(row.get("late_invoice_days"), 30)
         return row
     finally:
         conn.close()
@@ -374,11 +500,7 @@ def get_customers_for_messages(company_id):
         if not cols:
             return []
 
-        phone_col = None
-        if "phone" in cols:
-            phone_col = "phone"
-        elif "phone_number" in cols:
-            phone_col = "phone_number"
+        phone_col = _get_customer_phone_column(conn)
 
         if not phone_col:
             return conn.execute("""
@@ -403,16 +525,7 @@ def get_customers_for_messages(company_id):
 def find_customer_by_phone(company_id, phone_number):
     conn = get_db_connection()
     try:
-        cols = table_columns(conn, "customers")
-        if not cols:
-            return None
-
-        phone_col = None
-        if "phone" in cols:
-            phone_col = "phone"
-        elif "phone_number" in cols:
-            phone_col = "phone_number"
-
+        phone_col = _get_customer_phone_column(conn)
         if not phone_col:
             return None
 
@@ -445,6 +558,26 @@ def find_customer_by_phone(company_id, phone_number):
         conn.close()
 
 
+def has_automation_message(company_id, automation_key):
+    if not company_id or not automation_key:
+        return False
+
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT 1
+            FROM message_log
+            WHERE company_id = %s
+              AND automation_key = %s
+              AND status IN ('sent', 'delivered', 'received', 'queued')
+            LIMIT 1
+        """, (company_id, automation_key))
+        return cur.fetchone() is not None
+    finally:
+        conn.close()
+
+
 def insert_message_log(
     company_id,
     phone_number,
@@ -456,6 +589,7 @@ def insert_message_log(
     invoice_id=None,
     provider="twilio",
     provider_message_id=None,
+    automation_key=None,
     sent_by_user_id=None,
     error_message=None,
 ):
@@ -474,12 +608,13 @@ def insert_message_log(
                 status,
                 provider,
                 provider_message_id,
+                automation_key,
                 sent_by_user_id,
                 error_message,
                 sent_at
             )
             VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 CASE WHEN %s IN ('sent', 'received', 'delivered') THEN CURRENT_TIMESTAMP ELSE NULL END
             )
         """, (
@@ -493,6 +628,7 @@ def insert_message_log(
             status,
             provider,
             provider_message_id,
+            automation_key,
             sent_by_user_id,
             error_message,
             status,
@@ -566,6 +702,313 @@ def send_text_message(to_number, message_body, settings_row=None):
         return False, None, e.msg or str(e)
     except Exception as e:
         return False, None, str(e)
+
+
+def _render_job_reminder_message(template, job_row):
+    scheduled_text = _format_datetime_for_message(job_row.get("scheduled_date"))
+    customer_name = _safe_text(job_row.get("customer_name"), "Customer")
+    company_name = _safe_text(job_row.get("company_name"), "our company")
+    job_title = _safe_text(job_row.get("job_title"), "your scheduled job")
+
+    message = template or (
+        "Hello {{customer_name}} — this is a reminder from {{company_name}} "
+        "about {{job_title}} scheduled for {{scheduled_date}}."
+    )
+
+    replacements = {
+        "{{customer_name}}": customer_name,
+        "{{company_name}}": company_name,
+        "{{job_title}}": job_title,
+        "{{scheduled_date}}": scheduled_text,
+    }
+
+    for key, value in replacements.items():
+        message = message.replace(key, value)
+
+    return message.strip()
+
+
+def _render_invoice_late_message(template, invoice_row):
+    customer_name = _safe_text(invoice_row.get("customer_name"), "Customer")
+    company_name = _safe_text(invoice_row.get("company_name"), "our company")
+    invoice_number = _safe_text(invoice_row.get("invoice_number"), "your invoice")
+    balance_due = _format_currency(invoice_row.get("balance_due"))
+    due_date_text = _format_datetime_for_message(invoice_row.get("due_date"))
+
+    message = template or (
+        "Hello {{customer_name}} — this is a reminder from {{company_name}} that "
+        "invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. "
+        "Due date: {{due_date}}."
+    )
+
+    replacements = {
+        "{{customer_name}}": customer_name,
+        "{{company_name}}": company_name,
+        "{{invoice_number}}": invoice_number,
+        "{{balance_due}}": balance_due,
+        "{{due_date}}": due_date_text,
+    }
+
+    for key, value in replacements.items():
+        message = message.replace(key, value)
+
+    return message.strip()
+
+
+def process_job_reminders():
+    ensure_messaging_tables()
+
+    now = _utcnow()
+    sent_count = 0
+    failed_count = 0
+
+    conn = get_db_connection()
+    try:
+        phone_col = _get_customer_phone_column(conn)
+        if not phone_col:
+            return {"sent": 0, "failed": 0, "checked": 0}
+
+        job_cols = set(table_columns(conn, "jobs") or [])
+        if "scheduled_date" not in job_cols:
+            return {"sent": 0, "failed": 0, "checked": 0}
+
+        title_expr = "j.title" if "title" in job_cols else "NULL"
+        status_expr = "j.status" if "status" in job_cols else "NULL"
+
+        cur = conn.cursor()
+        cur.execute(f"""
+            SELECT
+                j.id,
+                j.company_id,
+                j.customer_id,
+                j.scheduled_date,
+                {title_expr} AS job_title,
+                {status_expr} AS job_status,
+                c.name AS customer_name,
+                c.{phone_col} AS customer_phone,
+                cp.name AS company_name,
+                ms.messaging_enabled,
+                ms.send_job_updates,
+                ms.enable_job_reminders,
+                ms.job_reminder_hours,
+                ms.default_job_reminder_template
+            FROM jobs j
+            JOIN customers c
+              ON j.customer_id = c.id
+            LEFT JOIN companies cp
+              ON j.company_id = cp.id
+            JOIN messaging_settings ms
+              ON j.company_id = ms.company_id
+            WHERE ms.messaging_enabled = TRUE
+              AND ms.send_job_updates = TRUE
+              AND ms.enable_job_reminders = TRUE
+              AND j.customer_id IS NOT NULL
+              AND j.scheduled_date IS NOT NULL
+            ORDER BY j.scheduled_date ASC
+        """)
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    checked = 0
+
+    for row in rows:
+        checked += 1
+
+        status_text = _safe_text(row.get("job_status")).lower()
+        if status_text in {"completed", "cancelled", "canceled"}:
+            continue
+
+        scheduled_dt = _coerce_datetime(row.get("scheduled_date"))
+        if not scheduled_dt:
+            continue
+
+        reminder_hours = _safe_int(row.get("job_reminder_hours"), 24)
+        reminder_time = scheduled_dt - timedelta(hours=reminder_hours)
+
+        if now < reminder_time:
+            continue
+
+        phone_number = _normalize_phone(row.get("customer_phone"))
+        if not _is_reasonable_phone(phone_number):
+            continue
+
+        automation_key = f"job_reminder:{row['id']}:{scheduled_dt.strftime('%Y%m%d%H%M')}"
+        if has_automation_message(row["company_id"], automation_key):
+            continue
+
+        message_body = _render_job_reminder_message(
+            row.get("default_job_reminder_template"),
+            row,
+        )
+
+        success, provider_message_id, error_message = send_text_message(
+            to_number=phone_number,
+            message_body=message_body,
+            settings_row=row,
+        )
+
+        if success:
+            sent_count += 1
+            insert_message_log(
+                company_id=row["company_id"],
+                customer_id=row["customer_id"],
+                job_id=row["id"],
+                phone_number=phone_number,
+                message_body=message_body,
+                direction="outbound",
+                status="sent",
+                provider="twilio",
+                provider_message_id=provider_message_id,
+                automation_key=automation_key,
+            )
+        else:
+            failed_count += 1
+            insert_message_log(
+                company_id=row["company_id"],
+                customer_id=row["customer_id"],
+                job_id=row["id"],
+                phone_number=phone_number,
+                message_body=message_body,
+                direction="outbound",
+                status="failed",
+                provider="twilio",
+                automation_key=automation_key,
+                error_message=error_message,
+            )
+
+    return {"sent": sent_count, "failed": failed_count, "checked": checked}
+
+
+def process_late_invoice_reminders():
+    ensure_messaging_tables()
+
+    today = _utcnow()
+    sent_count = 0
+    failed_count = 0
+
+    conn = get_db_connection()
+    try:
+        phone_col = _get_customer_phone_column(conn)
+        if not phone_col:
+            return {"sent": 0, "failed": 0, "checked": 0}
+
+        invoice_cols = set(table_columns(conn, "invoices") or [])
+        if "due_date" not in invoice_cols:
+            return {"sent": 0, "failed": 0, "checked": 0}
+
+        invoice_number_expr = "i.invoice_number" if "invoice_number" in invoice_cols else "NULL"
+        balance_due_expr = "i.balance_due" if "balance_due" in invoice_cols else "NULL"
+        status_expr = "i.status" if "status" in invoice_cols else "NULL"
+
+        cur = conn.cursor()
+        cur.execute(f"""
+            SELECT
+                i.id,
+                i.company_id,
+                i.customer_id,
+                i.due_date,
+                {invoice_number_expr} AS invoice_number,
+                {balance_due_expr} AS balance_due,
+                {status_expr} AS invoice_status,
+                c.name AS customer_name,
+                c.{phone_col} AS customer_phone,
+                cp.name AS company_name,
+                ms.messaging_enabled,
+                ms.send_invoice_reminders,
+                ms.enable_late_invoice_reminders,
+                ms.late_invoice_days,
+                ms.default_late_invoice_reminder_template
+            FROM invoices i
+            JOIN customers c
+              ON i.customer_id = c.id
+            LEFT JOIN companies cp
+              ON i.company_id = cp.id
+            JOIN messaging_settings ms
+              ON i.company_id = ms.company_id
+            WHERE ms.messaging_enabled = TRUE
+              AND ms.send_invoice_reminders = TRUE
+              AND ms.enable_late_invoice_reminders = TRUE
+              AND i.customer_id IS NOT NULL
+              AND i.due_date IS NOT NULL
+            ORDER BY i.due_date ASC
+        """)
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    checked = 0
+
+    for row in rows:
+        checked += 1
+
+        invoice_status = _safe_text(row.get("invoice_status")).lower()
+        if invoice_status in {"paid", "void", "cancelled", "canceled"}:
+            continue
+
+        balance_due = _safe_float(row.get("balance_due"), 0.0)
+        if balance_due <= 0:
+            continue
+
+        due_dt = _coerce_datetime(row.get("due_date"))
+        if not due_dt:
+            continue
+
+        late_invoice_days = _safe_int(row.get("late_invoice_days"), 30)
+        due_plus_days = due_dt + timedelta(days=late_invoice_days)
+
+        if today < due_plus_days:
+            continue
+
+        phone_number = _normalize_phone(row.get("customer_phone"))
+        if not _is_reasonable_phone(phone_number):
+            continue
+
+        automation_key = f"late_invoice:{row['id']}:{late_invoice_days}"
+        if has_automation_message(row["company_id"], automation_key):
+            continue
+
+        message_body = _render_invoice_late_message(
+            row.get("default_late_invoice_reminder_template"),
+            row,
+        )
+
+        success, provider_message_id, error_message = send_text_message(
+            to_number=phone_number,
+            message_body=message_body,
+            settings_row=row,
+        )
+
+        if success:
+            sent_count += 1
+            insert_message_log(
+                company_id=row["company_id"],
+                customer_id=row["customer_id"],
+                invoice_id=row["id"],
+                phone_number=phone_number,
+                message_body=message_body,
+                direction="outbound",
+                status="sent",
+                provider="twilio",
+                provider_message_id=provider_message_id,
+                automation_key=automation_key,
+            )
+        else:
+            failed_count += 1
+            insert_message_log(
+                company_id=row["company_id"],
+                customer_id=row["customer_id"],
+                invoice_id=row["id"],
+                phone_number=phone_number,
+                message_body=message_body,
+                direction="outbound",
+                status="failed",
+                provider="twilio",
+                automation_key=automation_key,
+                error_message=error_message,
+            )
+
+    return {"sent": sent_count, "failed": failed_count, "checked": checked}
 
 
 @messages_bp.route("/messages")
@@ -650,6 +1093,12 @@ def messages_page():
                         <option value="{{ settings['default_invoice_reminder_template'] if settings and settings['default_invoice_reminder_template'] else 'Hello from TerraLedger — this is a reminder that your invoice is still outstanding.' }}">
                             Invoice Reminder
                         </option>
+                        <option value="{{ settings['default_job_reminder_template'] if settings and settings['default_job_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} about {{job_title}} scheduled for {{scheduled_date}}.' }}">
+                            Job Reminder
+                        </option>
+                        <option value="{{ settings['default_late_invoice_reminder_template'] if settings and settings['default_late_invoice_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} that invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. Due date: {{due_date}}.' }}">
+                            Late Invoice Reminder
+                        </option>
                     </select>
                 </div>
 
@@ -706,9 +1155,25 @@ def messages_page():
             </div>
 
             <div style="margin-bottom:12px;">
+                <strong>Job Reminders:</strong>
+                <span class="muted">
+                    {% if settings and settings['enable_job_reminders'] %}On{% else %}Off{% endif %}
+                    {% if settings %}( {{ settings['job_reminder_hours'] or 24 }} hrs before ){% endif %}
+                </span>
+            </div>
+
+            <div style="margin-bottom:12px;">
                 <strong>Invoice Reminders:</strong>
                 <span class="muted">
                     {% if settings and settings['send_invoice_reminders'] %}On{% else %}Off{% endif %}
+                </span>
+            </div>
+
+            <div style="margin-bottom:12px;">
+                <strong>Late Invoice Reminders:</strong>
+                <span class="muted">
+                    {% if settings and settings['enable_late_invoice_reminders'] %}On{% else %}Off{% endif %}
+                    {% if settings %}( {{ settings['late_invoice_days'] or 30 }} days late ){% endif %}
                 </span>
             </div>
 
@@ -911,6 +1376,24 @@ def send_message():
     return redirect(url_for("messages.messages_page"))
 
 
+@messages_bp.route("/messages/run-automations", methods=["POST"])
+@csrf.exempt
+def run_message_automations():
+    ensure_messaging_tables()
+
+    if not _validate_automation_request(request):
+        return Response("Forbidden", status=403)
+
+    job_results = process_job_reminders()
+    invoice_results = process_late_invoice_reminders()
+
+    summary = (
+        f"Job reminders: sent={job_results['sent']}, failed={job_results['failed']}, checked={job_results['checked']} | "
+        f"Late invoices: sent={invoice_results['sent']}, failed={invoice_results['failed']}, checked={invoice_results['checked']}"
+    )
+    return Response(summary, status=200, mimetype="text/plain")
+
+
 @messages_bp.route("/messages/webhook", methods=["POST"])
 @csrf.exempt
 def incoming_message_webhook():
@@ -1031,11 +1514,23 @@ def messaging_configuration():
             send_job_updates = request.form.get("send_job_updates") == "on"
             send_invoice_reminders = request.form.get("send_invoice_reminders") == "on"
             send_manual_messages = request.form.get("send_manual_messages") == "on"
+            enable_job_reminders = request.form.get("enable_job_reminders") == "on"
+            job_reminder_hours = _safe_int(request.form.get("job_reminder_hours"), 24)
+            enable_late_invoice_reminders = request.form.get("enable_late_invoice_reminders") == "on"
+            late_invoice_days = _safe_int(request.form.get("late_invoice_days"), 30)
+
+            if job_reminder_hours is None or job_reminder_hours < 1:
+                job_reminder_hours = 24
+
+            if late_invoice_days is None or late_invoice_days < 1:
+                late_invoice_days = 30
 
             default_on_the_way_template = _safe_text(request.form.get("default_on_the_way_template"))
             default_job_started_template = _safe_text(request.form.get("default_job_started_template"))
             default_job_completed_template = _safe_text(request.form.get("default_job_completed_template"))
             default_invoice_reminder_template = _safe_text(request.form.get("default_invoice_reminder_template"))
+            default_job_reminder_template = _safe_text(request.form.get("default_job_reminder_template"))
+            default_late_invoice_reminder_template = _safe_text(request.form.get("default_late_invoice_reminder_template"))
 
             existing = get_messaging_settings(company_id)
 
@@ -1046,10 +1541,16 @@ def messaging_configuration():
                         send_job_updates = %s,
                         send_invoice_reminders = %s,
                         send_manual_messages = %s,
+                        enable_job_reminders = %s,
+                        job_reminder_hours = %s,
+                        enable_late_invoice_reminders = %s,
+                        late_invoice_days = %s,
                         default_on_the_way_template = %s,
                         default_job_started_template = %s,
                         default_job_completed_template = %s,
                         default_invoice_reminder_template = %s,
+                        default_job_reminder_template = %s,
+                        default_late_invoice_reminder_template = %s,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE company_id = %s
                 """, (
@@ -1057,10 +1558,16 @@ def messaging_configuration():
                     send_job_updates,
                     send_invoice_reminders,
                     send_manual_messages,
+                    enable_job_reminders,
+                    job_reminder_hours,
+                    enable_late_invoice_reminders,
+                    late_invoice_days,
                     default_on_the_way_template,
                     default_job_started_template,
                     default_job_completed_template,
                     default_invoice_reminder_template,
+                    default_job_reminder_template,
+                    default_late_invoice_reminder_template,
                     company_id,
                 ))
             else:
@@ -1071,22 +1578,34 @@ def messaging_configuration():
                         send_job_updates,
                         send_invoice_reminders,
                         send_manual_messages,
+                        enable_job_reminders,
+                        job_reminder_hours,
+                        enable_late_invoice_reminders,
+                        late_invoice_days,
                         default_on_the_way_template,
                         default_job_started_template,
                         default_job_completed_template,
-                        default_invoice_reminder_template
+                        default_invoice_reminder_template,
+                        default_job_reminder_template,
+                        default_late_invoice_reminder_template
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     company_id,
                     messaging_enabled,
                     send_job_updates,
                     send_invoice_reminders,
                     send_manual_messages,
+                    enable_job_reminders,
+                    job_reminder_hours,
+                    enable_late_invoice_reminders,
+                    late_invoice_days,
                     default_on_the_way_template,
                     default_job_started_template,
                     default_job_completed_template,
                     default_invoice_reminder_template,
+                    default_job_reminder_template,
+                    default_late_invoice_reminder_template,
                 ))
 
             conn.commit()
@@ -1158,9 +1677,29 @@ def messaging_configuration():
                     </label>
 
                     <label style="display:flex; align-items:center; gap:10px; font-weight:600;">
+                        <input type="checkbox" name="enable_job_reminders" {% if not settings or settings['enable_job_reminders'] %}checked{% endif %}>
+                        Enable Automated Job Reminders
+                    </label>
+
+                    <div style="margin-left:28px;">
+                        <label>Hours Before Job</label>
+                        <input type="number" min="1" name="job_reminder_hours" value="{{ settings['job_reminder_hours'] if settings else 24 }}">
+                    </div>
+
+                    <label style="display:flex; align-items:center; gap:10px; font-weight:600;">
                         <input type="checkbox" name="send_invoice_reminders" {% if settings and settings['send_invoice_reminders'] %}checked{% endif %}>
                         Enable Invoice Reminder Messages
                     </label>
+
+                    <label style="display:flex; align-items:center; gap:10px; font-weight:600;">
+                        <input type="checkbox" name="enable_late_invoice_reminders" {% if settings and settings['enable_late_invoice_reminders'] %}checked{% endif %}>
+                        Enable Automated Late Invoice Reminders
+                    </label>
+
+                    <div style="margin-left:28px;">
+                        <label>Days Late Before Sending</label>
+                        <input type="number" min="1" name="late_invoice_days" value="{{ settings['late_invoice_days'] if settings else 30 }}">
+                    </div>
                 </div>
             </div>
 
@@ -1182,9 +1721,21 @@ def messaging_configuration():
                     <textarea name="default_job_completed_template">{{ settings['default_job_completed_template'] if settings and settings['default_job_completed_template'] else 'Hello from TerraLedger — your job has been completed. Thank you.' }}</textarea>
                 </div>
 
-                <div style="margin-bottom:0;">
+                <div style="margin-bottom:14px;">
                     <label>Invoice Reminder Template</label>
                     <textarea name="default_invoice_reminder_template">{{ settings['default_invoice_reminder_template'] if settings and settings['default_invoice_reminder_template'] else 'Hello from TerraLedger — this is a reminder that your invoice is still outstanding.' }}</textarea>
+                </div>
+
+                <div style="margin-bottom:14px;">
+                    <label>Job Reminder Template</label>
+                    <textarea name="default_job_reminder_template">{{ settings['default_job_reminder_template'] if settings and settings['default_job_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} about {{job_title}} scheduled for {{scheduled_date}}.' }}</textarea>
+                    <div class="muted small">Available placeholders: {{customer_name}}, {{company_name}}, {{job_title}}, {{scheduled_date}}</div>
+                </div>
+
+                <div style="margin-bottom:0;">
+                    <label>Late Invoice Reminder Template</label>
+                    <textarea name="default_late_invoice_reminder_template">{{ settings['default_late_invoice_reminder_template'] if settings and settings['default_late_invoice_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} that invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. Due date: {{due_date}}.' }}</textarea>
+                    <div class="muted small">Available placeholders: {{customer_name}}, {{company_name}}, {{invoice_number}}, {{balance_due}}, {{due_date}}</div>
                 </div>
             </div>
 
