@@ -179,7 +179,7 @@ def canonicalize_description(description, item_type):
 
     text = text.replace('"', " in ")
     text = text.replace("'", "")
-    text = re.sub(r"[_\\-/]+", " ", text)
+    text = re.sub(r"[-_/]+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
 
     replacements = {
