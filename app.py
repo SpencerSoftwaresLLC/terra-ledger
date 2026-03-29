@@ -36,6 +36,7 @@ from routes.bookkeeping import bookkeeping_bp, _ensure_bookkeeping_check_structu
 from routes.help_assistant import help_assistant_bp
 from routes.mobile import mobile_bp
 from routes.legal import legal_bp
+from reports.material_usage import material_usage_bp
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -169,6 +170,7 @@ def create_app():
     app.register_blueprint(calendar_bp)
     app.register_blueprint(messages_bp)
     app.register_blueprint(legal_bp)
+    app.register_blueprint(material_usage_bp)
 
     @app.before_request
     def make_session_permanent():

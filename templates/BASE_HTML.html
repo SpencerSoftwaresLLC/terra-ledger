@@ -819,36 +819,37 @@ label {
         </nav>
     </aside>
 
-    <main class="main-content">
+<main class="main-content">
 
-        <div class="topbar">
-            <div class="topbar-left">
-                <a class="nav-link" href="{{ url_for('dashboard.dashboard') }}">Dashboard</a>
-            </div>
+    <div class="topbar">
+        <div class="topbar-left">
+            <a class="nav-link" href="{{ url_for('dashboard.dashboard') }}">Dashboard</a>
+        </div>
 
-            <div class="topbar-right">
-                <button class="btn secondary" type="button" onclick="openHelpAssistant()">Help</button>
+        <div class="topbar-right">
+            <button class="btn secondary" type="button" onclick="openHelpAssistant()">Help</button>
 
-                <div class="company-menu-wrap">
-                    <button id="companyMenuButtonTop" class="btn secondary" type="button">
-                        {{ session.get('company_name') }} ▼
-                    </button>
+            <div class="company-menu-wrap">
+                <button id="companyMenuButtonTop" class="btn secondary" type="button">
+                    {{ session.get('company_name') }} ▼
+                </button>
 
-                    <div id="companyMenuTop">
-                        <div class="menu-header">
-                            <div style="font-weight:700;">{{ session.get('company_name') }}</div>
-                            <div style="font-size:.9rem; color:var(--text-soft);">{{ session.get('user_name') }}</div>
-                        </div>
-
-                        <a class="company-menu-link" href="{{ url_for('payment_setup.payment_setup') }}">Payment Setup</a>
-                        <a class="company-menu-link" href="{{ url_for('messages.messaging_configuration') }}">Messaging Configuration</a>
-                        <a class="company-menu-link" href="{{ url_for('settings.settings') }}">Settings</a>
-                        <a class="company-menu-link" href="{{ url_for('legal.terms') }}">Legal</a>
-                        <a class="company-menu-link danger" href="{{ url_for('auth.logout') }}">Logout</a>
+                <div id="companyMenuTop">
+                    <div class="menu-header">
+                        <div style="font-weight:700;">{{ session.get('company_name') }}</div>
+                        <div style="font-size:.9rem; color:var(--text-soft);">{{ session.get('user_name') }}</div>
                     </div>
+
+                    <a class="company-menu-link" href="{{ url_for('payment_setup.payment_setup') }}">Payment Setup</a>
+                    <a class="company-menu-link" href="{{ url_for('messages.messaging_configuration') }}">Messaging Configuration</a>
+                    <a class="company-menu-link" href="{{ url_for('material_usage.annual_reports') }}">Annual Reports</a>
+                    <a class="company-menu-link" href="{{ url_for('settings.settings') }}">Settings</a>
+                    <a class="company-menu-link" href="{{ url_for('legal.terms') }}">Legal</a>
+                    <a class="company-menu-link danger" href="{{ url_for('auth.logout') }}">Logout</a>
                 </div>
             </div>
         </div>
+    </div>
 
         <div class="container">
 
