@@ -67,27 +67,27 @@ def register():
             return redirect(url_for("auth.register"))
 
         conn = get_db_connection()
+        try:
+            exists = conn.execute(
+                "SELECT id FROM users WHERE email = %s",
+                (email,),
+            ).fetchone()
 
-        exists = conn.execute(
-            "SELECT id FROM users WHERE email = %s",
-            (email,),
-        ).fetchone()
+            if exists:
+                flash("That email is already in use.")
+                return redirect(url_for("auth.register"))
 
-        if exists:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO companies (name) VALUES (%s) RETURNING id",
+                (company_name,),
+            )
+            row = cur.fetchone()
+            company_id = row["id"] if row else None
+
+            conn.commit()
+        finally:
             conn.close()
-            flash("That email is already in use.")
-            return redirect(url_for("auth.register"))
-
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO companies (name) VALUES (%s) RETURNING id",
-            (company_name,),
-        )
-        row = cur.fetchone()
-        company_id = row["id"] if row else None
-
-        conn.commit()
-        conn.close()
 
         if not company_id:
             flash("Could not create company.")
@@ -114,15 +114,40 @@ def register():
         flash("Account created.")
         return redirect(url_for("dashboard.dashboard"))
 
-    content = f"""
-    <form method="post">
-        <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
-        <input name="company_name" required>
-        <input name="user_name" required>
-        <input type="email" name="email" required>
-        <input type="password" name="password" required>
-        <button>Create</button>
-    </form>
+    content = """
+    <div class="card">
+        <h1>Create Account</h1>
+        <form method="post">
+            {{ csrf_input() }}
+
+            <div class="grid">
+                <div>
+                    <label>Company Name</label>
+                    <input name="company_name" required>
+                </div>
+
+                <div>
+                    <label>Your Name</label>
+                    <input name="user_name" required>
+                </div>
+
+                <div>
+                    <label>Email</label>
+                    <input type="email" name="email" required>
+                </div>
+
+                <div>
+                    <label>Password</label>
+                    <input type="password" name="password" required>
+                </div>
+            </div>
+
+            <div class="row-actions" style="margin-top:16px;">
+                <button class="btn" type="submit">Create Account</button>
+                <a class="btn secondary" href="{{ url_for('auth.login') }}">Back to Login</a>
+            </div>
+        </form>
+    </div>
     """
     return render_public_page(content, "Register")
 
@@ -144,18 +169,18 @@ def login():
         password = request.form.get("password") or ""
 
         conn = get_db_connection()
-
-        user = conn.execute(
-            """
-            SELECT u.*, c.name AS company_name
-            FROM users u
-            JOIN companies c ON u.company_id = c.id
-            WHERE u.email = %s
-            """,
-            (email,),
-        ).fetchone()
-
-        conn.close()
+        try:
+            user = conn.execute(
+                """
+                SELECT u.*, c.name AS company_name
+                FROM users u
+                JOIN companies c ON u.company_id = c.id
+                WHERE u.email = %s
+                """,
+                (email,),
+            ).fetchone()
+        finally:
+            conn.close()
 
         if not user or not check_password_hash(user["password_hash"], password):
             _increment_login_attempts()
@@ -180,12 +205,33 @@ def login():
         return redirect(url_for("dashboard.dashboard"))
 
     content = """
-    <form method="post">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="email" name="email" required>
-        <input type="password" name="password" required>
-        <button>Login</button>
-    </form>
+    <div class="card">
+        <h1>Login</h1>
+        <form method="post">
+            {{ csrf_input() }}
+
+            <div class="grid">
+                <div>
+                    <label>Email</label>
+                    <input type="email" name="email" required>
+                </div>
+
+                <div>
+                    <label>Password</label>
+                    <input type="password" name="password" required>
+                </div>
+            </div>
+
+            <div class="row-actions" style="margin-top:16px;">
+                <button class="btn" type="submit">Login</button>
+                <a class="btn secondary" href="{{ url_for('auth.forgot_password') }}">Forgot Password</a>
+            </div>
+
+            <div style="margin-top:12px;">
+                <a href="{{ url_for('auth.register') }}">Create an account</a>
+            </div>
+        </form>
+    </div>
     """
     return render_public_page(content, "Login")
 
@@ -199,56 +245,69 @@ def forgot_password():
 
     conn = get_db_connection()
 
-    if request.method == "POST":
-        email = (request.form.get("email") or "").strip().lower()
+    try:
+        if request.method == "POST":
+            email = (request.form.get("email") or "").strip().lower()
 
-        if not email:
-            conn.close()
-            flash("Enter your email.")
-            return redirect(url_for("auth.forgot_password"))
+            if not email:
+                flash("Enter your email.")
+                return redirect(url_for("auth.forgot_password"))
 
-        user = conn.execute(
-            "SELECT id, company_id FROM users WHERE email = %s",
-            (email,),
-        ).fetchone()
-
-        if user:
-            # 🔒 DELETE OLD TOKENS FIRST
-            conn.execute(
-                "DELETE FROM password_resets WHERE email = %s",
+            user = conn.execute(
+                "SELECT id, company_id FROM users WHERE email = %s",
                 (email,),
-            )
+            ).fetchone()
 
-            token = secrets.token_urlsafe(32)
-            expires = datetime.utcnow() + timedelta(hours=1)
+            if user:
+                # 🔒 DELETE OLD TOKENS FIRST
+                conn.execute(
+                    "DELETE FROM password_resets WHERE email = %s",
+                    (email,),
+                )
 
-            conn.execute(
-                "INSERT INTO password_resets (email, token, expires_at) VALUES (%s, %s, %s)",
-                (email, token, expires),
-            )
-            conn.commit()
+                token = secrets.token_urlsafe(32)
+                expires = datetime.utcnow() + timedelta(hours=1)
 
-            reset_link = url_for("auth.reset_password", token=token, _external=True)
+                conn.execute(
+                    "INSERT INTO password_resets (email, token, expires_at) VALUES (%s, %s, %s)",
+                    (email, token, expires),
+                )
+                conn.commit()
 
-            send_company_email(
-                to_email=email,
-                subject="Reset Your TerraLedger Password",
-                html=f"<a href='{reset_link}'>Reset Password</a>",
-                body=reset_link,
-                company_id=user["company_id"],
-            )
+                reset_link = url_for("auth.reset_password", token=token, _external=True)
 
+                send_company_email(
+                    to_email=email,
+                    subject="Reset Your TerraLedger Password",
+                    html=f"<a href='{reset_link}'>Reset Password</a>",
+                    body=reset_link,
+                    company_id=user["company_id"],
+                )
+
+            flash("If that email exists, a reset link has been sent.")
+            return redirect(url_for("auth.login"))
+    finally:
         conn.close()
 
-        flash("If that email exists, a reset link has been sent.")
-        return redirect(url_for("auth.login"))
-
     content = """
-    <form method="post">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="email" name="email" required>
-        <button>Send</button>
-    </form>
+    <div class="card">
+        <h1>Forgot Password</h1>
+        <form method="post">
+            {{ csrf_input() }}
+
+            <div class="grid">
+                <div>
+                    <label>Email</label>
+                    <input type="email" name="email" required>
+                </div>
+            </div>
+
+            <div class="row-actions" style="margin-top:16px;">
+                <button class="btn" type="submit">Send Reset Link</button>
+                <a class="btn secondary" href="{{ url_for('auth.login') }}">Back to Login</a>
+            </div>
+        </form>
+    </div>
     """
     return render_public_page(content, "Forgot Password")
 
@@ -262,58 +321,69 @@ def reset_password(token):
 
     conn = get_db_connection()
 
-    row = conn.execute(
-        "SELECT * FROM password_resets WHERE token = %s",
-        (token,),
-    ).fetchone()
-
-    if not row:
-        conn.close()
-        flash("Invalid or expired link.")
-        return redirect(url_for("auth.login"))
-
-    if row["expires_at"] < datetime.utcnow():
-        conn.execute(
-            "DELETE FROM password_resets WHERE token = %s",
+    try:
+        row = conn.execute(
+            "SELECT * FROM password_resets WHERE token = %s",
             (token,),
-        )
-        conn.commit()
+        ).fetchone()
+
+        if not row:
+            flash("Invalid or expired link.")
+            return redirect(url_for("auth.login"))
+
+        if row["expires_at"] < datetime.utcnow():
+            conn.execute(
+                "DELETE FROM password_resets WHERE token = %s",
+                (token,),
+            )
+            conn.commit()
+            flash("Expired link.")
+            return redirect(url_for("auth.login"))
+
+        if request.method == "POST":
+            password = request.form.get("password") or ""
+
+            if not _check_password_strength(password):
+                flash("Password must be 8+ chars, include upper, lower, and number.")
+                return redirect(url_for("auth.reset_password", token=token))
+
+            conn.execute(
+                "UPDATE users SET password_hash = %s WHERE email = %s",
+                (generate_password_hash(password), row["email"]),
+            )
+
+            # 🔒 DELETE ALL TOKENS FOR THIS USER
+            conn.execute(
+                "DELETE FROM password_resets WHERE email = %s",
+                (row["email"],),
+            )
+
+            conn.commit()
+
+            flash("Password reset successful.")
+            return redirect(url_for("auth.login"))
+    finally:
         conn.close()
-        flash("Expired link.")
-        return redirect(url_for("auth.login"))
-
-    if request.method == "POST":
-        password = request.form.get("password") or ""
-
-        if not _check_password_strength(password):
-            flash("Password must be strong.")
-            return redirect(url_for("auth.reset_password", token=token))
-
-        conn.execute(
-            "UPDATE users SET password_hash = %s WHERE email = %s",
-            (generate_password_hash(password), row["email"]),
-        )
-
-        # 🔒 DELETE ALL TOKENS FOR THIS USER
-        conn.execute(
-            "DELETE FROM password_resets WHERE email = %s",
-            (row["email"],),
-        )
-
-        conn.commit()
-        conn.close()
-
-        flash("Password reset successful.")
-        return redirect(url_for("auth.login"))
-
-    conn.close()
 
     content = """
-    <form method="post">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="password" name="password" required>
-        <button>Reset</button>
-    </form>
+    <div class="card">
+        <h1>Reset Password</h1>
+        <form method="post">
+            {{ csrf_input() }}
+
+            <div class="grid">
+                <div>
+                    <label>New Password</label>
+                    <input type="password" name="password" required>
+                </div>
+            </div>
+
+            <div class="row-actions" style="margin-top:16px;">
+                <button class="btn" type="submit">Reset Password</button>
+                <a class="btn secondary" href="{{ url_for('auth.login') }}">Back to Login</a>
+            </div>
+        </form>
+    </div>
     """
     return render_public_page(content, "Reset Password")
 
