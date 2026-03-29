@@ -4,7 +4,7 @@ import secrets
 from datetime import datetime, timedelta
 
 from db import get_db_connection, create_owner_user, ensure_password_reset_table
-from page_helpers import render_public_page
+from page_helpers import render_public_page, csrf_input
 from utils.emailing import send_company_email
 
 auth_bp = Blueprint("auth", __name__)
@@ -134,7 +134,7 @@ def register():
 
     body_html = render_template_string("""
     <form method="post" class="tl-auth-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {{ csrf_input() }}
 
         <div class="tl-auth-grid">
             <div class="tl-auth-field">
@@ -163,7 +163,7 @@ def register():
             <a class="tl-auth-btn tl-auth-btn-secondary" href="{{ url_for('auth.login') }}">Back to Login</a>
         </div>
     </form>
-    """)
+    """, csrf_input=csrf_input)
     return _render_auth_page(
         title="Register",
         heading="Create Account",
@@ -220,7 +220,7 @@ def login():
 
     body_html = render_template_string("""
     <form method="post" class="tl-auth-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {{ csrf_input() }}
 
         <div class="tl-auth-grid tl-auth-grid-single">
             <div class="tl-auth-field">
@@ -243,7 +243,7 @@ def login():
             <a href="{{ url_for('auth.forgot_password') }}">Forgot Password?</a>
         </div>
     </form>
-    """)
+    """, csrf_input=csrf_input)
     return _render_auth_page(
         title="Login",
         heading="Login",
@@ -302,7 +302,7 @@ def forgot_password():
 
     body_html = render_template_string("""
     <form method="post" class="tl-auth-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {{ csrf_input() }}
 
         <div class="tl-auth-grid tl-auth-grid-single">
             <div class="tl-auth-field">
@@ -316,7 +316,7 @@ def forgot_password():
             <a class="tl-auth-btn tl-auth-btn-secondary" href="{{ url_for('auth.login') }}">Back to Login</a>
         </div>
     </form>
-    """)
+    """, csrf_input=csrf_input)
     return _render_auth_page(
         title="Forgot Password",
         heading="Forgot Password",
@@ -375,7 +375,7 @@ def reset_password(token):
 
     body_html = render_template_string("""
     <form method="post" class="tl-auth-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {{ csrf_input() }}
 
         <div class="tl-auth-grid tl-auth-grid-single">
             <div class="tl-auth-field">
@@ -389,7 +389,7 @@ def reset_password(token):
             <a class="tl-auth-btn tl-auth-btn-secondary" href="{{ url_for('auth.login') }}">Back to Login</a>
         </div>
     </form>
-    """)
+    """, csrf_input=csrf_input)
     return _render_auth_page(
         title="Reset Password",
         heading="Reset Password",
