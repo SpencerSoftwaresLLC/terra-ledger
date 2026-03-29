@@ -569,7 +569,7 @@ def employees():
             f"""
             SELECT *
             FROM employees
-            WHERE company_id = %s AND is_active = TRUE
+            WHERE company_id = %s AND COALESCE(is_active, 1) = 1
             ORDER BY {name_col} ASC, id DESC
             """,
             (cid,),
@@ -1441,7 +1441,6 @@ def delete_employee(employee_id):
 
 @employees_bp.route("/employees/time-clock", methods=["GET"])
 @login_required
-@subscription_required
 @require_permission("can_manage_employees")
 def time_clock():
     ensure_employee_profile_columns()
@@ -1466,7 +1465,8 @@ def time_clock():
             email,
             is_active
         FROM employees
-        WHERE company_id = %s AND is_active = TRUE
+        WHERE company_id = %s
+          AND COALESCE(is_active, 1) = 1
         ORDER BY
             COALESCE(NULLIF(last_name, ''), NULLIF(full_name, ''), NULLIF(first_name, ''), 'ZZZ'),
             COALESCE(NULLIF(first_name, ''), ''),
@@ -1491,7 +1491,8 @@ def time_clock():
             ON t.employee_id = e.id
            AND t.company_id = e.company_id
            AND t.clock_out IS NULL
-        WHERE e.company_id = %s AND e.is_active = TRUE
+        WHERE e.company_id = %s
+          AND COALESCE(e.is_active, 1) = 1
         ORDER BY
             COALESCE(NULLIF(e.last_name, ''), NULLIF(e.full_name, ''), NULLIF(e.first_name, ''), 'ZZZ'),
             COALESCE(NULLIF(e.first_name, ''), ''),
@@ -1872,7 +1873,9 @@ def time_clock_clock_in():
         """
         SELECT id, first_name, last_name, full_name
         FROM employees
-        WHERE id = %s AND company_id = %s AND is_active = TRUE
+        WHERE id = %s
+        AND company_id = %s
+        AND COALESCE(is_active, 1) = 1
         """,
         (employee_id, cid),
     ).fetchone()

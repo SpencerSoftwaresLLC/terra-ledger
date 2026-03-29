@@ -849,7 +849,7 @@ def employee_payroll():
             county_of_principal_employment,
             county_tax_effective_year
         FROM employees
-        WHERE company_id = %s AND is_active = TRUE
+        WHERE company_id = %s AND COALESCE(is_active, 1) = 1
         ORDER BY first_name, last_name
         """,
         (cid,),
