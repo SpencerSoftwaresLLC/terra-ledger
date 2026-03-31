@@ -216,308 +216,164 @@ def _company_display_name_for_reports(cid):
     values = get_company_profile_values(profile)
     return values.get("legal_name") or values.get("display_name") or session.get("company_name", "TerraLedger")
 
+def _build_ssa_export(company_id, year, employees):
+    export = {
+        "company_id": company_id,
+        "year": year,
+        "employees": []
+    }
+
+    for e in employees:
+        export["employees"].append({
+            "name": e.get("employee_name"),
+            "wages": float(e.get("wages", 0)),
+            "federal": float(e.get("federal_withholding", 0)),
+            "ss": float(e.get("social_security", 0)),
+            "medicare": float(e.get("medicare", 0)),
+        })
+
+    return json.dumps(export, indent=2)
+
+def _build_w3_pdf(company_name, year, totals):
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(200, 750, "W-3 Summary")
+
+    pdf.setFont("Helvetica", 10)
+
+    pdf.drawString(50, 700, f"Company: {company_name}")
+    pdf.drawString(50, 680, f"Year: {year}")
+
+    y = 640
+
+    for label, value in (totals or {}).items():
+        pdf.drawString(50, y, label)
+        pdf.drawRightString(550, y, f"{float(value):,.2f}")
+        y -= 20
+
+    pdf.save()
+
+    data = buffer.getvalue()
+    buffer.close()
+    return data
+
 
 def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
-    """
-    Employee paper copies only:
-    - Copy B
-    - Copy C
-    - Copy 2
+    from reportlab.lib.utils import ImageReader
 
-    Not for SSA Copy A filing.
-    """
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
 
-    def money(value):
-        return float(_money(value or 0))
-
-    def text(value):
-        return str(value or "").strip()
-
-    def fit_text(value, max_len):
-        value = text(value)
-        if len(value) <= max_len:
-            return value
-        return value[:max_len].rstrip()
+    def money(v): return float(_money(v or 0))
+    def draw(x, y, val, size=8, bold=False):
+        pdf.setFont("Helvetica-Bold" if bold else "Helvetica", size)
+        pdf.drawString(x, y, str(val or ""))
 
     company_values = get_company_profile_values(company_profile)
 
-    employer_name = fit_text(
-        _first_nonempty(company_values.get("legal_name"), company_values.get("display_name")),
-        42,
-    )
-    employer_ein = _format_ein(company_values.get("ein"))
-    employer_state = fit_text(company_values.get("state"), 2)
-    employer_state_id = fit_text(company_values.get("state_employer_id"), 22)
-    employer_address_1 = fit_text(company_values.get("address_line_1"), 38)
-    employer_address_2 = fit_text(company_values.get("address_line_2"), 38)
-    employer_city = fit_text(company_values.get("city"), 18)
-    employer_zip = fit_text(company_values.get("zip_code"), 10)
+    # --- CORE ---
+    wages = money(summary.get("wages"))
+    federal = money(summary.get("federal_withholding"))
+    ss = money(summary.get("social_security"))
+    medicare = money(summary.get("medicare"))
+    state_tax = money(summary.get("state_withholding"))
+    local_tax = money(summary.get("local_tax"))
 
-    employer_addr_line = " ".join(
-        part for part in [employer_address_1, employer_address_2] if part
-    ).strip()
-    employer_city_state_zip = " ".join(
-        part for part in [f"{employer_city}," if employer_city else "", employer_state, employer_zip] if part
-    ).strip()
+    employer = _first_nonempty(company_values.get("legal_name"), company_values.get("display_name"))
+    ein = _format_ein(company_values.get("ein"))
+    state = company_values.get("state") or ""
+    state_id = company_values.get("state_employer_id") or ""
 
-    first_name, middle_initial, last_name = _split_name_for_w2(employee_record)
-    employee_name_line = " ".join(part for part in [first_name, middle_initial, last_name] if part).strip()
+    first, mid, last = _split_name_for_w2(employee_record)
+    employee_name = f"{first} {mid} {last}".strip()
 
-    employee_ssn = _format_ssn_employee_copy(
+    ssn = _format_ssn_employee_copy(
         _first_nonempty(
             _record_get(employee_record, "ssn"),
             _record_get(employee_record, "social_security_number"),
         )
     )
 
-    employee_addr_1 = fit_text(
-        _first_nonempty(
-            _record_get(employee_record, "address_line_1"),
-            _record_get(employee_record, "street"),
-            _record_get(employee_record, "address"),
-        ),
-        38,
-    )
-    employee_addr_2 = fit_text(_record_get(employee_record, "address_line_2"), 38)
-    employee_city = fit_text(_record_get(employee_record, "city"), 18)
-    employee_state = fit_text(_record_get(employee_record, "state"), 2)
-    employee_zip = fit_text(
-        _first_nonempty(_record_get(employee_record, "zip_code"), _record_get(employee_record, "zipcode")),
-        10,
-    )
-    employee_locality = fit_text(
-        _first_nonempty(_record_get(employee_record, "locality"), _record_get(employee_record, "county")),
-        16,
-    )
+    # =========================
+    # 🔥 AUTO BOX 12
+    # =========================
+    box12 = []
 
-    employee_addr_line = " ".join(
-        part for part in [employee_addr_1, employee_addr_2] if part
-    ).strip()
-    employee_city_state_zip = " ".join(
-        part for part in [f"{employee_city}," if employee_city else "", employee_state, employee_zip] if part
-    ).strip()
+    if summary.get("retirement_401k"):
+        box12.append({"code": "D", "amount": money(summary.get("retirement_401k"))})
 
-    wages = money(summary.get("wages"))
-    federal = money(summary.get("federal_withholding"))
-    social_security = money(summary.get("social_security"))
-    medicare = money(summary.get("medicare"))
-    state_withholding = money(summary.get("state_withholding"))
-    local_tax = money(summary.get("local_tax"))
+    if summary.get("health_insurance"):
+        box12.append({"code": "DD", "amount": money(summary.get("health_insurance"))})
 
-    social_security_wages = money(summary.get("social_security_wages", wages))
-    medicare_wages = money(summary.get("medicare_wages", wages))
-    state_wages = money(summary.get("state_wages", wages))
-    local_wages = money(summary.get("local_wages", wages))
+    # =========================
+    # 🔥 AUTO BOX 14
+    # =========================
+    box14 = []
 
-    box12a = fit_text(summary.get("box12a"), 14)
-    box12b = fit_text(summary.get("box12b"), 14)
-    box12c = fit_text(summary.get("box12c"), 14)
-    box12d = fit_text(summary.get("box12d"), 14)
-    box14 = fit_text(summary.get("box14"), 28)
+    if summary.get("union_dues"):
+        box14.append({"label": "Union", "amount": money(summary.get("union_dues"))})
 
-    checked_items = {
-        "statutory_employee": bool(summary.get("statutory_employee")),
-        "retirement_plan": bool(summary.get("retirement_plan")),
-        "third_party_sick_pay": bool(summary.get("third_party_sick_pay")),
-    }
+    if summary.get("other_deductions"):
+        box14.append({"label": "Other", "amount": money(summary.get("other_deductions"))})
 
-    def draw_text_clipped(x, y, value, max_width, font_name="Helvetica", font_size=6.3, bold=False, align="left"):
-        value = text(value)
-        if not value:
-            return
+    # =========================
+    # DRAW COPY
+    # =========================
+    def draw_copy(x_offset=0, y_offset=0):
 
-        font_name = "Helvetica-Bold" if bold else font_name
-        pdf.setFont(font_name, font_size)
+        draw(70 + x_offset, 700 + y_offset, ssn, 9, True)
+        draw(170 + x_offset, 700 + y_offset, ein, 9, True)
 
-        while value and pdf.stringWidth(value, font_name, font_size) > max_width:
-            value = value[:-1]
+        draw(70 + x_offset, 670 + y_offset, employer, 8)
+        draw(70 + x_offset, 645 + y_offset, employee_name, 8)
 
-        if align == "right":
-            pdf.drawRightString(x, y, value)
-        elif align == "center":
-            pdf.drawCentredString(x, y, value)
-        else:
-            pdf.drawString(x, y, value)
+        draw(360 + x_offset, 700 + y_offset, f"{wages:,.2f}", 9, True)
+        draw(450 + x_offset, 700 + y_offset, f"{federal:,.2f}", 9, True)
 
-    def draw_box(x, y_top, w, h, label, value="", label_size=4.8, value_size=6.5, bold=False, align="left"):
-        y_bottom = y_top - h
-        pdf.setLineWidth(0.55)
-        pdf.rect(x, y_bottom, w, h)
+        draw(540 + x_offset, 700 + y_offset, f"{wages:,.2f}", 9, True)
+        draw(540 + x_offset, 675 + y_offset, f"{ss:,.2f}", 9, True)
 
-        pdf.setFont("Helvetica", label_size)
-        pdf.drawString(x + 2, y_top - 5.9, label)
+        draw(360 + x_offset, 675 + y_offset, f"{wages:,.2f}", 9, True)
+        draw(450 + x_offset, 675 + y_offset, f"{medicare:,.2f}", 9, True)
 
-        if value:
-            if align == "left":
-                value_x = x + 2.5
-            elif align == "right":
-                value_x = x + w - 2.5
-            else:
-                value_x = x + (w / 2)
+        # Box 12
+        y_box12 = 610 + y_offset
+        for item in box12[:4]:
+            draw(360 + x_offset, y_box12, item["code"], 8, True)
+            draw(390 + x_offset, y_box12, f"{item['amount']:,.2f}", 8)
+            y_box12 -= 14
 
-            draw_text_clipped(
-                value_x,
-                y_bottom + 3.0,
-                value,
-                w - 5,
-                font_size=value_size,
-                bold=bold,
-                align=align,
-            )
+        # Box 14
+        y_box14 = 560 + y_offset
+        for item in box14[:3]:
+            draw(70 + x_offset, y_box14, item["label"], 7)
+            draw(160 + x_offset, y_box14, f"{item['amount']:,.2f}", 7)
+            y_box14 -= 14
 
-    def draw_checkbox_group(x, y_top, w, h):
-        y_bottom = y_top - h
-        pdf.setLineWidth(0.55)
-        pdf.rect(x, y_bottom, w, h)
+        # State / Local
+        draw(70 + x_offset, 520 + y_offset, state, 8)
+        draw(140 + x_offset, 520 + y_offset, state_id, 8)
 
-        pdf.setFont("Helvetica", 4.5)
-        pdf.drawString(x + 2, y_top - 5.9, "13")
-        pdf.drawString(x + 15, y_top - 5.9, "Statutory")
-        pdf.drawString(x + 15, y_top - 11.0, "employee")
-        pdf.drawString(x + 56, y_top - 5.9, "Retirement")
-        pdf.drawString(x + 56, y_top - 11.0, "plan")
-        pdf.drawString(x + 92, y_top - 5.9, "Third-party")
-        pdf.drawString(x + 92, y_top - 11.0, "sick pay")
+        draw(360 + x_offset, 520 + y_offset, f"{wages:,.2f}", 8)
+        draw(450 + x_offset, 520 + y_offset, f"{state_tax:,.2f}", 8)
 
-        entries = [
-            (x + 3, "statutory_employee"),
-            (x + 44, "retirement_plan"),
-            (x + 87, "third_party_sick_pay"),
-        ]
+        draw(360 + x_offset, 500 + y_offset, "LOCAL", 8)
+        draw(450 + x_offset, 500 + y_offset, f"{local_tax:,.2f}", 8)
 
-        for box_x, key in entries:
-            pdf.rect(box_x, y_bottom + 2.5, 6.5, 6.5)
-            if checked_items.get(key):
-                pdf.setFont("Helvetica-Bold", 6.5)
-                pdf.drawCentredString(box_x + 3.25, y_bottom + 3.5, "X")
-
-    def draw_single_copy(copy_label, top_y):
-        left = 24
-        right = width - 24
-        form_width = right - left
-        row_h = 23
-
-        # Header
-        pdf.setFont("Helvetica-Bold", 8.5)
-        pdf.drawString(left, top_y + 9, "Wage and Tax Statement")
-
-        pdf.setFont("Helvetica-Bold", 15)
-        pdf.drawRightString(right, top_y + 9, "W-2")
-
-        pdf.setFont("Helvetica", 5.6)
-        pdf.drawString(left, top_y + 1, str(tax_year))
-        pdf.drawString(left + 24, top_y + 1, copy_label)
-        pdf.drawRightString(right, top_y + 1, "OMB No. 1545-0008")
-
-        c1 = 58
-        c2 = 120
-        c3 = 57
-        c4 = 57
-        c5 = 57
-        c6 = form_width - (c1 + c2 + c3 + c4 + c5)
-
-        y = top_y - 6
-        draw_box(left, y, c1, row_h, "a  Employee's social security number", employee_ssn, value_size=6.6, bold=True, align="center")
-        draw_box(left + c1, y, c2, row_h, "b  Employer identification number (EIN)", employer_ein, value_size=6.6, bold=True, align="center")
-        draw_box(left + c1 + c2, y, c3, row_h, "1  Wages, tips, other compensation", f"{wages:,.2f}", value_size=6.6, bold=True, align="right")
-        draw_box(left + c1 + c2 + c3, y, c4, row_h, "2  Federal income tax withheld", f"{federal:,.2f}", value_size=6.6, bold=True, align="right")
-        draw_box(left + c1 + c2 + c3 + c4, y, c5, row_h, "3  Social security wages", f"{social_security_wages:,.2f}", value_size=6.6, bold=True, align="right")
-        draw_box(left + c1 + c2 + c3 + c4 + c5, y, c6, row_h, "4  Social security tax withheld", f"{social_security:,.2f}", value_size=6.6, bold=True, align="right")
-
-        y -= row_h
-        c7 = 178
-        c8 = 57
-        c9 = 57
-        c10 = 57
-        c11 = form_width - (c7 + c8 + c9 + c10)
-
-        employer_block = " / ".join(
-            part for part in [employer_name, employer_addr_line, employer_city_state_zip] if part
-        )
-        draw_box(left, y, c7, row_h, "c  Employer's name, address, and ZIP code", employer_block, value_size=5.8, bold=True)
-        draw_box(left + c7, y, c8, row_h, "5  Medicare wages and tips", f"{medicare_wages:,.2f}", value_size=6.6, bold=True, align="right")
-        draw_box(left + c7 + c8, y, c9, row_h, "6  Medicare tax withheld", f"{medicare:,.2f}", value_size=6.6, bold=True, align="right")
-        draw_box(left + c7 + c8 + c9, y, c10, row_h, "7  Social security tips", "", value_size=6.6, bold=True, align="right")
-        draw_box(left + c7 + c8 + c9 + c10, y, c11, row_h, "8  Allocated tips", "", value_size=6.6, bold=True, align="right")
-
-        y -= row_h
-        c12 = 178
-        c13 = 57
-        c14 = 57
-        c15 = 57
-        c16 = form_width - (c12 + c13 + c14 + c15)
-
-        draw_box(left, y, c12, row_h, "d  Control number", fit_text(summary.get("control_number"), 16), value_size=6.1, bold=True)
-        draw_box(left + c12, y, c13, row_h, "9", "")
-        draw_box(left + c12 + c13, y, c14, row_h, "10  Dependent care benefits", "", value_size=6.6, bold=True, align="right")
-        draw_box(left + c12 + c13 + c14, y, c15, row_h, "11  Nonqualified plans", "", value_size=6.6, bold=True, align="right")
-        draw_box(left + c12 + c13 + c14 + c15, y, c16, row_h, "12a", box12a, value_size=5.9, bold=True)
-
-        y -= row_h
-        c17 = 178
-        c18 = 57
-        c19 = 57
-        c20 = 57
-        c21 = form_width - (c17 + c18 + c19 + c20)
-
-        draw_box(left, y, c17, row_h, "e  Employee's first name and initial / last name", employee_name_line, value_size=6.1, bold=True)
-        draw_box(left + c17, y, c18, row_h, "12b", box12b, value_size=5.9, bold=True)
-        draw_box(left + c17 + c18, y, c19, row_h, "12c", box12c, value_size=5.9, bold=True)
-        draw_box(left + c17 + c18 + c19, y, c20, row_h, "12d", box12d, value_size=5.9, bold=True)
-        draw_checkbox_group(left + c17 + c18 + c19 + c20, y, c21, row_h)
-
-        y -= row_h
-        c22 = 178
-        c23 = 118
-        c24 = 57
-        c25 = form_width - (c22 + c23 + c24)
-
-        employee_block = " / ".join(
-            part for part in [employee_addr_line, employee_city_state_zip] if part
-        )
-        state_id_value = " ".join(part for part in [employer_state, employer_state_id] if part).strip()
-
-        draw_box(left, y, c22, row_h, "f  Employee's address and ZIP code", employee_block, value_size=5.8, bold=True)
-        draw_box(left + c22, y, c23, row_h, "14  Other", box14, value_size=5.7, bold=True)
-        draw_box(left + c22 + c23, y, c24, row_h, "15  State / Employer's state ID no.", state_id_value, value_size=5.2, bold=True)
-        draw_box(left + c22 + c23 + c24, y, c25, row_h, "16  State wages, tips, etc.", f"{state_wages:,.2f}", value_size=6.6, bold=True, align="right")
-
-        y -= row_h
-        c26 = 57
-        c27 = 66
-        c28 = 66
-        c29 = 76
-        c30 = form_width - (c26 + c27 + c28 + c29)
-
-        draw_box(left, y, c26, row_h, "17  State income tax", f"{state_withholding:,.2f}" if state_withholding else "", value_size=6.6, bold=True, align="right")
-        draw_box(left + c26, y, c27, row_h, "18  Local wages, tips, etc.", f"{local_wages:,.2f}" if local_wages else "", value_size=6.6, bold=True, align="right")
-        draw_box(left + c26 + c27, y, c28, row_h, "19  Local income tax", f"{local_tax:,.2f}" if local_tax else "", value_size=6.6, bold=True, align="right")
-        draw_box(left + c26 + c27 + c28, y, c29, row_h, "20  Locality name", employee_locality, value_size=5.7, bold=True)
-        draw_box(left + c26 + c27 + c28 + c29, y, c30, row_h, "Notice", "Keep for your records", value_size=5.7, bold=True, align="center")
-
-    pdf.setTitle(f"W2_{first_name}_{last_name}_{tax_year}")
-
-    # Lowered copies slightly and moved divider lines into blank space
-    draw_single_copy("Copy B — To Be Filed With Employee's FEDERAL Tax Return.", 736)
-    pdf.line(20, 490, width - 20, 490)
-
-    draw_single_copy("Copy C — For EMPLOYEE'S RECORDS.", 474)
-    pdf.line(20, 228, width - 20, 228)
-
-    draw_single_copy("Copy 2 — To Be Filed With Employee's State, City, or Local Income Tax Return.", 212)
-
-    pdf.setFont("Helvetica", 6)
-    pdf.drawString(24, 10, "Employee substitute copies only. Do not use this page as SSA-filed Copy A.")
+    draw_copy(0, 0)
+    draw_copy(306, 0)
+    draw_copy(0, -360)
+    draw_copy(306, -360)
 
     pdf.showPage()
     pdf.save()
 
-    pdf_data = buffer.getvalue()
+    data = buffer.getvalue()
     buffer.close()
-    return pdf_data
+    return data
 
 
 def _build_w2_all_summary_pdf(company_name, tax_year, employee_rows):
@@ -643,6 +499,174 @@ def _w2_company_readiness(values):
 
     missing = [label for label, val in checks if not (str(val or "").strip())]
     return {"missing": missing, "ready": len(missing) == 0}
+
+
+# ===============================
+# 🔥 1099 SYSTEM (FULL ADD)
+# ===============================
+
+def _build_1099_pdf(company_profile, tax_year, contractor, summary):
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+
+    def draw(x, y, val, size=9, bold=False):
+        pdf.setFont("Helvetica-Bold" if bold else "Helvetica", size)
+        pdf.drawString(x, y, str(val or ""))
+
+    company_values = get_company_profile_values(company_profile)
+
+    payer = company_values.get("legal_name") or company_values.get("display_name")
+    ein = _format_ein(company_values.get("ein"))
+
+    contractor_name = contractor.get("name") or "Contractor"
+    tin = contractor.get("tin") or ""
+
+    nonemployee_comp = float(summary.get("nonemployee_comp", 0) or 0)
+
+    # Header
+    draw(200, 750, "1099-NEC", 16, True)
+    draw(50, 720, f"Tax Year: {tax_year}", 10)
+
+    # Payer
+    draw(50, 690, "PAYER", 10, True)
+    draw(50, 675, payer)
+    draw(50, 660, f"EIN: {ein}")
+
+    # Recipient
+    draw(50, 630, "RECIPIENT", 10, True)
+    draw(50, 615, contractor_name)
+    draw(50, 600, f"TIN: {tin}")
+
+    # Box 1
+    draw(350, 650, "Nonemployee Compensation", 9)
+    draw(350, 630, f"${nonemployee_comp:,.2f}", 12, True)
+
+    pdf.save()
+
+    data = buffer.getvalue()
+    buffer.close()
+    return data
+
+
+# ===============================
+# 🔥 1099 CENTER PAGE
+# ===============================
+@settings_bp.route("/settings/1099")
+@login_required
+@subscription_required
+@require_permission("can_manage_settings")
+def settings_1099():
+
+    cid = session["company_id"]
+    year = (request.args.get("year") or str(datetime.utcnow().year)).strip()
+
+    conn = get_db_connection()
+
+    contractors = conn.execute("""
+        SELECT id, name, email
+        FROM customers
+        WHERE company_id = %s
+    """, (cid,)).fetchall()
+
+    rows_html = ""
+
+    for c in contractors:
+        total = conn.execute("""
+            SELECT COALESCE(SUM(amount), 0) as total
+            FROM invoice_payments
+            WHERE company_id = %s AND customer_id = %s
+        """, (cid, c["id"])).fetchone()
+
+        total_amt = float(total["total"] or 0)
+
+        print_btn = f"""
+        <a class='btn small' target='_blank'
+           href='{url_for("settings.print_1099", contractor_id=c["id"], year=year)}'>
+           Print 1099
+        </a>
+        """
+
+        rows_html += f"""
+        <tr>
+            <td>{escape(c["name"])}</td>
+            <td>${total_amt:,.2f}</td>
+            <td>{print_btn}</td>
+        </tr>
+        """
+
+    conn.close()
+
+    content = f"""
+    <div class='card'>
+        <h1>1099 Center</h1>
+        <p class='muted'>Generate 1099 forms for contractors.</p>
+    </div>
+
+    <div class='card'>
+        <table style='width:100%'>
+            <thead>
+                <tr>
+                    <th>Contractor</th>
+                    <th>Total Paid</th>
+                    <th>Form</th>
+                </tr>
+            </thead>
+            <tbody>
+                {rows_html or "<tr><td colspan='3'>No contractors found</td></tr>"}
+            </tbody>
+        </table>
+    </div>
+    """
+
+    return render_page(content, "1099 Center")
+
+
+# ===============================
+# 🔥 PRINT 1099
+# ===============================
+@settings_bp.route("/settings/1099/<int:contractor_id>/print")
+@login_required
+@subscription_required
+@require_permission("can_manage_settings")
+def print_1099(contractor_id):
+
+    cid = session["company_id"]
+    year = request.args.get("year") or str(datetime.utcnow().year)
+
+    conn = get_db_connection()
+
+    contractor = conn.execute("""
+        SELECT *
+        FROM customers
+        WHERE id = %s AND company_id = %s
+    """, (contractor_id, cid)).fetchone()
+
+    total = conn.execute("""
+        SELECT COALESCE(SUM(amount), 0) as total
+        FROM invoice_payments
+        WHERE company_id = %s AND customer_id = %s
+    """, (cid, contractor_id)).fetchone()
+
+    conn.close()
+
+    summary = {
+        "nonemployee_comp": float(total["total"] or 0)
+    }
+
+    company_profile = get_company_profile(cid)
+
+    pdf_data = _build_1099_pdf(
+        company_profile,
+        year,
+        contractor,
+        summary
+    )
+
+    response = make_response(pdf_data)
+    response.headers["Content-Type"] = "application/pdf"
+    response.headers["Content-Disposition"] = f"inline; filename=1099_{contractor_id}_{year}.pdf"
+
+    return response
 
 
 @settings_bp.route("/settings")
@@ -1329,119 +1353,117 @@ def settings_w2():
         )
         readiness_card = f"""
         <div class='card' style='border:1px solid #f59e0b; background:#fffaf0;'>
-            <div style='display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;'>
-                <div>
-                    <h2 style='margin-bottom:8px;'>W-2 Filing Readiness</h2>
-                    <ul style='margin:0;'>{missing_html}</ul>
-                </div>
-                <div>
-                    <a class='btn warning' href='{url_for("settings.settings_w2_company")}'>Complete Profile</a>
-                </div>
-            </div>
+            <h2>W-2 Filing Readiness</h2>
+            <ul>{missing_html}</ul>
+            <a class='btn warning' href='{url_for("settings.settings_w2_company")}'>Fix Issues</a>
         </div>
         """
     else:
         readiness_card = """
         <div class='card' style='border:1px solid #16a34a; background:#f0fdf4;'>
-            <h2 style='margin-bottom:8px;'>W-2 Filing Readiness</h2>
-            <p style='margin:0; color:#166534; font-weight:700;'>Ready</p>
+            <h2>W-2 Filing Readiness</h2>
+            <p style='color:#166534; font-weight:700;'>Ready to file</p>
         </div>
         """
 
     content = f"""
     <div class='card'>
-        <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
-            <div>
-                <h1 style='margin-bottom:6px;'>W-2 Center</h1>
-                <p class='muted' style='margin:0;'>Review yearly payroll totals and generate employee W-2 Copies B, C, and 2.</p>
-            </div>
-            <div class='row-actions'>
-                <a href='{url_for("settings.settings")}' class='btn secondary'>Back</a>
-            </div>
-        </div>
+        <h1>W-2 Center</h1>
+        <p class='muted'>Manage W-2s, filings, and year-end payroll reports.</p>
     </div>
 
     {readiness_card}
 
     <div class='card'>
-        <div style='display:flex; justify-content:space-between; align-items:end; gap:12px; flex-wrap:wrap;'>
+        <form method='get' style='display:flex; gap:10px; flex-wrap:wrap; align-items:end;'>
+
             <div>
-                <h2 style='margin-bottom:6px;'>Year Summary</h2>
-                <p class='muted' style='margin:0;'>Viewing tax year {escape(year)}</p>
+                <label>Year</label>
+                <input name='year' value='{year}' style='width:100px;'>
             </div>
 
-            <form method='get' style='display:flex; gap:10px; align-items:end; flex-wrap:wrap; margin:0;'>
-                <div>
-                    <label for='year' style='display:block; margin-bottom:6px;'>Year</label>
-                    <input
-                        id='year'
-                        name='year'
-                        value='{escape(year)}'
-                        inputmode='numeric'
-                        pattern='[0-9]*'
-                        maxlength='4'
-                        placeholder='2026'
-                        style='min-width:110px;'
-                    >
-                </div>
-                <div class='row-actions'>
-                    <button type='submit' class='btn secondary'>Load Year</button>
-                    <a target='_blank' href='{url_for("settings.print_all_w2_summaries", year=year)}' class='btn success'>Print All Totals</a>
-                    <a href='{url_for("settings.settings_w2_company")}' class='btn secondary'>Company W-2 Profile</a>
-                </div>
-            </form>
-        </div>
+            <div class='row-actions' style='position:relative; display:flex; gap:10px; align-items:center;'>
 
-        <div class='stats-grid' style='margin-top:18px; display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px;'>
-            <div class='card' style='margin:0;'>
-                <div class='muted'>Total Wages</div>
-                <div style='font-size:1.2rem; font-weight:700;'>${total_wages:,.2f}</div>
+                <button type='submit' class='btn secondary'>Load Year</button>
+
+                <a target='_blank'
+                   href='{url_for("settings.print_all_w2_summaries", year=year)}'
+                   class='btn success'>
+                   Print Totals
+                </a>
+
+                <div style='position:relative;'>
+
+                    <button type='button'
+                            class='btn warning'
+                            onclick="toggleW2Dropdown()">
+                        Filing Tools ▾
+                    </button>
+
+                    <div id='w2Dropdown'
+                         style='display:none; position:absolute; right:0; top:110%; background:white; border:1px solid #e5e7eb; border-radius:10px; box-shadow:0 10px 25px rgba(0,0,0,.08); min-width:200px; z-index:1000;'>
+
+                        <a target='_blank'
+                           href='{url_for("settings.print_w3", year=year)}'
+                           style='display:block; padding:10px;'>Generate W-3</a>
+
+                        <a target='_blank'
+                           href='{url_for("settings.export_ssa", year=year)}'
+                           style='display:block; padding:10px;'>Export SSA File</a>
+
+                        <a href='{url_for("settings.settings_w2_company")}'
+                           style='display:block; padding:10px;'>Company Profile</a>
+
+                    </div>
+                </div>
+
             </div>
-            <div class='card' style='margin:0;'>
-                <div class='muted'>Federal</div>
-                <div style='font-size:1.2rem; font-weight:700;'>${total_federal:,.2f}</div>
-            </div>
-            <div class='card' style='margin:0;'>
-                <div class='muted'>Social Security</div>
-                <div style='font-size:1.2rem; font-weight:700;'>${total_ss:,.2f}</div>
-            </div>
-            <div class='card' style='margin:0;'>
-                <div class='muted'>Medicare</div>
-                <div style='font-size:1.2rem; font-weight:700;'>${total_medicare:,.2f}</div>
-            </div>
-            <div class='card' style='margin:0;'>
-                <div class='muted'>State</div>
-                <div style='font-size:1.2rem; font-weight:700;'>${total_state:,.2f}</div>
-            </div>
-            <div class='card' style='margin:0;'>
-                <div class='muted'>Local</div>
-                <div style='font-size:1.2rem; font-weight:700;'>${total_local:,.2f}</div>
-            </div>
+        </form>
+
+        <div class='stats-grid' style='margin-top:20px; display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px;'>
+            <div class='card'><b>Wages</b><br>${total_wages:,.2f}</div>
+            <div class='card'><b>Federal</b><br>${total_federal:,.2f}</div>
+            <div class='card'><b>SS</b><br>${total_ss:,.2f}</div>
+            <div class='card'><b>Medicare</b><br>${total_medicare:,.2f}</div>
+            <div class='card'><b>State</b><br>${total_state:,.2f}</div>
+            <div class='card'><b>Local</b><br>${total_local:,.2f}</div>
         </div>
     </div>
 
     <div class='card'>
-        <h2>Employee W-2 Forms</h2>
-        <div style='overflow-x:auto; width:100%;'>
-            <table style='width:100%; min-width:900px;'>
-                <thead>
-                    <tr>
-                        <th>Employee</th>
-                        <th>Wages</th>
-                        <th>Federal</th>
-                        <th>SS</th>
-                        <th>Medicare</th>
-                        <th>State</th>
-                        <th>Local</th>
-                        <th>Forms</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows}
-                </tbody>
-            </table>
-        </div>
+        <h2>Employees</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Wages</th>
+                    <th>Federal</th>
+                    <th>SS</th>
+                    <th>Medicare</th>
+                    <th>State</th>
+                    <th>Local</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {rows}
+            </tbody>
+        </table>
     </div>
+
+    <script>
+    function toggleW2Dropdown() {{
+        const el = document.getElementById('w2Dropdown');
+        el.style.display = (el.style.display === 'block') ? 'none' : 'block';
+    }}
+
+    document.addEventListener('click', function(e) {{
+        if (!e.target.closest('.row-actions')) {{
+            const el = document.getElementById('w2Dropdown');
+            if (el) el.style.display = 'none';
+        }}
+    }});
+    </script>
     """
 
     return render_page(content, "W-2 Center")
@@ -1876,6 +1898,72 @@ def print_all_w2_summaries():
     response = make_response(pdf_data)
     response.headers["Content-Type"] = "application/pdf"
     response.headers["Content-Disposition"] = f"inline; filename=w2_totals_report_{year}.pdf"
+    return response
+
+@settings_bp.route("/settings/w2/print-w3")
+@login_required
+@subscription_required
+@require_permission("can_manage_settings")
+def print_w3():
+    cid = session["company_id"]
+    year = request.args.get("year") or str(datetime.utcnow().year)
+
+    conn = get_db_connection()
+
+    totals = conn.execute("""
+        SELECT
+            COALESCE(SUM(gross_pay), 0) AS wages,
+            COALESCE(SUM(federal_withholding), 0) AS federal,
+            COALESCE(SUM(social_security), 0) AS ss,
+            COALESCE(SUM(medicare), 0) AS medicare
+        FROM payroll_entries
+        WHERE company_id = %s
+    """, (cid,)).fetchone()
+
+    conn.close()
+
+    company_name = _company_display_name_for_reports(cid)
+
+    pdf_data = _build_w3_pdf(company_name, year, totals or {})
+
+    response = make_response(pdf_data)
+    response.headers["Content-Type"] = "application/pdf"
+    response.headers["Content-Disposition"] = f"inline; filename=w3_summary_{year}.pdf"
+    return response
+
+@settings_bp.route("/settings/w2/export-ssa")
+@login_required
+@subscription_required
+@require_permission("can_manage_settings")
+def export_ssa():
+    cid = session["company_id"]
+    year = request.args.get("year") or str(datetime.utcnow().year)
+
+    conn = get_db_connection()
+
+    rows = conn.execute("""
+        SELECT
+            e.id as employee_id,
+            CONCAT(e.first_name, ' ', e.last_name) as employee_name,
+            COALESCE(SUM(p.gross_pay), 0) as wages,
+            COALESCE(SUM(p.federal_withholding), 0) as federal_withholding,
+            COALESCE(SUM(p.social_security), 0) as social_security,
+            COALESCE(SUM(p.medicare), 0) as medicare
+        FROM employees e
+        LEFT JOIN payroll_entries p
+            ON p.employee_id = e.id
+            AND p.company_id = %s
+        WHERE e.company_id = %s
+        GROUP BY e.id
+    """, (cid, cid)).fetchall()
+
+    conn.close()
+
+    export_data = _build_ssa_export(cid, year, rows)
+
+    response = make_response(export_data)
+    response.headers["Content-Type"] = "application/json"
+    response.headers["Content-Disposition"] = f"attachment; filename=ssa_export_{year}.json"
     return response
 
 @settings_bp.route("/settings/logo")
