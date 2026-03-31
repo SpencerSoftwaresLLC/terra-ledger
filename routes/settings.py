@@ -271,53 +271,55 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
     template_path = os.path.abspath(
         os.path.join(os.path.dirname(__file__), "..", "static", "templates", "w2_4up_template.png")
     )
-
     if not os.path.exists(template_path):
-        raise FileNotFoundError(
-            f"Missing W-2 template image: {template_path}. "
-            "Add your template at static/templates/w2_4up_template.png"
-        )
+        raise FileNotFoundError(f"Missing W-2 template image: {template_path}")
 
-    # Draw the 4-up W-2 template
+    template_w = 615.0
+    template_h = 800.0
+
     pdf.drawImage(
         ImageReader(template_path),
-        0,
-        0,
+        0, 0,
         width=page_w,
         height=page_h,
         mask="auto",
     )
 
+    def tx(x):
+        return (x / template_w) * page_w
+
+    def ty(y):
+        return page_h - ((y / template_h) * page_h)
+
     def money(v):
         return float(_money(v or 0))
 
-    def text(v):
+    def clean(v):
         return str(v or "").strip()
 
-    def draw_text(x, y, value, size=8, bold=False, max_width=None, align="left"):
-        value = text(value)
+    def draw_text(x, y, value, size=7, bold=False, max_width=None, align="left"):
+        value = clean(value)
         if not value:
             return
 
         font_name = "Helvetica-Bold" if bold else "Helvetica"
-        font_size = size
+        pdf.setFont(font_name, size)
         pdf.setFillColor(black)
-        pdf.setFont(font_name, font_size)
 
-        if max_width:
-            while value and pdf.stringWidth(value, font_name, font_size) > max_width:
+        if max_width is not None:
+            while value and pdf.stringWidth(value, font_name, size) > max_width:
                 value = value[:-1].rstrip()
 
         if align == "right":
-            pdf.drawRightString(x, y, value)
+            pdf.drawRightString(tx(x), ty(y), value)
         elif align == "center":
-            pdf.drawCentredString(x, y, value)
+            pdf.drawCentredString(tx(x), ty(y), value)
         else:
-            pdf.drawString(x, y, value)
+            pdf.drawString(tx(x), ty(y), value)
 
     def cover_rect(x, y, w, h):
         pdf.setFillColor(white)
-        pdf.rect(x, y, w, h, stroke=0, fill=1)
+        pdf.rect(tx(x), ty(y) - ((h / template_h) * page_h), (w / template_w) * page_w, (h / template_h) * page_h, stroke=0, fill=1)
         pdf.setFillColor(black)
 
     company_values = get_company_profile_values(company_profile)
@@ -339,13 +341,13 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
         company_values.get("display_name"),
     )
     employer_ein = _format_ein(company_values.get("ein"))
-    employer_state = text(company_values.get("state")).upper()
-    employer_state_id = text(company_values.get("state_employer_id"))
+    employer_state = clean(company_values.get("state")).upper()
+    employer_state_id = clean(company_values.get("state_employer_id"))
 
-    employer_address_1 = text(company_values.get("address_line_1"))
-    employer_address_2 = text(company_values.get("address_line_2"))
-    employer_city = text(company_values.get("city"))
-    employer_zip = text(company_values.get("zip_code"))
+    employer_address_1 = clean(company_values.get("address_line_1"))
+    employer_address_2 = clean(company_values.get("address_line_2"))
+    employer_city = clean(company_values.get("city"))
+    employer_zip = clean(company_values.get("zip_code"))
 
     employer_addr_line = " ".join(part for part in [employer_address_1, employer_address_2] if part).strip()
     employer_city_state_zip = " ".join(
@@ -371,9 +373,9 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
         _record_get(employee_record, "street"),
         _record_get(employee_record, "address"),
     )
-    employee_addr_2 = text(_record_get(employee_record, "address_line_2"))
-    employee_city = text(_record_get(employee_record, "city"))
-    employee_state = text(_record_get(employee_record, "state")).upper()
+    employee_addr_2 = clean(_record_get(employee_record, "address_line_2"))
+    employee_city = clean(_record_get(employee_record, "city"))
+    employee_state = clean(_record_get(employee_record, "state")).upper()
     employee_zip = _first_nonempty(
         _record_get(employee_record, "zip_code"),
         _record_get(employee_record, "zipcode"),
@@ -393,152 +395,79 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
         ] if part
     ).strip()
 
-    retirement_401k = money(summary.get("retirement_401k"))
-    health_insurance = money(summary.get("health_insurance"))
-    union_dues = money(summary.get("union_dues"))
-    other_deductions = money(summary.get("other_deductions"))
+    # template-native quadrant anchors
+    quadrants = [
+        (0, 0),      # top left
+        (307, 0),    # top right
+        (0, 400),    # bottom left
+        (307, 400),  # bottom right
+    ]
 
-    box12_items = []
-    if retirement_401k > 0:
-        box12_items.append(("D", retirement_401k))
-    if health_insurance > 0:
-        box12_items.append(("DD", health_insurance))
+    for qx, qy in quadrants:
+        # mask the baked-in year and redraw
+        cover_rect(qx + 212, qy + 372, 42, 16)
+        draw_text(qx + 233, qy + 385, tax_year, size=11, bold=True, align="center")
 
-    # allow explicit prebuilt box12 values too
-    for key in ("box12a", "box12b", "box12c", "box12d"):
-        val = text(summary.get(key))
-        if val:
-            parts = val.split(" ", 1)
-            if len(parts) == 2:
-                box12_items.append((parts[0], parts[1]))
-            else:
-                box12_items.append((val, ""))
+        # a employee ssn
+        draw_text(qx + 63, qy + 58, employee_ssn, size=7, max_width=62)
 
-    box14_items = []
-    if union_dues > 0:
-        box14_items.append(("Union", union_dues))
-    if other_deductions > 0:
-        box14_items.append(("Other", other_deductions))
+        # 1 wages
+        draw_text(qx + 208, qy + 58, f"{wages:,.2f}", size=7, align="right")
 
-    explicit_box14 = text(summary.get("box14"))
-    if explicit_box14:
-        box14_items.insert(0, ("Other", explicit_box14))
+        # 2 federal
+        draw_text(qx + 295, qy + 58, f"{federal:,.2f}", size=7, align="right")
 
-    checked_items = {
-        "statutory_employee": bool(summary.get("statutory_employee")),
-        "retirement_plan": bool(summary.get("retirement_plan")) or retirement_401k > 0,
-        "third_party_sick_pay": bool(summary.get("third_party_sick_pay")),
-    }
+        # b employer ein
+        draw_text(qx + 67, qy + 95, employer_ein, size=7, max_width=78)
 
-    def draw_checkbox(x, y, checked):
-        if checked:
-            draw_text(x, y, "X", size=7, bold=True, max_width=8, align="center")
+        # 3 ss wages
+        draw_text(qx + 208, qy + 95, f"{social_security_wages:,.2f}", size=7, align="right")
 
-    def draw_copy(x_off=0, y_off=0, is_top=True):
-        """
-        Coordinates tuned for the provided 4-up template image.
-        """
-        # ---- dynamic year: template has baked-in 2025, cover and redraw ----
-        # top copies
-        if is_top:
-            cover_rect(236 + x_off, 15 + y_off, 46, 18)
-            draw_text(259 + x_off, 20 + y_off, tax_year, size=12, bold=True, align="center")
-        else:
-            cover_rect(236 + x_off, 15 + y_off, 46, 18)
-            draw_text(259 + x_off, 20 + y_off, tax_year, size=12, bold=True, align="center")
+        # 4 ss tax
+        draw_text(qx + 295, qy + 95, f"{social_security_tax:,.2f}", size=7, align="right")
 
-        # a Employee SSN
-        draw_text(44 + x_off, 726 + y_off, employee_ssn, size=7.5, bold=False, max_width=78)
+        # 5 medicare wages
+        draw_text(qx + 208, qy + 128, f"{medicare_wages:,.2f}", size=7, align="right")
 
-        # b Employer EIN
-        draw_text(120 + x_off, 726 + y_off, employer_ein, size=7.5, bold=False, max_width=70)
+        # 6 medicare tax
+        draw_text(qx + 295, qy + 128, f"{medicare_tax:,.2f}", size=7, align="right")
 
-        # 1 Wages
-        draw_text(226 + x_off, 726 + y_off, f"{wages:,.2f}", size=7.5, align="right")
+        # c employer block
+        draw_text(qx + 12, qy + 166, employer_name, size=6.5, max_width=175)
+        draw_text(qx + 12, qy + 182, employer_addr_line, size=6.5, max_width=175)
+        draw_text(qx + 12, qy + 198, employer_city_state_zip, size=6.5, max_width=175)
 
-        # 2 Federal withholding
-        draw_text(314 + x_off, 726 + y_off, f"{federal:,.2f}", size=7.5, align="right")
+        # d control number (blank unless present)
+        draw_text(qx + 12, qy + 239, clean(summary.get("control_number")), size=6.5, max_width=180)
 
-        # 3 SS wages
-        draw_text(226 + x_off, 694 + y_off, f"{social_security_wages:,.2f}", size=7.5, align="right")
+        # e employee block
+        draw_text(qx + 12, qy + 281, employee_name_line, size=6.5, max_width=175)
+        draw_text(qx + 12, qy + 297, employee_addr_line, size=6.5, max_width=175)
+        draw_text(qx + 12, qy + 313, employee_city_state_zip, size=6.5, max_width=175)
 
-        # 4 SS tax withheld
-        draw_text(314 + x_off, 694 + y_off, f"{social_security_tax:,.2f}", size=7.5, align="right")
+        # 15 state
+        draw_text(qx + 18, qy + 357, employer_state, size=6.5, max_width=18)
 
-        # 5 Medicare wages
-        draw_text(226 + x_off, 662 + y_off, f"{medicare_wages:,.2f}", size=7.5, align="right")
+        # employer state id
+        draw_text(qx + 71, qy + 357, employer_state_id, size=6.5, max_width=76)
 
-        # 6 Medicare tax withheld
-        draw_text(314 + x_off, 662 + y_off, f"{medicare_tax:,.2f}", size=7.5, align="right")
+        # 16 state wages
+        draw_text(qx + 210, qy + 357, f"{state_wages:,.2f}", size=7, align="right")
 
-        # c Employer name/address/ZIP
-        draw_text(11 + x_off, 622 + y_off, employer_name, size=7, max_width=184)
-        draw_text(11 + x_off, 607 + y_off, employer_addr_line, size=7, max_width=184)
-        draw_text(11 + x_off, 592 + y_off, employer_city_state_zip, size=7, max_width=184)
-
-        # d Control number (leave blank unless provided)
-        draw_text(11 + x_off, 550 + y_off, text(summary.get("control_number")), size=7, max_width=186)
-
-        # e Employee name
-        draw_text(11 + x_off, 509 + y_off, employee_name_line, size=7, max_width=184)
-
-        # f Employee address
-        draw_text(11 + x_off, 468 + y_off, employee_addr_line, size=7, max_width=184)
-        draw_text(11 + x_off, 453 + y_off, employee_city_state_zip, size=7, max_width=184)
-
-        # 12a-d / 13 / 14 area
-        box12_positions = [
-            (242 + x_off, 359 + y_off),
-            (242 + x_off, 327 + y_off),
-            (242 + x_off, 295 + y_off),
-            (242 + x_off, 263 + y_off),
-        ]
-        for idx, (code, amount) in enumerate(box12_items[:4]):
-            px, py = box12_positions[idx]
-            line_val = f"{code} {amount:,.2f}" if isinstance(amount, (int, float)) else f"{code} {amount}".strip()
-            draw_text(px, py, line_val, size=7, max_width=76)
-
-        # checkboxes in box 13
-        draw_checkbox(18 + x_off, 359 + y_off, checked_items["statutory_employee"])
-        draw_checkbox(18 + x_off, 327 + y_off, checked_items["retirement_plan"])
-        draw_checkbox(18 + x_off, 295 + y_off, checked_items["third_party_sick_pay"])
-
-        # box 14
-        if box14_items:
-            first_label, first_amount = box14_items[0]
-            if isinstance(first_amount, (int, float)):
-                draw_text(126 + x_off, 359 + y_off, f"{first_label} {first_amount:,.2f}", size=7, max_width=103)
-            else:
-                draw_text(126 + x_off, 359 + y_off, f"{first_label} {first_amount}".strip(), size=7, max_width=103)
-
-        # box 15 state / employer state ID
-        draw_text(14 + x_off, 229 + y_off, employer_state, size=7, max_width=20)
-        draw_text(67 + x_off, 229 + y_off, employer_state_id, size=7, max_width=80)
-
-        # box 16 state wages
-        draw_text(226 + x_off, 229 + y_off, f"{state_wages:,.2f}", size=7.5, align="right")
-
-        # box 17 state income tax
+        # 17 state income tax
         if state_tax:
-            draw_text(314 + x_off, 229 + y_off, f"{state_tax:,.2f}", size=7.5, align="right")
+            draw_text(qx + 297, qy + 357, f"{state_tax:,.2f}", size=7, align="right")
 
-        # box 18 local wages
+        # 18 local wages
         if local_wages:
-            draw_text(104 + x_off, 197 + y_off, f"{local_wages:,.2f}", size=7.5, align="right")
+            draw_text(qx + 104, qy + 389, f"{local_wages:,.2f}", size=7, align="right")
 
-        # box 19 local income tax
+        # 19 local tax
         if local_tax:
-            draw_text(226 + x_off, 197 + y_off, f"{local_tax:,.2f}", size=7.5, align="right")
+            draw_text(qx + 210, qy + 389, f"{local_tax:,.2f}", size=7, align="right")
 
-        # box 20 locality name
-        draw_text(284 + x_off, 197 + y_off, employee_locality, size=7, max_width=46)
-
-    # Provided template is 2x2.
-    # Coordinates below are tuned to this uploaded image.
-    draw_copy(x_off=0, y_off=0, is_top=True)          # top left
-    draw_copy(x_off=306, y_off=0, is_top=True)        # top right
-    draw_copy(x_off=0, y_off=-395, is_top=False)      # bottom left
-    draw_copy(x_off=306, y_off=-395, is_top=False)    # bottom right
+        # 20 locality
+        draw_text(qx + 285, qy + 389, employee_locality, size=6.5, max_width=42)
 
     pdf.showPage()
     pdf.save()
