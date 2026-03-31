@@ -324,10 +324,11 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
         "third_party_sick_pay": bool(summary.get("third_party_sick_pay")),
     }
 
-    def draw_text_clipped(x, y, value, max_width, font_name="Helvetica", font_size=6.7, bold=False, align="left"):
+    def draw_text_clipped(x, y, value, max_width, font_name="Helvetica", font_size=6.3, bold=False, align="left"):
         value = text(value)
         if not value:
             return
+
         font_name = "Helvetica-Bold" if bold else font_name
         pdf.setFont(font_name, font_size)
 
@@ -341,20 +342,27 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
         else:
             pdf.drawString(x, y, value)
 
-    def draw_box(x, y_top, w, h, label, value="", label_size=5.2, value_size=6.9, bold=False, align="left"):
+    def draw_box(x, y_top, w, h, label, value="", label_size=4.8, value_size=6.5, bold=False, align="left"):
         y_bottom = y_top - h
         pdf.setLineWidth(0.55)
         pdf.rect(x, y_bottom, w, h)
 
         pdf.setFont("Helvetica", label_size)
-        pdf.drawString(x + 2, y_top - 6.5, label)
+        pdf.drawString(x + 2, y_top - 5.9, label)
 
         if value:
+            if align == "left":
+                value_x = x + 2.5
+            elif align == "right":
+                value_x = x + w - 2.5
+            else:
+                value_x = x + (w / 2)
+
             draw_text_clipped(
-                x + 3 if align == "left" else (x + w - 3 if align == "right" else x + (w / 2)),
-                y_bottom + 3.8,
+                value_x,
+                y_bottom + 3.0,
                 value,
-                w - 6,
+                w - 5,
                 font_size=value_size,
                 bold=bold,
                 align=align,
@@ -365,42 +373,44 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
         pdf.setLineWidth(0.55)
         pdf.rect(x, y_bottom, w, h)
 
-        pdf.setFont("Helvetica", 4.8)
-        pdf.drawString(x + 2, y_top - 6.2, "13")
-        pdf.drawString(x + 16, y_top - 6.2, "Statutory")
-        pdf.drawString(x + 16, y_top - 12.0, "employee")
-        pdf.drawString(x + 58, y_top - 6.2, "Retirement")
-        pdf.drawString(x + 58, y_top - 12.0, "plan")
-        pdf.drawString(x + 95, y_top - 6.2, "Third-party")
-        pdf.drawString(x + 95, y_top - 12.0, "sick pay")
+        pdf.setFont("Helvetica", 4.5)
+        pdf.drawString(x + 2, y_top - 5.9, "13")
+        pdf.drawString(x + 15, y_top - 5.9, "Statutory")
+        pdf.drawString(x + 15, y_top - 11.0, "employee")
+        pdf.drawString(x + 56, y_top - 5.9, "Retirement")
+        pdf.drawString(x + 56, y_top - 11.0, "plan")
+        pdf.drawString(x + 92, y_top - 5.9, "Third-party")
+        pdf.drawString(x + 92, y_top - 11.0, "sick pay")
 
         entries = [
             (x + 3, "statutory_employee"),
-            (x + 45, "retirement_plan"),
-            (x + 89, "third_party_sick_pay"),
+            (x + 44, "retirement_plan"),
+            (x + 87, "third_party_sick_pay"),
         ]
 
         for box_x, key in entries:
-            pdf.rect(box_x, y_bottom + 3, 7, 7)
+            pdf.rect(box_x, y_bottom + 2.5, 6.5, 6.5)
             if checked_items.get(key):
-                pdf.setFont("Helvetica-Bold", 7)
-                pdf.drawCentredString(box_x + 3.5, y_bottom + 4.2, "X")
+                pdf.setFont("Helvetica-Bold", 6.5)
+                pdf.drawCentredString(box_x + 3.25, y_bottom + 3.5, "X")
 
     def draw_single_copy(copy_label, top_y):
         left = 24
         right = width - 24
         form_width = right - left
-        row_h = 24
+        row_h = 23
 
-        pdf.setFont("Helvetica-Bold", 9)
-        pdf.drawString(left, top_y + 10, "Wage and Tax Statement")
-        pdf.setFont("Helvetica-Bold", 16)
-        pdf.drawRightString(right, top_y + 10, "W-2")
+        # Header
+        pdf.setFont("Helvetica-Bold", 8.5)
+        pdf.drawString(left, top_y + 9, "Wage and Tax Statement")
 
-        pdf.setFont("Helvetica", 5.8)
-        pdf.drawString(left, top_y + 2, str(tax_year))
-        pdf.drawString(left + 24, top_y + 2, copy_label)
-        pdf.drawRightString(right, top_y + 2, "OMB No. 1545-0008")
+        pdf.setFont("Helvetica-Bold", 15)
+        pdf.drawRightString(right, top_y + 9, "W-2")
+
+        pdf.setFont("Helvetica", 5.6)
+        pdf.drawString(left, top_y + 1, str(tax_year))
+        pdf.drawString(left + 24, top_y + 1, copy_label)
+        pdf.drawRightString(right, top_y + 1, "OMB No. 1545-0008")
 
         c1 = 58
         c2 = 120
@@ -409,13 +419,13 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
         c5 = 57
         c6 = form_width - (c1 + c2 + c3 + c4 + c5)
 
-        y = top_y - 4
-        draw_box(left, y, c1, row_h, "a  Employee's social security number", employee_ssn, value_size=7.0, bold=True, align="center")
-        draw_box(left + c1, y, c2, row_h, "b  Employer identification number (EIN)", employer_ein, value_size=7.0, bold=True, align="center")
-        draw_box(left + c1 + c2, y, c3, row_h, "1  Wages, tips, other compensation", f"{wages:,.2f}", value_size=7.0, bold=True, align="right")
-        draw_box(left + c1 + c2 + c3, y, c4, row_h, "2  Federal income tax withheld", f"{federal:,.2f}", value_size=7.0, bold=True, align="right")
-        draw_box(left + c1 + c2 + c3 + c4, y, c5, row_h, "3  Social security wages", f"{social_security_wages:,.2f}", value_size=7.0, bold=True, align="right")
-        draw_box(left + c1 + c2 + c3 + c4 + c5, y, c6, row_h, "4  Social security tax withheld", f"{social_security:,.2f}", value_size=7.0, bold=True, align="right")
+        y = top_y - 6
+        draw_box(left, y, c1, row_h, "a  Employee's social security number", employee_ssn, value_size=6.6, bold=True, align="center")
+        draw_box(left + c1, y, c2, row_h, "b  Employer identification number (EIN)", employer_ein, value_size=6.6, bold=True, align="center")
+        draw_box(left + c1 + c2, y, c3, row_h, "1  Wages, tips, other compensation", f"{wages:,.2f}", value_size=6.6, bold=True, align="right")
+        draw_box(left + c1 + c2 + c3, y, c4, row_h, "2  Federal income tax withheld", f"{federal:,.2f}", value_size=6.6, bold=True, align="right")
+        draw_box(left + c1 + c2 + c3 + c4, y, c5, row_h, "3  Social security wages", f"{social_security_wages:,.2f}", value_size=6.6, bold=True, align="right")
+        draw_box(left + c1 + c2 + c3 + c4 + c5, y, c6, row_h, "4  Social security tax withheld", f"{social_security:,.2f}", value_size=6.6, bold=True, align="right")
 
         y -= row_h
         c7 = 178
@@ -427,11 +437,11 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
         employer_block = " / ".join(
             part for part in [employer_name, employer_addr_line, employer_city_state_zip] if part
         )
-        draw_box(left, y, c7, row_h, "c  Employer's name, address, and ZIP code", employer_block, value_size=6.2, bold=True)
-        draw_box(left + c7, y, c8, row_h, "5  Medicare wages and tips", f"{medicare_wages:,.2f}", value_size=7.0, bold=True, align="right")
-        draw_box(left + c7 + c8, y, c9, row_h, "6  Medicare tax withheld", f"{medicare:,.2f}", value_size=7.0, bold=True, align="right")
-        draw_box(left + c7 + c8 + c9, y, c10, row_h, "7  Social security tips", "", value_size=7.0, bold=True, align="right")
-        draw_box(left + c7 + c8 + c9 + c10, y, c11, row_h, "8  Allocated tips", "", value_size=7.0, bold=True, align="right")
+        draw_box(left, y, c7, row_h, "c  Employer's name, address, and ZIP code", employer_block, value_size=5.8, bold=True)
+        draw_box(left + c7, y, c8, row_h, "5  Medicare wages and tips", f"{medicare_wages:,.2f}", value_size=6.6, bold=True, align="right")
+        draw_box(left + c7 + c8, y, c9, row_h, "6  Medicare tax withheld", f"{medicare:,.2f}", value_size=6.6, bold=True, align="right")
+        draw_box(left + c7 + c8 + c9, y, c10, row_h, "7  Social security tips", "", value_size=6.6, bold=True, align="right")
+        draw_box(left + c7 + c8 + c9 + c10, y, c11, row_h, "8  Allocated tips", "", value_size=6.6, bold=True, align="right")
 
         y -= row_h
         c12 = 178
@@ -440,11 +450,11 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
         c15 = 57
         c16 = form_width - (c12 + c13 + c14 + c15)
 
-        draw_box(left, y, c12, row_h, "d  Control number", fit_text(summary.get("control_number"), 16), value_size=6.5, bold=True)
+        draw_box(left, y, c12, row_h, "d  Control number", fit_text(summary.get("control_number"), 16), value_size=6.1, bold=True)
         draw_box(left + c12, y, c13, row_h, "9", "")
-        draw_box(left + c12 + c13, y, c14, row_h, "10  Dependent care benefits", "", value_size=7.0, bold=True, align="right")
-        draw_box(left + c12 + c13 + c14, y, c15, row_h, "11  Nonqualified plans", "", value_size=7.0, bold=True, align="right")
-        draw_box(left + c12 + c13 + c14 + c15, y, c16, row_h, "12a", box12a, value_size=6.2, bold=True)
+        draw_box(left + c12 + c13, y, c14, row_h, "10  Dependent care benefits", "", value_size=6.6, bold=True, align="right")
+        draw_box(left + c12 + c13 + c14, y, c15, row_h, "11  Nonqualified plans", "", value_size=6.6, bold=True, align="right")
+        draw_box(left + c12 + c13 + c14 + c15, y, c16, row_h, "12a", box12a, value_size=5.9, bold=True)
 
         y -= row_h
         c17 = 178
@@ -453,10 +463,10 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
         c20 = 57
         c21 = form_width - (c17 + c18 + c19 + c20)
 
-        draw_box(left, y, c17, row_h, "e  Employee's first name and initial / last name", employee_name_line, value_size=6.5, bold=True)
-        draw_box(left + c17, y, c18, row_h, "12b", box12b, value_size=6.2, bold=True)
-        draw_box(left + c17 + c18, y, c19, row_h, "12c", box12c, value_size=6.2, bold=True)
-        draw_box(left + c17 + c18 + c19, y, c20, row_h, "12d", box12d, value_size=6.2, bold=True)
+        draw_box(left, y, c17, row_h, "e  Employee's first name and initial / last name", employee_name_line, value_size=6.1, bold=True)
+        draw_box(left + c17, y, c18, row_h, "12b", box12b, value_size=5.9, bold=True)
+        draw_box(left + c17 + c18, y, c19, row_h, "12c", box12c, value_size=5.9, bold=True)
+        draw_box(left + c17 + c18 + c19, y, c20, row_h, "12d", box12d, value_size=5.9, bold=True)
         draw_checkbox_group(left + c17 + c18 + c19 + c20, y, c21, row_h)
 
         y -= row_h
@@ -470,10 +480,10 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
         )
         state_id_value = " ".join(part for part in [employer_state, employer_state_id] if part).strip()
 
-        draw_box(left, y, c22, row_h, "f  Employee's address and ZIP code", employee_block, value_size=6.2, bold=True)
-        draw_box(left + c22, y, c23, row_h, "14  Other", box14, value_size=6.0, bold=True)
-        draw_box(left + c22 + c23, y, c24, row_h, "15  State / Employer's state ID no.", state_id_value, value_size=5.7, bold=True)
-        draw_box(left + c22 + c23 + c24, y, c25, row_h, "16  State wages, tips, etc.", f"{state_wages:,.2f}", value_size=7.0, bold=True, align="right")
+        draw_box(left, y, c22, row_h, "f  Employee's address and ZIP code", employee_block, value_size=5.8, bold=True)
+        draw_box(left + c22, y, c23, row_h, "14  Other", box14, value_size=5.7, bold=True)
+        draw_box(left + c22 + c23, y, c24, row_h, "15  State / Employer's state ID no.", state_id_value, value_size=5.2, bold=True)
+        draw_box(left + c22 + c23 + c24, y, c25, row_h, "16  State wages, tips, etc.", f"{state_wages:,.2f}", value_size=6.6, bold=True, align="right")
 
         y -= row_h
         c26 = 57
@@ -482,25 +492,25 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
         c29 = 76
         c30 = form_width - (c26 + c27 + c28 + c29)
 
-        draw_box(left, y, c26, row_h, "17  State income tax", f"{state_withholding:,.2f}" if state_withholding else "", value_size=7.0, bold=True, align="right")
-        draw_box(left + c26, y, c27, row_h, "18  Local wages, tips, etc.", f"{local_wages:,.2f}" if local_wages else "", value_size=7.0, bold=True, align="right")
-        draw_box(left + c26 + c27, y, c28, row_h, "19  Local income tax", f"{local_tax:,.2f}" if local_tax else "", value_size=7.0, bold=True, align="right")
-        draw_box(left + c26 + c27 + c28, y, c29, row_h, "20  Locality name", employee_locality, value_size=6.0, bold=True)
-        draw_box(left + c26 + c27 + c28 + c29, y, c30, row_h, "Notice", "Keep for your records", value_size=6.0, bold=True, align="center")
+        draw_box(left, y, c26, row_h, "17  State income tax", f"{state_withholding:,.2f}" if state_withholding else "", value_size=6.6, bold=True, align="right")
+        draw_box(left + c26, y, c27, row_h, "18  Local wages, tips, etc.", f"{local_wages:,.2f}" if local_wages else "", value_size=6.6, bold=True, align="right")
+        draw_box(left + c26 + c27, y, c28, row_h, "19  Local income tax", f"{local_tax:,.2f}" if local_tax else "", value_size=6.6, bold=True, align="right")
+        draw_box(left + c26 + c27 + c28, y, c29, row_h, "20  Locality name", employee_locality, value_size=5.7, bold=True)
+        draw_box(left + c26 + c27 + c28 + c29, y, c30, row_h, "Notice", "Keep for your records", value_size=5.7, bold=True, align="center")
 
     pdf.setTitle(f"W2_{first_name}_{last_name}_{tax_year}")
 
-    # Three employee copies on one page
-    draw_single_copy("Copy B — To Be Filed With Employee's FEDERAL Tax Return.", 742)
-    pdf.line(20, 505, width - 20, 505)
+    # Lowered copies slightly and moved divider lines into blank space
+    draw_single_copy("Copy B — To Be Filed With Employee's FEDERAL Tax Return.", 736)
+    pdf.line(20, 490, width - 20, 490)
 
-    draw_single_copy("Copy C — For EMPLOYEE'S RECORDS.", 488)
-    pdf.line(20, 251, width - 20, 251)
+    draw_single_copy("Copy C — For EMPLOYEE'S RECORDS.", 474)
+    pdf.line(20, 228, width - 20, 228)
 
-    draw_single_copy("Copy 2 — To Be Filed With Employee's State, City, or Local Income Tax Return.", 234)
+    draw_single_copy("Copy 2 — To Be Filed With Employee's State, City, or Local Income Tax Return.", 212)
 
     pdf.setFont("Helvetica", 6)
-    pdf.drawString(24, 14, "Employee substitute copies only. Do not use this page as SSA-filed Copy A.")
+    pdf.drawString(24, 10, "Employee substitute copies only. Do not use this page as SSA-filed Copy A.")
 
     pdf.showPage()
     pdf.save()
