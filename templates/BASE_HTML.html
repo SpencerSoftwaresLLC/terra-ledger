@@ -227,13 +227,8 @@ video {
     flex-wrap: wrap;
 }
 
-/* IMPORTANT: default desktop visibility */
 .mobile-menu-btn {
-    display: none !important;
-}
-
-.desktop-only-link {
-    display: inline-flex !important;
+    display: none;
 }
 
 .nav-link {
@@ -252,6 +247,10 @@ video {
     color: var(--green);
 }
 
+.desktop-only-link {
+    display: inline-flex;
+}
+
 .company-menu-wrap {
     position: relative;
     max-width: 100%;
@@ -259,6 +258,7 @@ video {
 
 #companyMenuButtonTop {
     max-width: 240px;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
 }
@@ -268,8 +268,8 @@ video {
     position: absolute;
     right: 0;
     top: calc(100% + 8px);
-    min-width: 220px;
-    max-width: min(320px, calc(100vw - 20px));
+    min-width: 280px;
+    max-width: min(360px, calc(100vw - 20px));
     background: #fff;
     color: var(--text);
     border-radius: 12px;
@@ -291,6 +291,10 @@ video {
     color: var(--text) !important;
     text-decoration: none;
     font-weight: 600;
+    white-space: normal;
+    line-height: 1.25;
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 .company-menu-link.danger {
@@ -344,6 +348,14 @@ video {
     word-break: break-word;
 }
 
+.page-content-inner img,
+.page-content-inner iframe,
+.page-content-inner canvas,
+.page-content-inner svg {
+    max-width: 100%;
+    height: auto;
+}
+
 .page-content-inner .table-wrap,
 .page-content-inner .table-scroll,
 .page-content-inner .table-responsive,
@@ -358,6 +370,16 @@ video {
 .page-content-inner code {
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+.page-content-inner input,
+.page-content-inner select,
+.page-content-inner textarea,
+.page-content-inner button,
+.page-content-inner a,
+.page-content-inner label {
+    position: relative;
+    z-index: 1;
 }
 
 .card {
@@ -650,15 +672,13 @@ label {
         inset: 0;
         background: rgba(15, 23, 42, 0.48);
         opacity: 0;
-        visibility: hidden;
         pointer-events: none;
-        transition: opacity 0.2s ease, visibility 0.2s ease;
+        transition: opacity 0.2s ease;
         z-index: 39;
     }
 
     body.sidebar-open .mobile-sidebar-overlay {
         opacity: 1;
-        visibility: visible;
         pointer-events: auto;
     }
 
@@ -677,19 +697,15 @@ label {
             14px;
         gap: 12px;
         transform: translateX(-100%);
-        transition: transform 0.22s ease, visibility 0.22s ease;
+        transition: transform 0.22s ease;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
         box-shadow: 6px 0 24px rgba(0,0,0,0.22);
-        visibility: hidden;
-        pointer-events: none;
         z-index: 40;
     }
 
     body.sidebar-open .sidebar {
         transform: translateX(0);
-        visibility: visible;
-        pointer-events: auto;
     }
 
     .sidebar-brand {
@@ -710,6 +726,8 @@ label {
         background: rgba(255,255,255,0.08);
         white-space: normal;
         flex: none;
+        position: relative;
+        z-index: 2;
     }
 
     .main-content {
@@ -730,7 +748,7 @@ label {
     }
 
     .mobile-menu-btn {
-        display: inline-flex !important;
+        display: inline-flex;
     }
 
     .desktop-only-link {
@@ -755,7 +773,7 @@ label {
     .topbar-right .btn,
     .topbar-right a.btn,
     .topbar-right button.btn {
-        max-width: 140px;
+        max-width: none;
         overflow: hidden;
         text-overflow: ellipsis;
     }
@@ -766,13 +784,18 @@ label {
     }
 
     #companyMenuButtonTop {
-        max-width: 135px !important;
+        max-width: 230px !important;
+        min-width: 180px !important;
+        font-size: 0.76rem !important;
+        padding: 0 10px !important;
     }
 
     #companyMenuTop {
         top: calc(100% + 6px);
         right: 0;
         left: auto;
+        min-width: 290px;
+        max-width: calc(100vw - 16px - var(--safe-left) - var(--safe-right));
     }
 
     .grid,
@@ -794,12 +817,6 @@ label {
     .row-actions a,
     .row-actions button {
         flex: 1 1 180px;
-    }
-}
-
-@media (max-width: 900px) {
-    .dashboard-lower-grid {
-        grid-template-columns: 1fr;
     }
 }
 
@@ -929,7 +946,7 @@ label {
         height: 32px !important;
         padding: 0 9px !important;
         font-size: 0.74rem !important;
-        max-width: 120px;
+        max-width: none;
     }
 
     .company-menu-wrap {
@@ -937,7 +954,8 @@ label {
     }
 
     #companyMenuButtonTop {
-        max-width: 120px !important;
+        max-width: 210px !important;
+        min-width: 160px !important;
         overflow: hidden;
         text-overflow: ellipsis;
     }
@@ -945,7 +963,7 @@ label {
     #companyMenuTop {
         right: 0;
         left: auto;
-        min-width: 200px;
+        min-width: 260px;
         max-width: calc(100vw - 20px - var(--safe-left) - var(--safe-right));
     }
 
@@ -999,7 +1017,12 @@ label {
     }
 
     #companyMenuButtonTop {
-        max-width: 110px !important;
+        max-width: 185px !important;
+        min-width: 140px !important;
+    }
+
+    #companyMenuTop {
+        min-width: 240px;
     }
 }
 </style>
@@ -1024,14 +1047,23 @@ label {
 
         <nav class="sidebar-nav">
             <a class="{% if request.endpoint == 'dashboard.dashboard' %}active{% endif %}" href="{{ url_for('dashboard.dashboard') }}">Dashboard</a>
+
             <a class="{% if request.endpoint == 'customers.customers' %}active{% endif %}" href="{{ url_for('customers.customers') }}">Customers</a>
+
             <a class="{% if request.endpoint == 'employees.employees' %}active{% endif %}" href="{{ url_for('employees.employees') }}">Employees</a>
+
             <a class="{% if request.endpoint and request.endpoint.startswith('employees.time_clock') %}active{% endif %}" href="{{ url_for('employees.time_clock') }}">Clock In / Out</a>
+
             <a class="{% if request.endpoint == 'quotes.quotes' %}active{% endif %}" href="{{ url_for('quotes.quotes') }}">Quotes</a>
+
             <a class="{% if request.endpoint == 'jobs.jobs' %}active{% endif %}" href="{{ url_for('jobs.jobs') }}">Jobs</a>
+
             <a class="{% if request.endpoint == 'invoices.invoices' %}active{% endif %}" href="{{ url_for('invoices.invoices') }}">Invoices</a>
+
             <a class="{% if request.endpoint == 'messages.messages_page' %}active{% endif %}" href="{{ url_for('messages.messages_page') }}">Messages</a>
+
             <a class="{% if request.endpoint == 'calendar.calendar_page' %}active{% endif %}" href="{{ url_for('calendar.calendar_page') }}">Calendar</a>
+
             <a class="{% if request.endpoint == 'bookkeeping.bookkeeping' %}active{% endif %}" href="{{ url_for('bookkeeping.bookkeeping') }}">Bookkeeping</a>
         </nav>
     </aside>
@@ -1048,7 +1080,7 @@ label {
                 <button class="btn secondary" type="button" onclick="openHelpAssistant()">Help</button>
 
                 <div class="company-menu-wrap">
-                    <button id="companyMenuButtonTop" class="btn secondary" type="button">
+                    <button id="companyMenuButtonTop" class="btn secondary" type="button" title="{{ session.get('company_name') }}">
                         {{ session.get('company_name') }} ▼
                     </button>
 
@@ -1132,6 +1164,8 @@ label {
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     const body = document.body;
+    body.classList.remove("sidebar-open");
+
     const topButton = document.getElementById("companyMenuButtonTop");
     const topMenu = document.getElementById("companyMenuTop");
     const mobileMenuButton = document.getElementById("mobileMenuButton");
@@ -1139,16 +1173,11 @@ document.addEventListener("DOMContentLoaded", function () {
     const mobileSidebarOverlay = document.getElementById("mobileSidebarOverlay");
     const helpOverlay = document.getElementById("helpAssistantOverlay");
 
-    body.classList.remove("sidebar-open");
-
     function closeCompanyMenu() {
-        if (topMenu) {
-            topMenu.style.display = "none";
-        }
+        if (topMenu) topMenu.style.display = "none";
     }
 
     function toggleCompanyMenu(e) {
-        e.preventDefault();
         e.stopPropagation();
         if (!topMenu) return;
         topMenu.style.display = topMenu.style.display === "block" ? "none" : "block";
@@ -1163,10 +1192,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function toggleSidebar(e) {
-        if (e) {
-            e.preventDefault();
-            e.stopPropagation();
-        }
+        if (e) e.stopPropagation();
         if (body.classList.contains("sidebar-open")) {
             closeSidebar();
         } else {
@@ -1174,23 +1200,21 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
-    if (topButton) {
+    if (topButton && topMenu) {
         topButton.addEventListener("click", toggleCompanyMenu);
-        topButton.addEventListener("touchend", toggleCompanyMenu, { passive: false });
-    }
 
-    if (topMenu) {
         topMenu.addEventListener("click", function (e) {
             e.stopPropagation();
         });
-        topMenu.addEventListener("touchend", function (e) {
-            e.stopPropagation();
-        }, { passive: false });
     }
 
     if (mobileMenuButton) {
         mobileMenuButton.addEventListener("click", toggleSidebar);
-        mobileMenuButton.addEventListener("touchend", toggleSidebar, { passive: false });
+        mobileMenuButton.addEventListener("touchend", function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleSidebar();
+        }, { passive: false });
     }
 
     if (mobileSidebarOverlay) {
@@ -1208,22 +1232,18 @@ document.addEventListener("DOMContentLoaded", function () {
                 closeSidebar();
             }
         });
+
+        appSidebar.addEventListener("touchend", function (e) {
+            const clickedLink = e.target.closest("a");
+            if (window.innerWidth <= 820 && clickedLink) {
+                closeSidebar();
+            }
+        }, { passive: true });
     }
 
     document.addEventListener("click", function () {
         closeCompanyMenu();
     });
-
-    document.addEventListener("touchend", function (e) {
-        if (
-            topMenu &&
-            topButton &&
-            !topMenu.contains(e.target) &&
-            !topButton.contains(e.target)
-        ) {
-            closeCompanyMenu();
-        }
-    }, { passive: true });
 
     document.addEventListener("keydown", function (e) {
         if (e.key === "Escape") {
@@ -1247,11 +1267,6 @@ document.addEventListener("DOMContentLoaded", function () {
         if (window.innerWidth > 820) {
             closeSidebar();
         }
-    });
-
-    window.addEventListener("pageshow", function () {
-        closeSidebar();
-        closeCompanyMenu();
     });
 });
 </script>
