@@ -788,9 +788,11 @@ def settings_1099():
         SELECT id, name, email
         FROM customers
         WHERE company_id = %s
+        ORDER BY name ASC
     """, (cid,)).fetchall()
 
     rows_html = ""
+    mobile_cards = ""
 
     for c in contractors:
         total = conn.execute("""
@@ -800,6 +802,8 @@ def settings_1099():
         """, (cid, c["id"])).fetchone()
 
         total_amt = float(total["total"] or 0)
+        contractor_name = escape(c["name"] or "Unnamed Contractor")
+        contractor_email = escape(c["email"] or "-")
 
         print_btn = f"""
         <a class='btn small' target='_blank'
@@ -810,33 +814,171 @@ def settings_1099():
 
         rows_html += f"""
         <tr>
-            <td>{escape(c["name"])}</td>
+            <td>{contractor_name}</td>
+            <td>{contractor_email}</td>
             <td>${total_amt:,.2f}</td>
             <td>{print_btn}</td>
         </tr>
         """
 
+        mobile_cards += f"""
+        <div class='mobile-list-card'>
+            <div class='mobile-list-top'>
+                <div>
+                    <div class='mobile-list-title'>{contractor_name}</div>
+                    <div class='mobile-list-subtitle'>{contractor_email}</div>
+                </div>
+            </div>
+
+            <div class='mobile-list-grid'>
+                <div>
+                    <span>Total Paid</span>
+                    <strong>${total_amt:,.2f}</strong>
+                </div>
+            </div>
+
+            <div class='mobile-list-actions'>
+                {print_btn}
+            </div>
+        </div>
+        """
+
     conn.close()
 
     content = f"""
+    <style>
+        .desktop-only {{
+            display: block;
+        }}
+
+        .mobile-only {{
+            display: none;
+        }}
+
+        .table-wrap {{
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }}
+
+        .mobile-list {{
+            display: grid;
+            gap: 12px;
+        }}
+
+        .mobile-list-card {{
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 14px;
+            padding: 14px;
+            background: #fff;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }}
+
+        .mobile-list-top {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 10px;
+        }}
+
+        .mobile-list-title {{
+            font-weight: 700;
+            color: #0f172a;
+            line-height: 1.25;
+            word-break: break-word;
+            font-size: 1rem;
+        }}
+
+        .mobile-list-subtitle {{
+            margin-top: 4px;
+            font-size: .9rem;
+            color: #64748b;
+            line-height: 1.25;
+            word-break: break-word;
+        }}
+
+        .mobile-list-grid {{
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px 12px;
+            margin-bottom: 12px;
+        }}
+
+        .mobile-list-grid span {{
+            display: block;
+            font-size: .78rem;
+            color: #64748b;
+            margin-bottom: 3px;
+        }}
+
+        .mobile-list-grid strong {{
+            display: block;
+            color: #0f172a;
+            font-size: .95rem;
+            line-height: 1.25;
+            word-break: break-word;
+        }}
+
+        .mobile-list-actions {{
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }}
+
+        @media (max-width: 640px) {{
+            .desktop-only {{
+                display: none !important;
+            }}
+
+            .mobile-only {{
+                display: block !important;
+            }}
+
+            .mobile-list-actions .btn,
+            .mobile-list-actions a,
+            .mobile-list-actions button {{
+                width: 100%;
+                text-align: center;
+            }}
+        }}
+    </style>
+
     <div class='card'>
-        <h1>1099 Center</h1>
-        <p class='muted'>Generate 1099 forms for contractors.</p>
+        <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
+            <div>
+                <h1>1099 Center</h1>
+                <p class='muted' style='margin:0;'>Generate 1099 forms for contractors.</p>
+            </div>
+            <div class='row-actions'>
+                <a class='btn secondary' href='{url_for("settings.settings")}'>Back to Settings</a>
+            </div>
+        </div>
     </div>
 
     <div class='card'>
-        <table style='width:100%'>
-            <thead>
-                <tr>
-                    <th>Contractor</th>
-                    <th>Total Paid</th>
-                    <th>Form</th>
-                </tr>
-            </thead>
-            <tbody>
-                {rows_html or "<tr><td colspan='3'>No contractors found</td></tr>"}
-            </tbody>
-        </table>
+        <div class='table-wrap desktop-only'>
+            <table style='width:100%'>
+                <thead>
+                    <tr>
+                        <th>Contractor</th>
+                        <th>Email</th>
+                        <th>Total Paid</th>
+                        <th>Form</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows_html or "<tr><td colspan='4' class='muted'>No contractors found</td></tr>"}
+                </tbody>
+            </table>
+        </div>
+
+        <div class='mobile-only'>
+            <div class='mobile-list'>
+                {mobile_cards or "<div class='mobile-list-card muted'>No contractors found</div>"}
+            </div>
+        </div>
     </div>
     """
 
@@ -1530,6 +1672,8 @@ def settings_w2():
     total_local = float(year_summary.get("total_local_tax", 0) or 0)
 
     rows = ""
+    mobile_cards = ""
+
     for row in employee_summaries:
         employee_id = row.get("employee_id")
         employee_name = escape(str(row.get("employee_name") or "Unnamed Employee"))
@@ -1542,6 +1686,12 @@ def settings_w2():
         has_payroll_data = bool(row.get("has_payroll_data"))
 
         print_button = (
+            f"<a class='btn secondary small' target='_blank' href='{url_for('settings.print_w2_summary', employee_id=employee_id, year=year)}'>Employee Copies</a>"
+            if has_payroll_data and employee_id
+            else "<span class='muted'>No data</span>"
+        )
+
+        mobile_button = (
             f"<a class='btn secondary small' target='_blank' href='{url_for('settings.print_w2_summary', employee_id=employee_id, year=year)}'>Employee Copies</a>"
             if has_payroll_data and employee_id
             else "<span class='muted'>No data</span>"
@@ -1560,6 +1710,27 @@ def settings_w2():
         </tr>
         """
 
+        mobile_cards += f"""
+        <div class='mobile-list-card'>
+            <div class='mobile-list-top'>
+                <div class='mobile-list-title'>{employee_name}</div>
+            </div>
+
+            <div class='mobile-list-grid'>
+                <div><span>Wages</span><strong>${gross_pay:,.2f}</strong></div>
+                <div><span>Federal</span><strong>${federal_withholding:,.2f}</strong></div>
+                <div><span>SS</span><strong>${social_security_tax:,.2f}</strong></div>
+                <div><span>Medicare</span><strong>${medicare_tax:,.2f}</strong></div>
+                <div><span>State</span><strong>${state_withholding:,.2f}</strong></div>
+                <div><span>Local</span><strong>${local_tax:,.2f}</strong></div>
+            </div>
+
+            <div class='mobile-list-actions'>
+                {mobile_button}
+            </div>
+        </div>
+        """
+
     if not rows:
         rows = """
         <tr>
@@ -1568,6 +1739,9 @@ def settings_w2():
             </td>
         </tr>
         """
+
+    if not mobile_cards:
+        mobile_cards = "<div class='mobile-list-card muted'>No employee W-2 data found for this year.</div>"
 
     if company_readiness.get("missing"):
         missing_html = "".join(
@@ -1589,6 +1763,146 @@ def settings_w2():
         """
 
     content = f"""
+    <style>
+        .desktop-only {{
+            display: block;
+        }}
+
+        .mobile-only {{
+            display: none;
+        }}
+
+        .table-wrap {{
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }}
+
+        .w2-summary-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 10px;
+            margin-top: 20px;
+        }}
+
+        .w2-summary-card {{
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 14px;
+            background: #f8fafc;
+        }}
+
+        .w2-summary-card .label {{
+            font-size: .9rem;
+            color: #666;
+            margin-bottom: 6px;
+        }}
+
+        .w2-summary-card .value {{
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: #0f172a;
+            word-break: break-word;
+        }}
+
+        .mobile-list {{
+            display: grid;
+            gap: 12px;
+        }}
+
+        .mobile-list-card {{
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 14px;
+            padding: 14px;
+            background: #fff;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }}
+
+        .mobile-list-top {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 10px;
+        }}
+
+        .mobile-list-title {{
+            font-weight: 700;
+            color: #0f172a;
+            line-height: 1.25;
+            word-break: break-word;
+            font-size: 1rem;
+        }}
+
+        .mobile-list-grid {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px 12px;
+            margin-bottom: 12px;
+        }}
+
+        .mobile-list-grid span {{
+            display: block;
+            font-size: .78rem;
+            color: #64748b;
+            margin-bottom: 3px;
+        }}
+
+        .mobile-list-grid strong {{
+            display: block;
+            color: #0f172a;
+            font-size: .95rem;
+            line-height: 1.25;
+            word-break: break-word;
+        }}
+
+        .mobile-list-actions {{
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }}
+
+        .w2-tools-row {{
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: end;
+        }}
+
+        @media (max-width: 640px) {{
+            .desktop-only {{
+                display: none !important;
+            }}
+
+            .mobile-only {{
+                display: block !important;
+            }}
+
+            .mobile-list-grid {{
+                grid-template-columns: 1fr;
+            }}
+
+            .mobile-list-actions .btn,
+            .mobile-list-actions a,
+            .mobile-list-actions button {{
+                width: 100%;
+                text-align: center;
+            }}
+
+            .w2-tools-row {{
+                width: 100%;
+            }}
+
+            .w2-tools-row .btn,
+            .w2-tools-row a,
+            .w2-tools-row button {{
+                width: 100%;
+                text-align: center;
+            }}
+        }}
+    </style>
+
     <div class='card'>
         <h1>W-2 Center</h1>
         <p class='muted'>Manage W-2s, filings, and year-end payroll reports.</p>
@@ -1604,7 +1918,7 @@ def settings_w2():
                 <input name='year' value='{year}' style='width:100px;'>
             </div>
 
-            <div class='row-actions' style='position:relative; display:flex; gap:10px; align-items:center;'>
+            <div class='w2-tools-row' style='position:relative;'>
 
                 <button type='submit' class='btn secondary'>Load Year</button>
 
@@ -1642,35 +1956,44 @@ def settings_w2():
             </div>
         </form>
 
-        <div class='stats-grid' style='margin-top:20px; display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px;'>
-            <div class='card'><b>Wages</b><br>${total_wages:,.2f}</div>
-            <div class='card'><b>Federal</b><br>${total_federal:,.2f}</div>
-            <div class='card'><b>SS</b><br>${total_ss:,.2f}</div>
-            <div class='card'><b>Medicare</b><br>${total_medicare:,.2f}</div>
-            <div class='card'><b>State</b><br>${total_state:,.2f}</div>
-            <div class='card'><b>Local</b><br>${total_local:,.2f}</div>
+        <div class='w2-summary-grid'>
+            <div class='w2-summary-card'><div class='label'>Wages</div><div class='value'>${total_wages:,.2f}</div></div>
+            <div class='w2-summary-card'><div class='label'>Federal</div><div class='value'>${total_federal:,.2f}</div></div>
+            <div class='w2-summary-card'><div class='label'>SS</div><div class='value'>${total_ss:,.2f}</div></div>
+            <div class='w2-summary-card'><div class='label'>Medicare</div><div class='value'>${total_medicare:,.2f}</div></div>
+            <div class='w2-summary-card'><div class='label'>State</div><div class='value'>${total_state:,.2f}</div></div>
+            <div class='w2-summary-card'><div class='label'>Local</div><div class='value'>${total_local:,.2f}</div></div>
         </div>
     </div>
 
     <div class='card'>
         <h2>Employees</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Wages</th>
-                    <th>Federal</th>
-                    <th>SS</th>
-                    <th>Medicare</th>
-                    <th>State</th>
-                    <th>Local</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                {rows}
-            </tbody>
-        </table>
+
+        <div class='table-wrap desktop-only'>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Wages</th>
+                        <th>Federal</th>
+                        <th>SS</th>
+                        <th>Medicare</th>
+                        <th>State</th>
+                        <th>Local</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows}
+                </tbody>
+            </table>
+        </div>
+
+        <div class='mobile-only'>
+            <div class='mobile-list'>
+                {mobile_cards}
+            </div>
+        </div>
     </div>
 
     <script>
@@ -1680,7 +2003,7 @@ def settings_w2():
     }}
 
     document.addEventListener('click', function(e) {{
-        if (!e.target.closest('.row-actions')) {{
+        if (!e.target.closest('.w2-tools-row')) {{
             const el = document.getElementById('w2Dropdown');
             if (el) el.style.display = 'none';
         }}

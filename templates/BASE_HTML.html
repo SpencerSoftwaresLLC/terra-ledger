@@ -207,7 +207,7 @@ video {
     align-items: center;
     gap: 10px;
     min-width: 0;
-    flex: 1 1 auto;
+    flex: 0 0 auto;
 }
 
 .topbar-right {
@@ -248,7 +248,7 @@ video {
 }
 
 .desktop-only-link {
-    display: inline-flex;
+    display: none !important;
 }
 
 .company-menu-wrap {
@@ -709,7 +709,7 @@ label {
     }
 
     body.sidebar-open .main-content {
-    pointer-events: none;
+        pointer-events: none;
     }
 
     body.sidebar-open .sidebar,
@@ -762,10 +762,6 @@ label {
 
     .mobile-menu-btn {
         display: inline-flex;
-    }
-
-    .desktop-only-link {
-        display: none !important;
     }
 
     .topbar-left {
@@ -1086,7 +1082,6 @@ label {
         <div class="topbar">
             <div class="topbar-left">
                 <button class="btn secondary mobile-menu-btn" id="mobileMenuButton" type="button">Menu</button>
-                <a class="nav-link desktop-only-link" href="{{ url_for('dashboard.dashboard') }}">Dashboard</a>
             </div>
 
             <div class="topbar-right">
@@ -1106,6 +1101,7 @@ label {
                         <a class="company-menu-link" href="{{ url_for('payment_setup.payment_setup') }}">Payment Setup</a>
                         <a class="company-menu-link" href="{{ url_for('messages.messaging_configuration') }}">Messaging Configuration</a>
                         <a class="company-menu-link" href="{{ url_for('material_usage.annual_reports') }}">Annual Reports</a>
+                        <a class="company-menu-link" href="{{ url_for('settings.settings_1099') }}">1099 Center</a>
                         <a class="company-menu-link" href="{{ url_for('settings.settings') }}">Settings</a>
                         <a class="company-menu-link" href="{{ url_for('legal.terms') }}">Legal</a>
                         <a class="company-menu-link danger" href="{{ url_for('auth.logout') }}">Logout</a>

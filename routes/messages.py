@@ -1078,226 +1078,471 @@ def messages_page():
     from_number = _get_from_number()
 
     page_html = """
-    <div class="card">
-        <div class="section-head">
-            <div>
-                <h1 style="margin-bottom:6px;">Messages</h1>
-                <div class="muted">Send manual customer texts, receive replies, and review message history.</div>
-            </div>
-            <div class="row-actions">
-                <a class="btn secondary" href="{{ url_for('messages.messaging_configuration') }}">
-                    Messaging Configuration
-                </a>
-            </div>
-        </div>
-    </div>
+    <style>
+        .messages-page {
+            display: grid;
+            gap: 18px;
+        }
 
-    <div class="grid" style="align-items:start;">
+        .messages-top-grid {
+            display: grid;
+            grid-template-columns: 1.15fr 0.85fr;
+            gap: 18px;
+            align-items: start;
+        }
+
+        .desktop-only {
+            display: block;
+        }
+
+        .mobile-only {
+            display: none;
+        }
+
+        .table-wrap {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .message-history-table th,
+        .message-history-table td {
+            vertical-align: top;
+        }
+
+        .message-body-cell {
+            max-width: 420px;
+            white-space: normal;
+            word-break: break-word;
+            line-height: 1.35;
+        }
+
+        .mobile-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .mobile-list-card {
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 14px;
+            padding: 14px;
+            background: #fff;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }
+
+        .mobile-list-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .mobile-list-title {
+            font-weight: 700;
+            color: #0f172a;
+            line-height: 1.25;
+            word-break: break-word;
+        }
+
+        .mobile-list-subtitle {
+            margin-top: 4px;
+            font-size: .9rem;
+            color: #64748b;
+            line-height: 1.25;
+            word-break: break-word;
+        }
+
+        .mobile-badge {
+            font-size: .85rem;
+            font-weight: 700;
+            color: #334155;
+            background: #f1f5f9;
+            padding: 6px 10px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+
+        .mobile-list-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px 12px;
+            margin-bottom: 12px;
+        }
+
+        .mobile-list-grid span {
+            display: block;
+            font-size: .78rem;
+            color: #64748b;
+            margin-bottom: 3px;
+        }
+
+        .mobile-list-grid strong {
+            display: block;
+            color: #0f172a;
+            font-size: .95rem;
+            line-height: 1.25;
+            word-break: break-word;
+        }
+
+        .mobile-message-body {
+            margin-top: 4px;
+            border-top: 1px solid rgba(15, 23, 42, 0.08);
+            padding-top: 12px;
+        }
+
+        .mobile-message-body span {
+            display: block;
+            font-size: .78rem;
+            color: #64748b;
+            margin-bottom: 5px;
+        }
+
+        .mobile-message-body div {
+            color: #0f172a;
+            line-height: 1.4;
+            word-break: break-word;
+            white-space: normal;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: .85rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .status-pill.good {
+            background: #dff3d2;
+            color: #254314;
+        }
+
+        .status-pill.bad {
+            background: #f6d5d2;
+            color: #7a1f17;
+        }
+
+        .status-pill.neutral {
+            background: #f3d77b;
+            color: #4a3720;
+        }
+
+        .direction-pill.inbound {
+            background: #d7ebff;
+            color: #15406b;
+        }
+
+        .direction-pill.outbound {
+            background: #ece8ff;
+            color: #40307a;
+        }
+
+        @media (max-width: 900px) {
+            .messages-top-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .desktop-only {
+                display: none !important;
+            }
+
+            .mobile-only {
+                display: block !important;
+            }
+
+            .mobile-list-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+
+    <div class="messages-page">
         <div class="card">
-            <h3>Send Message</h3>
-            <form method="post" action="{{ url_for('messages.send_message') }}">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-
-                <div style="margin-bottom:14px;">
-                    <label>Customer</label>
-                    <select id="customerSelect" onchange="fillCustomerPhoneFromDropdown()">
-                        <option value="">Select customer (optional)</option>
-                        {% for customer in customers %}
-                            <option
-                                value="{{ customer['id'] }}"
-                                data-phone="{{ customer['phone'] or '' }}"
-                            >
-                                {{ customer['name'] }}{% if customer['phone'] %} — {{ customer['phone'] }}{% endif %}
-                            </option>
-                        {% endfor %}
-                    </select>
+            <div class="section-head">
+                <div>
+                    <h1 style="margin-bottom:6px;">Messages</h1>
+                    <div class="muted">Send manual customer texts, receive replies, and review message history.</div>
                 </div>
-
-                <input type="hidden" name="customer_id" id="customerIdField">
-
-                <div style="margin-bottom:14px;">
-                    <label>Phone Number</label>
-                    <input
-                        type="text"
-                        name="phone_number"
-                        id="phoneNumberField"
-                        placeholder="Enter mobile number"
-                        required
-                    >
-                </div>
-
-                <div style="margin-bottom:14px;">
-                    <label>Template</label>
-                    <select id="templateSelect" onchange="applyMessageTemplate()">
-                        <option value="">Choose a template (optional)</option>
-                        <option value="{{ settings['default_on_the_way_template'] if settings and settings['default_on_the_way_template'] else 'Hello from TerraLedger — we are on the way to your job site.' }}">
-                            On The Way
-                        </option>
-                        <option value="{{ settings['default_job_started_template'] if settings and settings['default_job_started_template'] else 'Hello from TerraLedger — we have started your scheduled job.' }}">
-                            Job Started
-                        </option>
-                        <option value="{{ settings['default_job_completed_template'] if settings and settings['default_job_completed_template'] else 'Hello from TerraLedger — your job has been completed. Thank you.' }}">
-                            Job Completed
-                        </option>
-                        <option value="{{ settings['default_invoice_reminder_template'] if settings and settings['default_invoice_reminder_template'] else 'Hello from TerraLedger — this is a reminder that your invoice is still outstanding.' }}">
-                            Invoice Reminder
-                        </option>
-                        <option value="{{ settings['default_job_reminder_template'] if settings and settings['default_job_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} about {{job_title}} scheduled for {{scheduled_date}}.' }}">
-                            Job Reminder
-                        </option>
-                        <option value="{{ settings['default_late_invoice_reminder_template'] if settings and settings['default_late_invoice_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} that invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. Due date: {{due_date}}.' }}">
-                            Late Invoice Reminder
-                        </option>
-                    </select>
-                </div>
-
-                <div style="margin-bottom:14px;">
-                    <label>Message</label>
-                    <textarea
-                        name="message_body"
-                        id="messageBodyField"
-                        placeholder="Type your message here..."
-                        required
-                    ></textarea>
-                </div>
-
                 <div class="row-actions">
-                    <button type="submit" class="btn">Send Message</button>
+                    <a class="btn secondary" href="{{ url_for('messages.messaging_configuration') }}">
+                        Messaging Configuration
+                    </a>
                 </div>
-            </form>
+            </div>
+        </div>
+
+        <div class="messages-top-grid">
+            <div class="card">
+                <h3>Send Message</h3>
+                <form method="post" action="{{ url_for('messages.send_message') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    <div style="margin-bottom:14px;">
+                        <label>Customer</label>
+                        <select id="customerSelect" onchange="fillCustomerPhoneFromDropdown()">
+                            <option value="">Select customer (optional)</option>
+                            {% for customer in customers %}
+                                <option
+                                    value="{{ customer['id'] }}"
+                                    data-phone="{{ customer['phone'] or '' }}"
+                                >
+                                    {{ customer['name'] }}{% if customer['phone'] %} — {{ customer['phone'] }}{% endif %}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <input type="hidden" name="customer_id" id="customerIdField">
+
+                    <div style="margin-bottom:14px;">
+                        <label>Phone Number</label>
+                        <input
+                            type="text"
+                            name="phone_number"
+                            id="phoneNumberField"
+                            placeholder="Enter mobile number"
+                            required
+                        >
+                    </div>
+
+                    <div style="margin-bottom:14px;">
+                        <label>Template</label>
+                        <select id="templateSelect" onchange="applyMessageTemplate()">
+                            <option value="">Choose a template (optional)</option>
+                            <option value="{{ settings['default_on_the_way_template'] if settings and settings['default_on_the_way_template'] else 'Hello from TerraLedger — we are on the way to your job site.' }}">
+                                On The Way
+                            </option>
+                            <option value="{{ settings['default_job_started_template'] if settings and settings['default_job_started_template'] else 'Hello from TerraLedger — we have started your scheduled job.' }}">
+                                Job Started
+                            </option>
+                            <option value="{{ settings['default_job_completed_template'] if settings and settings['default_job_completed_template'] else 'Hello from TerraLedger — your job has been completed. Thank you.' }}">
+                                Job Completed
+                            </option>
+                            <option value="{{ settings['default_invoice_reminder_template'] if settings and settings['default_invoice_reminder_template'] else 'Hello from TerraLedger — this is a reminder that your invoice is still outstanding.' }}">
+                                Invoice Reminder
+                            </option>
+                            <option value="{{ settings['default_job_reminder_template'] if settings and settings['default_job_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} about {{job_title}} scheduled for {{scheduled_date}}.' }}">
+                                Job Reminder
+                            </option>
+                            <option value="{{ settings['default_late_invoice_reminder_template'] if settings and settings['default_late_invoice_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} that invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. Due date: {{due_date}}.' }}">
+                                Late Invoice Reminder
+                            </option>
+                        </select>
+                    </div>
+
+                    <div style="margin-bottom:14px;">
+                        <label>Message</label>
+                        <textarea
+                            name="message_body"
+                            id="messageBodyField"
+                            placeholder="Type your message here..."
+                            required
+                        ></textarea>
+                    </div>
+
+                    <div class="row-actions">
+                        <button type="submit" class="btn">Send Message</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="card">
+                <h3>Messaging Status</h3>
+
+                <div style="margin-bottom:12px;">
+                    <strong>Enabled:</strong>
+                    {% if settings and settings['messaging_enabled'] %}
+                        <span class="pill" style="background:#dff3d2;color:#254314;">Enabled</span>
+                    {% else %}
+                        <span class="pill warning">Not Enabled</span>
+                    {% endif %}
+                </div>
+
+                <div style="margin-bottom:12px;">
+                    <strong>Provider:</strong>
+                    <span class="muted">TerraLedger Messaging (Twilio)</span>
+                </div>
+
+                <div style="margin-bottom:12px;">
+                    <strong>From Number:</strong>
+                    <span class="muted">{{ from_number if from_number else 'Platform number not configured' }}</span>
+                </div>
+
+                <div style="margin-bottom:12px;">
+                    <strong>Manual Messages:</strong>
+                    <span class="muted">
+                        {% if settings and settings['send_manual_messages'] %}On{% else %}Off{% endif %}
+                    </span>
+                </div>
+
+                <div style="margin-bottom:12px;">
+                    <strong>Job Updates:</strong>
+                    <span class="muted">
+                        {% if settings and settings['send_job_updates'] %}On{% else %}Off{% endif %}
+                    </span>
+                </div>
+
+                <div style="margin-bottom:12px;">
+                    <strong>Job Reminders:</strong>
+                    <span class="muted">
+                        {% if settings and settings['enable_job_reminders'] %}On{% else %}Off{% endif %}
+                        {% if settings %}( {{ settings['job_reminder_hours'] or 24 }} hrs before ){% endif %}
+                    </span>
+                </div>
+
+                <div style="margin-bottom:12px;">
+                    <strong>Invoice Reminders:</strong>
+                    <span class="muted">
+                        {% if settings and settings['send_invoice_reminders'] %}On{% else %}Off{% endif %}
+                    </span>
+                </div>
+
+                <div style="margin-bottom:12px;">
+                    <strong>Late Invoice Reminders:</strong>
+                    <span class="muted">
+                        {% if settings and settings['enable_late_invoice_reminders'] %}On{% else %}Off{% endif %}
+                        {% if settings %}( {{ settings['late_invoice_days'] or 30 }} days late ){% endif %}
+                    </span>
+                </div>
+
+                <div class="row-actions" style="margin-top:16px;">
+                    <a class="btn secondary" href="{{ url_for('messages.messaging_configuration') }}">
+                        Open Configuration
+                    </a>
+                </div>
+            </div>
         </div>
 
         <div class="card">
-            <h3>Messaging Status</h3>
-
-            <div style="margin-bottom:12px;">
-                <strong>Enabled:</strong>
-                {% if settings and settings['messaging_enabled'] %}
-                    <span class="pill" style="background:#dff3d2;color:#254314;">Enabled</span>
-                {% else %}
-                    <span class="pill warning">Not Enabled</span>
-                {% endif %}
+            <div class="section-head">
+                <div>
+                    <h3 style="margin-bottom:6px;">Message History</h3>
+                    <div class="muted">Latest inbound and outbound messages for your company.</div>
+                </div>
             </div>
 
-            <div style="margin-bottom:12px;">
-                <strong>Provider:</strong>
-                <span class="muted">TerraLedger Messaging (Twilio)</span>
-            </div>
+            {% if history %}
+                <div class="table-wrap desktop-only">
+                    <table class="message-history-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Direction</th>
+                                <th>Customer</th>
+                                <th>Phone</th>
+                                <th>Message</th>
+                                <th>Status</th>
+                                <th>Related</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in history %}
+                            <tr>
+                                <td>{{ row['created_at'] or '' }}</td>
+                                <td>
+                                    {% if row['direction'] == 'inbound' %}
+                                        <span class="pill direction-pill inbound">Inbound</span>
+                                    {% else %}
+                                        <span class="pill direction-pill outbound">Outbound</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ row['customer_name'] or '—' }}</td>
+                                <td>{{ row['phone_number'] or '—' }}</td>
+                                <td class="message-body-cell">{{ row['message_body'] or '' }}</td>
+                                <td>
+                                    {% if row['status'] in ['sent', 'received', 'delivered'] %}
+                                        <span class="status-pill good">{{ row['status']|title }}</span>
+                                    {% elif row['status'] == 'failed' %}
+                                        <span class="status-pill bad">Failed</span>
+                                    {% else %}
+                                        <span class="status-pill neutral">{{ row['status'] }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if row['job_title'] %}
+                                        Job: {{ row['job_title'] }}<br>
+                                    {% endif %}
+                                    {% if row['invoice_number'] %}
+                                        Invoice: {{ row['invoice_number'] }}
+                                    {% endif %}
+                                    {% if not row['job_title'] and not row['invoice_number'] %}
+                                        —
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
 
-            <div style="margin-bottom:12px;">
-                <strong>From Number:</strong>
-                <span class="muted">{{ from_number if from_number else 'Platform number not configured' }}</span>
-            </div>
-
-            <div style="margin-bottom:12px;">
-                <strong>Manual Messages:</strong>
-                <span class="muted">
-                    {% if settings and settings['send_manual_messages'] %}On{% else %}Off{% endif %}
-                </span>
-            </div>
-
-            <div style="margin-bottom:12px;">
-                <strong>Job Updates:</strong>
-                <span class="muted">
-                    {% if settings and settings['send_job_updates'] %}On{% else %}Off{% endif %}
-                </span>
-            </div>
-
-            <div style="margin-bottom:12px;">
-                <strong>Job Reminders:</strong>
-                <span class="muted">
-                    {% if settings and settings['enable_job_reminders'] %}On{% else %}Off{% endif %}
-                    {% if settings %}( {{ settings['job_reminder_hours'] or 24 }} hrs before ){% endif %}
-                </span>
-            </div>
-
-            <div style="margin-bottom:12px;">
-                <strong>Invoice Reminders:</strong>
-                <span class="muted">
-                    {% if settings and settings['send_invoice_reminders'] %}On{% else %}Off{% endif %}
-                </span>
-            </div>
-
-            <div style="margin-bottom:12px;">
-                <strong>Late Invoice Reminders:</strong>
-                <span class="muted">
-                    {% if settings and settings['enable_late_invoice_reminders'] %}On{% else %}Off{% endif %}
-                    {% if settings %}( {{ settings['late_invoice_days'] or 30 }} days late ){% endif %}
-                </span>
-            </div>
-
-            <div class="row-actions" style="margin-top:16px;">
-                <a class="btn secondary" href="{{ url_for('messages.messaging_configuration') }}">
-                    Open Configuration
-                </a>
-            </div>
-        </div>
-    </div>
-
-    <div class="card">
-        <div class="section-head">
-            <div>
-                <h3 style="margin-bottom:6px;">Message History</h3>
-                <div class="muted">Latest inbound and outbound messages for your company.</div>
-            </div>
-        </div>
-
-        {% if history %}
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Direction</th>
-                            <th>Customer</th>
-                            <th>Phone</th>
-                            <th>Message</th>
-                            <th>Status</th>
-                            <th>Related</th>
-                        </tr>
-                    </thead>
-                    <tbody>
+                <div class="mobile-only">
+                    <div class="mobile-list">
                         {% for row in history %}
-                        <tr>
-                            <td>{{ row['created_at'] or '' }}</td>
-                            <td>
-                                {% if row['direction'] == 'inbound' %}
-                                    <span class="pill" style="background:#d7ebff;color:#15406b;">Inbound</span>
-                                {% else %}
-                                    <span class="pill" style="background:#ece8ff;color:#40307a;">Outbound</span>
-                                {% endif %}
-                            </td>
-                            <td>{{ row['customer_name'] or '—' }}</td>
-                            <td>{{ row['phone_number'] or '—' }}</td>
-                            <td style="max-width:420px; white-space:normal;">{{ row['message_body'] or '' }}</td>
-                            <td>
-                                {% if row['status'] in ['sent', 'received', 'delivered'] %}
-                                    <span class="pill" style="background:#dff3d2;color:#254314;">{{ row['status']|title }}</span>
-                                {% elif row['status'] == 'failed' %}
-                                    <span class="pill" style="background:#f6d5d2;color:#7a1f17;">Failed</span>
-                                {% else %}
-                                    <span class="pill warning">{{ row['status'] }}</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if row['job_title'] %}
-                                    Job: {{ row['job_title'] }}<br>
-                                {% endif %}
-                                {% if row['invoice_number'] %}
-                                    Invoice: {{ row['invoice_number'] }}
-                                {% endif %}
-                                {% if not row['job_title'] and not row['invoice_number'] %}
-                                    —
-                                {% endif %}
-                            </td>
-                        </tr>
+                            <div class="mobile-list-card">
+                                <div class="mobile-list-top">
+                                    <div>
+                                        <div class="mobile-list-title">{{ row['customer_name'] or 'Unknown Customer' }}</div>
+                                        <div class="mobile-list-subtitle">{{ row['created_at'] or '' }}</div>
+                                    </div>
+
+                                    {% if row['direction'] == 'inbound' %}
+                                        <div class="mobile-badge direction-pill inbound">Inbound</div>
+                                    {% else %}
+                                        <div class="mobile-badge direction-pill outbound">Outbound</div>
+                                    {% endif %}
+                                </div>
+
+                                <div class="mobile-list-grid">
+                                    <div>
+                                        <span>Phone</span>
+                                        <strong>{{ row['phone_number'] or '—' }}</strong>
+                                    </div>
+
+                                    <div>
+                                        <span>Status</span>
+                                        <strong>
+                                            {% if row['status'] in ['sent', 'received', 'delivered'] %}
+                                                <span class="status-pill good">{{ row['status']|title }}</span>
+                                            {% elif row['status'] == 'failed' %}
+                                                <span class="status-pill bad">Failed</span>
+                                            {% else %}
+                                                <span class="status-pill neutral">{{ row['status'] }}</span>
+                                            {% endif %}
+                                        </strong>
+                                    </div>
+
+                                    <div>
+                                        <span>Related</span>
+                                        <strong>
+                                            {% if row['job_title'] %}
+                                                Job: {{ row['job_title'] }}
+                                            {% elif row['invoice_number'] %}
+                                                Invoice: {{ row['invoice_number'] }}
+                                            {% else %}
+                                                —
+                                            {% endif %}
+                                        </strong>
+                                    </div>
+                                </div>
+
+                                <div class="mobile-message-body">
+                                    <span>Message</span>
+                                    <div>{{ row['message_body'] or '' }}</div>
+                                </div>
+                            </div>
                         {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        {% else %}
-            <div class="muted">No messages have been logged yet.</div>
-        {% endif %}
+                    </div>
+                </div>
+            {% else %}
+                <div class="muted">No messages have been logged yet.</div>
+            {% endif %}
+        </div>
     </div>
 
     <script>

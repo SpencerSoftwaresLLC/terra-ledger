@@ -819,7 +819,7 @@ def employee_payroll():
         if payment_method == "Check":
             payroll_id = int(inserted["id"])
             conn.close()
-            return redirect(url_for("payroll.print_payroll_check", payroll_id=payroll_id))
+            return redirect(url_for("payroll.view_payroll_entry", payroll_id=payroll_id))
 
         conn.close()
         return redirect(url_for("payroll.employee_payroll"))
@@ -931,14 +931,10 @@ def employee_payroll():
         row_csrf = generate_csrf()
 
         actions_html = []
-        mobile_actions_html = []
 
-        if payment_method == "Check" or check_number:
-            print_link = (
-                f"<a class='btn secondary small' href='{url_for('payroll.print_payroll_check', payroll_id=r['id'])}' target='_blank'>Print Check</a>"
-            )
-            actions_html.append(print_link)
-            mobile_actions_html.append(print_link)
+        actions_html.append(
+            f"<a class='btn secondary small' href='{url_for('payroll.view_payroll_entry', payroll_id=r['id'])}'>View</a>"
+        )
 
         delete_form = f"""
         <form method='post'
@@ -950,7 +946,6 @@ def employee_payroll():
         </form>
         """
         actions_html.append(delete_form)
-        mobile_actions_html.append(delete_form)
 
         payroll_rows += f"""
         <tr>
@@ -976,30 +971,23 @@ def employee_payroll():
         """
 
         payroll_mobile_cards += f"""
-        <div class='mobile-list-card'>
+        <div class='mobile-list-card payroll-simple-card'>
             <div class='mobile-list-top'>
                 <div>
                     <div class='mobile-list-title'>{html_escape(employee_name)}</div>
                     <div class='mobile-list-subtitle'>{html_escape(clean_text_display(r['pay_date']))}</div>
                 </div>
-                <div class='mobile-badge'>{html_escape(clean_text_display(r['pay_type']))}</div>
+                <div class='mobile-badge'>{html_escape(payment_method)}</div>
             </div>
 
-            <div class='mobile-list-grid'>
-                <div><span>Payment Method</span><strong>{html_escape(payment_method)}</strong></div>
-                <div><span>Check #</span><strong>{html_escape(str(check_number) if check_number else '-')}</strong></div>
-                <div><span>Gross Pay</span><strong>${float(r['gross_pay'] or 0):.2f}</strong></div>
-                <div><span>Federal</span><strong>${float(r['federal_withholding'] or 0):.2f}</strong></div>
-                <div><span>State</span><strong>${float(r['state_withholding'] or 0):.2f}</strong></div>
-                <div><span>Social Security</span><strong>${float(r['social_security'] or 0):.2f}</strong></div>
-                <div><span>Medicare</span><strong>${float(r['medicare'] or 0):.2f}</strong></div>
-                <div><span>Local Tax</span><strong>${float(r['local_tax'] or 0):.2f}</strong></div>
-                <div><span>Other Deductions</span><strong>${float(r['other_deductions'] or 0):.2f}</strong></div>
+            <div class='mobile-pay-summary'>
                 <div><span>Net Pay</span><strong class='mobile-net-pay'>${float(r['net_pay'] or 0):.2f}</strong></div>
+                <div><span>Check #</span><strong>{html_escape(str(check_number) if check_number else '-')}</strong></div>
             </div>
 
             <div class='mobile-list-actions'>
-                {''.join(mobile_actions_html)}
+                <a class='btn secondary small' href='{url_for("payroll.view_payroll_entry", payroll_id=r["id"])}'>View</a>
+                {delete_form}
             </div>
         </div>
         """
@@ -1139,21 +1127,25 @@ def employee_payroll():
             white-space: nowrap;
         }}
 
-        .mobile-list-grid {{
+        .payroll-simple-card {{
+            display: grid;
+            gap: 12px;
+        }}
+
+        .mobile-pay-summary {{
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 10px 12px;
-            margin-bottom: 12px;
         }}
 
-        .mobile-list-grid span {{
+        .mobile-pay-summary span {{
             display: block;
             font-size: .78rem;
             color: #64748b;
             margin-bottom: 3px;
         }}
 
-        .mobile-list-grid strong {{
+        .mobile-pay-summary strong {{
             display: block;
             color: #0f172a;
             font-size: .95rem;
@@ -1186,7 +1178,7 @@ def employee_payroll():
                 display: block !important;
             }}
 
-            .mobile-list-grid {{
+            .mobile-pay-summary {{
                 grid-template-columns: 1fr;
             }}
 
@@ -1325,7 +1317,7 @@ def employee_payroll():
 
             <div class='row-actions' style='margin-top:20px;'>
                 <button class='btn success' type='submit'>Save Payroll Entry</button>
-                <div class='muted'>Choosing <strong>Check</strong> will save the payroll entry and open the printable payroll check PDF.</div>
+                <div class='muted'>Choosing <strong>Check</strong> will save the payroll entry and open the payroll entry details page.</div>
             </div>
         </form>
     </div>
@@ -1659,6 +1651,186 @@ document.addEventListener('DOMContentLoaded', function() {{
 </script>
 """
     return render_page(content, "Employee Payroll")
+
+
+@payroll_bp.route("/employees/payroll/<int:payroll_id>")
+@login_required
+@subscription_required
+@require_permission("can_manage_payroll")
+def view_payroll_entry(payroll_id):
+    ensure_employee_payroll_columns()
+    ensure_bookkeeping_history_table()
+    ensure_payroll_table_structure()
+    ensure_payroll_check_structure()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    row = conn.execute(
+        """
+        SELECT
+            p.*,
+            e.first_name,
+            e.last_name,
+            e.full_name
+        FROM payroll_entries p
+        JOIN employees e ON p.employee_id = e.id
+        WHERE p.id = %s AND p.company_id = %s
+        """,
+        (payroll_id, cid),
+    ).fetchone()
+
+    conn.close()
+
+    if not row:
+        flash("Payroll entry not found.")
+        return redirect(url_for("payroll.employee_payroll"))
+
+    employee_name = (
+        clean_text_input(row["full_name"])
+        or f"{clean_text_input(row['first_name'])} {clean_text_input(row['last_name'])}".strip()
+        or "Employee"
+    )
+
+    payment_method = clean_text_input(row["payment_method"]) or "-"
+    check_number = row["check_number"] if "check_number" in row.keys() else None
+    can_print_check = payment_method == "Check" or bool(check_number)
+
+    row_csrf = generate_csrf()
+
+    print_button = ""
+    if can_print_check:
+        print_button = f"""
+        <a class='btn warning' href='{url_for("payroll.print_payroll_check", payroll_id=payroll_id)}' target='_blank'>Print Check</a>
+        """
+
+    content = f"""
+    <style>
+        .payroll-view-page {{
+            display: grid;
+            gap: 18px;
+        }}
+
+        .payroll-view-head {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            flex-wrap: wrap;
+        }}
+
+        .payroll-summary-grid {{
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+        }}
+
+        .payroll-summary-card {{
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 14px;
+            padding: 14px;
+            background: #fff;
+        }}
+
+        .payroll-summary-card span {{
+            display: block;
+            font-size: .8rem;
+            color: #64748b;
+            margin-bottom: 4px;
+        }}
+
+        .payroll-summary-card strong {{
+            display: block;
+            color: #0f172a;
+            line-height: 1.3;
+            word-break: break-word;
+        }}
+
+        .payroll-notes-box {{
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 14px;
+            padding: 14px;
+            background: #fff;
+            color: #0f172a;
+            line-height: 1.5;
+        }}
+
+        @media (max-width: 900px) {{
+            .payroll-summary-grid {{
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }}
+        }}
+
+        @media (max-width: 640px) {{
+            .payroll-summary-grid {{
+                grid-template-columns: 1fr;
+            }}
+        }}
+    </style>
+
+    <div class='payroll-view-page'>
+        <div class='card'>
+            <div class='payroll-view-head'>
+                <div>
+                    <h1 style='margin-bottom:6px;'>Payroll Entry</h1>
+                    <p class='muted' style='margin:0;'>{html_escape(employee_name)} · {html_escape(clean_text_display(row["pay_date"]))}</p>
+                </div>
+                <div class='row-actions'>
+                    {print_button}
+                    <a class='btn secondary' href='{url_for("payroll.employee_payroll")}'>Back to Payroll</a>
+                </div>
+            </div>
+        </div>
+
+        <div class='card'>
+            <h2>Payroll Summary</h2>
+            <div class='payroll-summary-grid'>
+                <div class='payroll-summary-card'><span>Employee</span><strong>{html_escape(employee_name)}</strong></div>
+                <div class='payroll-summary-card'><span>Pay Date</span><strong>{html_escape(clean_text_display(row["pay_date"]))}</strong></div>
+                <div class='payroll-summary-card'><span>Pay Type</span><strong>{html_escape(clean_text_display(row["pay_type"]))}</strong></div>
+                <div class='payroll-summary-card'><span>Payment Method</span><strong>{html_escape(payment_method)}</strong></div>
+
+                <div class='payroll-summary-card'><span>Check #</span><strong>{html_escape(str(check_number) if check_number else "-")}</strong></div>
+                <div class='payroll-summary-card'><span>Pay Period Start</span><strong>{html_escape(clean_text_display(row["pay_period_start"]))}</strong></div>
+                <div class='payroll-summary-card'><span>Pay Period End</span><strong>{html_escape(clean_text_display(row["pay_period_end"]))}</strong></div>
+                <div class='payroll-summary-card'><span>Regular Hours</span><strong>{float(row["hours_regular"] or 0):.2f}</strong></div>
+
+                <div class='payroll-summary-card'><span>Overtime Hours</span><strong>{float(row["hours_overtime"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>Regular Rate</span><strong>${float(row["rate_regular"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>Overtime Rate</span><strong>${float(row["rate_overtime"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>Gross Pay</span><strong>${float(row["gross_pay"] or 0):.2f}</strong></div>
+
+                <div class='payroll-summary-card'><span>Federal</span><strong>${float(row["federal_withholding"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>State</span><strong>${float(row["state_withholding"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>Social Security</span><strong>${float(row["social_security"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>Medicare</span><strong>${float(row["medicare"] or 0):.2f}</strong></div>
+
+                <div class='payroll-summary-card'><span>Local Tax</span><strong>${float(row["local_tax"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>Other Deductions</span><strong>${float(row["other_deductions"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>Net Pay</span><strong>${float(row["net_pay"] or 0):.2f}</strong></div>
+            </div>
+        </div>
+
+        <div class='card'>
+            <h2>Notes</h2>
+            <div class='payroll-notes-box'>{html_escape(clean_text_display(row["notes"], "-"))}</div>
+        </div>
+
+        <div class='card'>
+            <div class='row-actions'>
+                {print_button}
+                <form method='post'
+                      action='{url_for("payroll.delete_payroll_entry", payroll_id=payroll_id)}'
+                      onsubmit="return confirm('Delete this payroll entry?');"
+                      style='margin:0;'>
+                    <input type="hidden" name="csrf_token" value="{row_csrf}">
+                    <button class='btn danger' type='submit'>Delete</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    """
+    return render_page(content, f"Payroll Entry #{payroll_id}")
 
 
 @payroll_bp.route("/employees/payroll/<int:payroll_id>/print-check")
