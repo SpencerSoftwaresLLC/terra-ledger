@@ -271,7 +271,7 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
     def clean(v):
         return str(v or "").strip()
 
-    def draw_text(x, y, value, size=6.5, bold=False, align="left", max_width=None):
+    def draw_text(x, y, value, size=6.2, bold=False, align="left", max_width=None):
         value = clean(value)
         if not value:
             return
@@ -290,28 +290,82 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
         else:
             pdf.drawString(x, y, value)
 
-    def box(x, y_top, w, h, label="", value="", value_size=6.5, bold=False, align="left", label_size=4.5):
+    def box(
+        x,
+        y_top,
+        w,
+        h,
+        label="",
+        value="",
+        value_size=6.2,
+        bold=False,
+        align="left",
+        label_size=4.3,
+    ):
         y_bottom = y_top - h
         pdf.rect(x, y_bottom, w, h)
 
         if label:
-            draw_text(x + 2, y_top - 7, label, size=label_size, max_width=w - 4)
+            draw_text(
+                x + 2,
+                y_top - 5,
+                label,
+                size=label_size,
+                max_width=w - 4,
+            )
 
         if value:
+            value_y = y_bottom + (h * 0.40)
             if align == "right":
-                draw_text(x + w - 3, y_bottom + 5, value, size=value_size, bold=bold, align="right", max_width=w - 6)
+                draw_text(
+                    x + w - 2,
+                    value_y,
+                    value,
+                    size=value_size,
+                    bold=bold,
+                    align="right",
+                    max_width=w - 4,
+                )
             elif align == "center":
-                draw_text(x + (w / 2), y_bottom + 5, value, size=value_size, bold=bold, align="center", max_width=w - 6)
+                draw_text(
+                    x + (w / 2),
+                    value_y,
+                    value,
+                    size=value_size,
+                    bold=bold,
+                    align="center",
+                    max_width=w - 4,
+                )
             else:
-                draw_text(x + 2, y_bottom + 5, value, size=value_size, bold=bold, align="left", max_width=w - 6)
+                draw_text(
+                    x + 2,
+                    value_y,
+                    value,
+                    size=value_size,
+                    bold=bold,
+                    align="left",
+                    max_width=w - 4,
+                )
 
     def checkbox_line(x, y_top, w, h, label, checked=False):
         y_bottom = y_top - h
         pdf.rect(x, y_bottom, w, h)
-        pdf.rect(x + 4, y_bottom + 4, 8, 8)
+
+        cb_size = 7
+        cb_x = x + 3
+        cb_y = y_bottom + (h - cb_size) / 2
+        pdf.rect(cb_x, cb_y, cb_size, cb_size)
+
         if checked:
-            draw_text(x + 8, y_bottom + 5.5, "X", size=6.5, bold=True, align="center")
-        draw_text(x + 18, y_bottom + 5, label, size=4.8, max_width=w - 22)
+            draw_text(cb_x + cb_size / 2, cb_y + 1.0, "X", size=5.8, bold=True, align="center")
+
+        draw_text(
+            x + 14,
+            y_bottom + (h * 0.38),
+            label,
+            size=4.7,
+            max_width=w - 16,
+        )
 
     company_values = get_company_profile_values(company_profile)
 
@@ -340,13 +394,23 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
     employer_city = clean(company_values.get("city"))
     employer_zip = clean(company_values.get("zip_code"))
 
-    employer_addr_line = " ".join(part for part in [employer_address_1, employer_address_2] if part).strip()
+    employer_addr_line = " ".join(
+        part for part in [employer_address_1, employer_address_2] if part
+    ).strip()
     employer_city_state_zip = " ".join(
-        part for part in [f"{employer_city}," if employer_city else "", employer_state, employer_zip] if part
+        part
+        for part in [
+            f"{employer_city}," if employer_city else "",
+            employer_state,
+            employer_zip,
+        ]
+        if part
     ).strip()
 
     first_name, middle_initial, last_name = _split_name_for_w2(employee_record)
-    employee_name_line = " ".join(part for part in [first_name, middle_initial, last_name] if part).strip()
+    employee_name_line = " ".join(
+        part for part in [first_name, middle_initial, last_name] if part
+    ).strip()
 
     employee_ssn = _format_ssn_employee_copy(
         _first_nonempty(
@@ -373,9 +437,17 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
         employer_state,
     )
 
-    employee_addr_line = " ".join(part for part in [employee_addr_1, employee_addr_2] if part).strip()
+    employee_addr_line = " ".join(
+        part for part in [employee_addr_1, employee_addr_2] if part
+    ).strip()
     employee_city_state_zip = " ".join(
-        part for part in [f"{employee_city}," if employee_city else "", employee_state, employee_zip] if part
+        part
+        for part in [
+            f"{employee_city}," if employee_city else "",
+            employee_state,
+            employee_zip,
+        ]
+        if part
     ).strip()
 
     retirement_401k = money(summary.get("retirement_401k"))
@@ -406,110 +478,117 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
     retirement_plan = bool(summary.get("retirement_plan")) or retirement_401k > 0
     third_party_sick_pay = bool(summary.get("third_party_sick_pay"))
 
-    # Cut lines
-    pdf.setLineWidth(0.8)
-    pdf.line(page_w / 2, 16, page_w / 2, page_h - 16)
-    pdf.line(16, page_h / 2, page_w - 16, page_h / 2)
+    pdf.setLineWidth(0.35)
+    pdf.line(page_w / 2, 14, page_w / 2, page_h - 14)
+    pdf.line(14, page_h / 2, page_w - 14, page_h / 2)
 
     def draw_form(origin_x, origin_y, copy_title):
         left = origin_x
         top = origin_y
 
-        form_w = 275
-        form_h = 330  # shorter so it stays inside quadrant
+        form_w = 272
 
-        pdf.setLineWidth(0.8)
-        pdf.rect(left, top - form_h, form_w, form_h)
+        # Header only, no outer frame
+        draw_text(left + 2, top - 8, copy_title, size=5.0, bold=True, max_width=190)
+        draw_text(left + form_w - 36, top - 8, str(tax_year), size=7.8, bold=True, align="right")
+        draw_text(left + form_w - 2, top - 8, "OMB No. 1545-0008", size=5.0, align="right")
+        pdf.line(left, top - 12, left + form_w, top - 12)
 
-        # Header
-        draw_text(left + 4, top - 10, copy_title, size=5, bold=True, max_width=170)
-        draw_text(left + form_w - 4, top - 10, "OMB No. 1545-0008", size=5, align="right")
-        pdf.line(left, top - 15, left + form_w, top - 15)
+        row_h = 20
+        small_h = 18
 
-        row_h = 25
-        small_h = 22
+        # Top row
+        box(left,       top - 12, 82, row_h, "a Employee's social sec. no.", employee_ssn, 6.2, False, "center")
+        box(left + 82,  top - 12, 64, row_h, "1 Wages, tips, other compensation", f"{wages:,.2f}", 6.2, False, "right")
+        box(left + 146, top - 12, 64, row_h, "2 Federal income tax withheld", f"{federal:,.2f}", 6.2, False, "right")
+        box(left + 210, top - 12, 62, row_h, "", "", 6.2)
 
-        # Top rows
-        box(left,       top - 15, 82, row_h, "a Employee's social sec. no.", employee_ssn, 6.3, False, "center")
-        box(left + 82,  top - 15, 64, row_h, "1 Wages, tips, other compensation", f"{wages:,.2f}", 6.3, False, "right")
-        box(left + 146, top - 15, 64, row_h, "2 Federal income tax withheld", f"{federal:,.2f}", 6.3, False, "right")
-        box(left + 210, top - 15, 65, row_h, "", "", 6.3)
+        # Second row
+        box(left,       top - 32, 82, row_h, "b Employer's ID number (EIN)", employer_ein, 6.2)
+        box(left + 82,  top - 32, 64, row_h, "3 Social Security Wages", f"{social_security_wages:,.2f}", 6.2, False, "right")
+        box(left + 146, top - 32, 64, row_h, "4 Social security tax withheld", f"{social_security_tax:,.2f}", 6.2, False, "right")
+        box(left + 210, top - 32, 62, row_h, "", "", 6.2)
 
-        box(left,       top - 40, 82, row_h, "b Employer's ID number (EIN)", employer_ein, 6.3)
-        box(left + 82,  top - 40, 64, row_h, "3 Social Security Wages", f"{social_security_wages:,.2f}", 6.3, False, "right")
-        box(left + 146, top - 40, 64, row_h, "4 Social security tax withheld", f"{social_security_tax:,.2f}", 6.3, False, "right")
-        box(left + 210, top - 40, 65, row_h, "", "", 6.3)
-
-        box(left,       top - 65, 82, row_h, "(EIN)", "", 6.3)
-        box(left + 82,  top - 65, 64, row_h, "5 Medicare wages and tips", f"{medicare_wages:,.2f}", 6.3, False, "right")
-        box(left + 146, top - 65, 64, row_h, "6 Medicare tax withheld", f"{medicare_tax:,.2f}", 6.3, False, "right")
-        box(left + 210, top - 65, 65, row_h, "", "", 6.3)
+        # Third row
+        box(left,       top - 52, 82, row_h, "(EIN)", "", 6.2)
+        box(left + 82,  top - 52, 64, row_h, "5 Medicare wages and tips", f"{medicare_wages:,.2f}", 6.2, False, "right")
+        box(left + 146, top - 52, 64, row_h, "6 Medicare tax withheld", f"{medicare_tax:,.2f}", 6.2, False, "right")
+        box(left + 210, top - 52, 62, row_h, "", "", 6.2)
 
         # Employer block
-        box(left, top - 90, 275, 46, "c Employer's Name, Address and Zip code", "", 6.3)
-        draw_text(left + 6, top - 106, employer_name, size=6.3, max_width=263)
-        draw_text(left + 6, top - 120, employer_addr_line, size=6.3, max_width=263)
-        draw_text(left + 6, top - 134, employer_city_state_zip, size=6.3, max_width=263)
+        box(left, top - 72, 272, 42, "c Employer's name, address, and ZIP code", "", 6.2)
+        draw_text(left + 5, top - 86, employer_name, size=6.1, max_width=262)
+        draw_text(left + 5, top - 98, employer_addr_line, size=6.1, max_width=262)
+        draw_text(left + 5, top - 110, employer_city_state_zip, size=6.1, max_width=262)
 
-        # Control number
-        box(left, top - 136, 275, 20, "d Control Number", clean(summary.get("control_number")), 6.3)
+        # Control
+        box(left, top - 114, 272, 17, "d Control number", clean(summary.get("control_number")), 6.0)
 
         # Employee block
-        box(left, top - 156, 275, 46, "e Employee's Name, Address and Zip code", "", 6.3)
-        draw_text(left + 6, top - 172, employee_name_line, size=6.3, max_width=263)
-        draw_text(left + 6, top - 186, employee_addr_line, size=6.3, max_width=263)
-        draw_text(left + 6, top - 200, employee_city_state_zip, size=6.3, max_width=263)
+        box(left, top - 131, 272, 42, "e Employee's name, address, and ZIP code", "", 6.2)
+        draw_text(left + 5, top - 145, employee_name_line, size=6.1, max_width=262)
+        draw_text(left + 5, top - 157, employee_addr_line, size=6.1, max_width=262)
+        draw_text(left + 5, top - 169, employee_city_state_zip, size=6.1, max_width=262)
 
-        # 7 / 8 / 9
-        box(left,       top - 202, 92, small_h, "7 Social security tips", "", 6.1)
-        box(left + 92,  top - 202, 92, small_h, "8 Allocated tips", "", 6.1)
-        box(left + 184, top - 202, 91, small_h, "9", "", 6.1)
+        # Middle rows
+        box(left,       top - 173, 91, small_h, "7 Social security tips", "", 5.9)
+        box(left + 91,  top - 173, 91, small_h, "8 Allocated tips", "", 5.9)
+        box(left + 182, top - 173, 90, small_h, "9", "", 5.9)
 
-        # 10 / 11 / 12a
-        box(left,       top - 224, 92, small_h, "10 Dependent care benefits", "", 6.1)
-        box(left + 92,  top - 224, 92, small_h, "11 Non qualified plans", "", 6.1)
-        box(left + 184, top - 224, 91, small_h, "12a Code See inst for box 12", box12_items[0] if len(box12_items) > 0 else "", 5.8)
+        box(left,       top - 191, 91, small_h, "10 Dependent care benefits", "", 5.9)
+        box(left + 91,  top - 191, 91, small_h, "11 Nonqualified plans", "", 5.9)
+        box(left + 182, top - 191, 90, small_h, "12a Code", box12_items[0] if len(box12_items) > 0 else "", 5.7)
 
-        # 13 / 14 / 12b
-        checkbox_line(left, top - 246, 92, small_h, "Statutory employee", statutory_employee)
-        box(left + 92,  top - 246, 92, small_h, "14 Others", box14_value, 5.8)
-        box(left + 184, top - 246, 91, small_h, "12b Code", box12_items[1] if len(box12_items) > 1 else "", 5.8)
+        checkbox_line(left, top - 209, 91, small_h, "Statutory employee", statutory_employee)
+        box(left + 91,  top - 209, 91, small_h, "14 Other", box14_value, 5.7)
+        box(left + 182, top - 209, 90, small_h, "12b Code", box12_items[1] if len(box12_items) > 1 else "", 5.7)
 
-        # Retirement / blank / 12c
-        checkbox_line(left, top - 268, 92, small_h, "Retirement plan", retirement_plan)
-        box(left + 92,  top - 268, 92, small_h, "", "", 6.1)
-        box(left + 184, top - 268, 91, small_h, "12c Code", box12_items[2] if len(box12_items) > 2 else "", 5.8)
+        checkbox_line(left, top - 227, 91, small_h, "Retirement plan", retirement_plan)
+        box(left + 91,  top - 227, 91, small_h, "", "", 5.9)
+        box(left + 182, top - 227, 90, small_h, "12c Code", box12_items[2] if len(box12_items) > 2 else "", 5.7)
 
-        # Third party / blank / 12d
-        checkbox_line(left, top - 290, 92, small_h, "Third party sick pay", third_party_sick_pay)
-        box(left + 92,  top - 290, 92, small_h, "", "", 6.1)
-        box(left + 184, top - 290, 91, small_h, "12d Code", box12_items[3] if len(box12_items) > 3 else "", 5.8)
+        checkbox_line(left, top - 245, 91, small_h, "Third-party sick pay", third_party_sick_pay)
+        box(left + 91,  top - 245, 91, small_h, "", "", 5.9)
+        box(left + 182, top - 245, 90, small_h, "12d Code", box12_items[3] if len(box12_items) > 3 else "", 5.7)
 
         # Footer row
-        footer_top = top - 312
-        box(left,       footer_top, 28, 18, "15 State", employer_state, 6, False, "center", 4.2)
-        box(left + 28,  footer_top, 70, 18, "Employer's State ID number", employer_state_id, 5.6, False, "left", 4.2)
-        box(left + 98,  footer_top, 62, 18, "16 State wages, tips, etc.", f"{state_wages:,.2f}", 6, False, "right", 4.2)
-        box(left + 160, footer_top, 44, 18, "17 State income tax", f"{state_tax:,.2f}" if state_tax else "", 6, False, "right", 4.2)
-        box(left + 204, footer_top, 36, 18, "18 Local wages, tips, etc", f"{local_wages:,.2f}" if local_wages else "", 5.4, False, "right", 4.2)
-        box(left + 240, footer_top, 35, 18, "19 Local income tax", f"{local_tax:,.2f}" if local_tax else "", 5.4, False, "right", 4.2)
+        footer_top = top - 263
+        box(left,       footer_top, 26, 16, "15 State", employer_state, 5.7, False, "center", 4.0)
+        box(left + 26,  footer_top, 70, 16, "Employer's state ID number", employer_state_id, 5.3, False, "left", 4.0)
+        box(left + 96,  footer_top, 60, 16, "16 State wages, tips, etc.", f"{state_wages:,.2f}", 5.7, False, "right", 4.0)
+        box(left + 156, footer_top, 42, 16, "17 State income tax", f"{state_tax:,.2f}" if state_tax else "", 5.7, False, "right", 4.0)
+        box(left + 198, footer_top, 38, 16, "18 Local wages, tips, etc.", f"{local_wages:,.2f}" if local_wages else "", 5.2, False, "right", 4.0)
+        box(left + 236, footer_top, 36, 16, "19 Local income tax", f"{local_tax:,.2f}" if local_tax else "", 5.2, False, "right", 4.0)
 
         # Bottom line
-        bottom_top = top - 330
-        box(left, bottom_top, 275, 14, "20 Locality name", employee_locality, 6)
+        box(left, top - 279, 272, 13, "20 Locality name", employee_locality, 5.9, False, "left", 4.0)
 
-        # Year/footer — safely inside quadrant now
-        draw_text(left + 138, top - 318, tax_year, size=10.5, bold=True, align="center")
-        draw_text(left + 4, top - 318, "Form W-2 Wage and Tax Statement", size=4.8)
-        draw_text(left + form_w - 4, top - 318, "Dept. of the Treasury - IRS", size=4.8, align="right")
+        draw_text(left + 2, top - 289, "Form W-2 Wage and Tax Statement", size=4.7)
+        draw_text(left + form_w - 2, top - 289, "Department of the Treasury - Internal Revenue Service", size=4.7, align="right")
 
-    # Top row
-    draw_form(18, page_h - 18, "Copy B—To be Filed With Employee's FEDERAL Tax Return.")
-    draw_form(page_w / 2 + 10, page_h - 18, "Copy 2—To be Filed With Employee's State City, or Local Income Tax Return.")
+    margin_x = 18
+    margin_y = 18
 
-    # Bottom row — starts well below middle line
-    draw_form(18, page_h / 2 - 8, "Copy B—To be Filed With Employee's FEDERAL Tax Return.")
-    draw_form(page_w / 2 + 10, page_h / 2 - 8, "Copy 2—To be Filed With Employee's State City, or Local Income Tax Return.")
+    draw_form(
+        margin_x,
+        page_h - margin_y,
+        "Copy B—To be filed with employee's FEDERAL tax return.",
+    )
+    draw_form(
+        page_w / 2 + margin_x - 8,
+        page_h - margin_y,
+        "Copy 2—To be filed with employee's state, city, or local income tax return.",
+    )
+    draw_form(
+        margin_x,
+        page_h / 2 - margin_y + 4,
+        "Copy B—To be filed with employee's FEDERAL tax return.",
+    )
+    draw_form(
+        page_w / 2 + margin_x - 8,
+        page_h / 2 - margin_y + 4,
+        "Copy 2—To be filed with employee's state, city, or local income tax return.",
+    )
 
     pdf.showPage()
     pdf.save()
