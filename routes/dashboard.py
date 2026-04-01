@@ -71,6 +71,140 @@ def _parse_possible_date(value):
     return None
 
 
+def _get_table_columns(conn, table_name):
+    rows = conn.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = %s
+        """,
+        (table_name,),
+    ).fetchall()
+    return {str(r["column_name"]).strip().lower() for r in rows}
+
+
+def _table_exists(conn, table_name):
+    row = conn.execute(
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name = %s
+        ) AS exists_flag
+        """,
+        (table_name,),
+    ).fetchone()
+    return bool(row["exists_flag"]) if row else False
+
+
+def _get_payroll_expense_total(conn, company_id):
+    """
+    Pull payroll cost directly from payroll_entries when available.
+
+    We treat payroll expense as:
+    gross pay
+    + employer-paid payroll taxes / burdens if those columns exist
+
+    This is only added separately if the ledger does not already appear to
+    contain payroll-sourced entries for the company.
+    """
+    if not _table_exists(conn, "payroll_entries"):
+        return 0.0
+
+    payroll_columns = _get_table_columns(conn, "payroll_entries")
+    if not payroll_columns or "company_id" not in payroll_columns:
+        return 0.0
+
+    gross_candidates = [
+        "gross_pay",
+        "gross_wages",
+        "gross_income",
+        "gross_total",
+        "total_gross",
+        "total_gross_pay",
+        "pay_amount",
+        "wages",
+        "amount",
+        "net_pay",
+    ]
+
+    employer_tax_candidates = [
+        "employer_taxes",
+        "employer_tax",
+        "employer_tax_total",
+        "employer_payroll_taxes",
+        "employer_fica",
+        "employer_social_security",
+        "employer_medicare",
+        "futa",
+        "suta",
+        "state_unemployment",
+        "federal_unemployment",
+    ]
+
+    selected_gross_col = None
+    for col in gross_candidates:
+        if col in payroll_columns:
+            selected_gross_col = col
+            break
+
+    if not selected_gross_col:
+        return 0.0
+
+    select_parts = [f"COALESCE(SUM({selected_gross_col}), 0) AS gross_total"]
+
+    for col in employer_tax_candidates:
+        if col in payroll_columns:
+            select_parts.append(f"COALESCE(SUM({col}), 0) AS {col}")
+
+    sql = f"""
+        SELECT {", ".join(select_parts)}
+        FROM payroll_entries
+        WHERE company_id = %s
+    """
+
+    row = conn.execute(sql, (company_id,)).fetchone()
+    if not row:
+        return 0.0
+
+    total = _safe_float(row["gross_total"])
+
+    for col in employer_tax_candidates:
+        if col in payroll_columns:
+            total += _safe_float(row[col])
+
+    return total
+
+
+def _ledger_has_payroll_source_entries(conn, company_id):
+    if not _table_exists(conn, "ledger_entries"):
+        return False
+
+    ledger_columns = _get_table_columns(conn, "ledger_entries")
+    if "company_id" not in ledger_columns or "source_type" not in ledger_columns:
+        return False
+
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM ledger_entries
+        WHERE company_id = %s
+          AND LOWER(COALESCE(source_type, '')) IN (
+              'payroll',
+              'payroll_entry',
+              'payroll_entries',
+              'payroll_run',
+              'paycheck'
+          )
+        """,
+        (company_id,),
+    ).fetchone()
+
+    return bool(row and int(row["count"] or 0) > 0)
+
+
 @dashboard_bp.route("/dashboard")
 @login_required
 @subscription_required
@@ -124,9 +258,12 @@ def dashboard():
             entry_type = row["entry_type"] or ""
             source_type = str(row["source_type"] or "").strip().lower()
 
+            # invoice payments are counted from invoice_payments below
             if source_type in {"invoice_payment", "invoice_paid", "invoice_mark_paid"}:
                 continue
 
+            # if payroll ledger rows exist, we let ledger own them and do not add
+            # payroll_entries separately later
             if _is_expense_type(entry_type):
                 expense_total += amount
             else:
@@ -141,6 +278,12 @@ def dashboard():
             (cid,),
         ).fetchone()
         invoice_payment_total = _safe_float(invoice_payment_total_row["total"]) if invoice_payment_total_row else 0.0
+
+        payroll_expense_total = 0.0
+        if not _ledger_has_payroll_source_entries(conn, cid):
+            payroll_expense_total = _get_payroll_expense_total(conn, cid)
+
+        expense_total += payroll_expense_total
 
         income_total = ledger_income_total + invoice_payment_total
         profit_total = income_total - expense_total
