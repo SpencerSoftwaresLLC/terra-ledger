@@ -606,8 +606,6 @@ def employees():
     else:
         name_col = "id"
 
-    phone_col = "phone" if "phone" in cols else None
-    email_col = "email" if "email" in cols else None
     active_sql = _active_where_sql("is_active")
 
     if show == "all":
@@ -643,19 +641,9 @@ def employees():
         display_name = (
             escape(str(r[name_col])) if name_col != "id" and r[name_col] else f"Employee #{r['id']}"
         )
-        phone_value = escape(str(r[phone_col])) if phone_col and r[phone_col] else "-"
-        email_value = escape(str(r[email_col])) if email_col and r[email_col] else "-"
         position_value = escape(str(r["position"])) if "position" in r.keys() and r["position"] else "-"
-        pay_type_value = escape(str(r["pay_type"])) if "pay_type" in r.keys() and r["pay_type"] else "-"
-
-        if "pay_type" in r.keys() and r["pay_type"] == "Salary":
-            rate_display = f"${float(r['salary_amount'] or 0):.2f}/yr"
-        elif "hourly_rate" in r.keys() and r["hourly_rate"] is not None:
-            rate_display = f"${float(r['hourly_rate'] or 0):.2f}/hr"
-        else:
-            rate_display = "-"
-
         status_text = "Active" if bool(r["is_active"]) else "Inactive"
+        status_badge_class = "active" if bool(r["is_active"]) else "inactive"
 
         if bool(r["is_active"]):
             status_form = f"""
@@ -686,12 +674,8 @@ def employees():
             f"""
             <tr>
                 <td>{display_name}</td>
-                <td>{phone_value}</td>
-                <td>{email_value}</td>
                 <td>{position_value}</td>
-                <td>{pay_type_value}</td>
-                <td>{rate_display}</td>
-                <td>{status_text}</td>
+                <td><span class='status-pill {status_badge_class}'>{status_text}</span></td>
                 <td>
                     <div class='row-actions'>
                         <a class='btn secondary small' href='{url_for("employees.view_employee", employee_id=r["id"])}'>View</a>
@@ -705,18 +689,13 @@ def employees():
 
         mobile_cards.append(
             f"""
-            <div class='mobile-list-card'>
+            <div class='mobile-list-card employee-simple-card'>
                 <div class='mobile-list-top'>
-                    <div class='mobile-list-title'>{display_name}</div>
-                    <div class='mobile-badge'>{status_text}</div>
-                </div>
-
-                <div class='mobile-list-grid'>
-                    <div><span>Phone</span><strong>{phone_value}</strong></div>
-                    <div><span>Email</span><strong>{email_value}</strong></div>
-                    <div><span>Position</span><strong>{position_value}</strong></div>
-                    <div><span>Pay Type</span><strong>{pay_type_value}</strong></div>
-                    <div><span>Rate / Salary</span><strong>{rate_display}</strong></div>
+                    <div>
+                        <div class='mobile-list-title'>{display_name}</div>
+                        <div class='mobile-list-subtitle'>{position_value}</div>
+                    </div>
+                    <div class='mobile-badge {status_badge_class}'>{status_text}</div>
                 </div>
 
                 <div class='mobile-list-actions'>
@@ -775,12 +754,16 @@ def employees():
             box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
         }}
 
+        .employee-simple-card {{
+            display:grid;
+            gap:12px;
+        }}
+
         .mobile-list-top {{
             display:flex;
             justify-content:space-between;
             align-items:flex-start;
             gap:10px;
-            margin-bottom:10px;
         }}
 
         .mobile-list-title {{
@@ -788,38 +771,64 @@ def employees():
             color:#0f172a;
             line-height:1.25;
             word-break:break-word;
+            font-size:1rem;
+        }}
+
+        .mobile-list-subtitle {{
+            margin-top:4px;
+            font-size:.9rem;
+            color:#64748b;
+            line-height:1.25;
+            word-break:break-word;
         }}
 
         .mobile-badge {{
             font-size:.85rem;
             font-weight:700;
-            color:#334155;
-            background:#f1f5f9;
             padding:6px 10px;
             border-radius:999px;
             white-space:nowrap;
+            border:1px solid rgba(15, 23, 42, 0.08);
+            background:#f1f5f9;
+            color:#334155;
         }}
 
-        .mobile-list-grid {{
-            display:grid;
-            grid-template-columns:1fr 1fr;
-            gap:10px 12px;
-            margin-bottom:12px;
+        .mobile-badge.active {{
+            background:#ecfdf3;
+            color:#166534;
+            border-color:rgba(22, 101, 52, 0.14);
         }}
 
-        .mobile-list-grid span {{
-            display:block;
-            font-size:.78rem;
-            color:#64748b;
-            margin-bottom:3px;
+        .mobile-badge.inactive {{
+            background:#fef2f2;
+            color:#991b1b;
+            border-color:rgba(153, 27, 27, 0.14);
         }}
 
-        .mobile-list-grid strong {{
-            display:block;
-            color:#0f172a;
-            font-size:.95rem;
-            line-height:1.25;
-            word-break:break-word;
+        .status-pill {{
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            padding:6px 10px;
+            border-radius:999px;
+            font-size:.85rem;
+            font-weight:700;
+            border:1px solid rgba(15, 23, 42, 0.08);
+            background:#f1f5f9;
+            color:#334155;
+            white-space:nowrap;
+        }}
+
+        .status-pill.active {{
+            background:#ecfdf3;
+            color:#166534;
+            border-color:rgba(22, 101, 52, 0.14);
+        }}
+
+        .status-pill.inactive {{
+            background:#fef2f2;
+            color:#991b1b;
+            border-color:rgba(153, 27, 27, 0.14);
         }}
 
         .mobile-list-actions {{
@@ -837,8 +846,24 @@ def employees():
                 display:block !important;
             }}
 
-            .mobile-list-grid {{
-                grid-template-columns:1fr;
+            .employees-head .row-actions {{
+                width:100%;
+            }}
+
+            .employees-head .row-actions .btn {{
+                flex:1 1 auto;
+                text-align:center;
+            }}
+
+            .mobile-list-actions .btn,
+            .mobile-list-actions form {{
+                flex:1 1 auto;
+            }}
+
+            .mobile-list-actions .btn,
+            .mobile-list-actions button {{
+                width:100%;
+                text-align:center;
             }}
         }}
     </style>
@@ -867,15 +892,11 @@ def employees():
                 <table>
                     <tr>
                         <th>Name</th>
-                        <th>Phone</th>
-                        <th>Email</th>
                         <th>Position</th>
-                        <th>Pay Type</th>
-                        <th>Rate / Salary</th>
                         <th>Status</th>
                         <th>Actions</th>
                     </tr>
-                    {employee_rows or "<tr><td colspan='8' class='muted'>No employees found.</td></tr>"}
+                    {employee_rows or "<tr><td colspan='4' class='muted'>No employees found.</td></tr>"}
                 </table>
             </div>
 
@@ -1146,54 +1167,69 @@ def view_employee(employee_id):
     cols = employee.keys()
     employee_name = _employee_display_name(employee)
 
-    phone = employee["phone"] if "phone" in cols and employee["phone"] else "-"
-    email = employee["email"] if "email" in cols and employee["email"] else "-"
-    position = employee["position"] if "position" in cols and employee["position"] else "-"
-    pay_type = employee["pay_type"] if "pay_type" in cols and employee["pay_type"] else "-"
-    hire_date = employee["hire_date"] if "hire_date" in cols and employee["hire_date"] else "-"
-    payroll_notes = employee["payroll_notes"] if "payroll_notes" in cols and employee["payroll_notes"] else "-"
-    default_hours = employee["default_hours"] if "default_hours" in cols and employee["default_hours"] is not None else "-"
-    hourly_rate = employee["hourly_rate"] if "hourly_rate" in cols and employee["hourly_rate"] is not None else 0
-    overtime_rate = employee["overtime_rate"] if "overtime_rate" in cols and employee["overtime_rate"] is not None else 0
-    salary_amount = employee["salary_amount"] if "salary_amount" in cols and employee["salary_amount"] is not None else 0
-    status_text = "Active" if ("is_active" in cols and bool(employee["is_active"])) else "Inactive"
+    def get_text(column_name, default="-"):
+        if column_name in cols and employee[column_name] not in (None, ""):
+            return str(employee[column_name])
+        return default
 
-    middle_name = employee["middle_name"] if "middle_name" in cols and employee["middle_name"] else "-"
-    suffix = employee["suffix"] if "suffix" in cols and employee["suffix"] else "-"
-    ssn = employee["ssn"] if "ssn" in cols and employee["ssn"] else "-"
+    def get_float(column_name, default=0.0):
+        if column_name in cols and employee[column_name] is not None:
+            try:
+                return float(employee[column_name])
+            except (TypeError, ValueError):
+                return default
+        return default
 
-    address_line_1 = employee["address_line_1"] if "address_line_1" in cols and employee["address_line_1"] else "-"
-    address_line_2 = employee["address_line_2"] if "address_line_2" in cols and employee["address_line_2"] else "-"
-    city = employee["city"] if "city" in cols and employee["city"] else "-"
-    state = employee["state"] if "state" in cols and employee["state"] else "-"
-    zip_code = employee["zip"] if "zip" in cols and employee["zip"] else "-"
+    def get_bool(column_name, default=False):
+        if column_name in cols:
+            return bool(employee[column_name])
+        return default
 
-    w2_address_line_1 = employee["w2_address_line_1"] if "w2_address_line_1" in cols and employee["w2_address_line_1"] else "-"
-    w2_address_line_2 = employee["w2_address_line_2"] if "w2_address_line_2" in cols and employee["w2_address_line_2"] else "-"
-    w2_city = employee["w2_city"] if "w2_city" in cols and employee["w2_city"] else "-"
-    w2_state = employee["w2_state"] if "w2_state" in cols and employee["w2_state"] else "-"
-    w2_zip = employee["w2_zip"] if "w2_zip" in cols and employee["w2_zip"] else "-"
-
-    federal_filing_status = (
-        employee["federal_filing_status"]
-        if "federal_filing_status" in cols and employee["federal_filing_status"]
-        else "Single"
-    )
-    pay_frequency = (
-        employee["pay_frequency"]
-        if "pay_frequency" in cols and employee["pay_frequency"]
+    phone = get_text("phone")
+    email = get_text("email")
+    position = get_text("position")
+    pay_type = get_text("pay_type")
+    hire_date = get_text("hire_date")
+    payroll_notes = get_text("payroll_notes")
+    default_hours = (
+        employee["default_hours"]
+        if "default_hours" in cols and employee["default_hours"] is not None
         else "-"
     )
-    w4_step2_checked = "Yes" if "w4_step2_checked" in cols and bool(employee["w4_step2_checked"]) else "No"
-    w4_step3_amount = float(employee["w4_step3_amount"]) if "w4_step3_amount" in cols and employee["w4_step3_amount"] is not None else 0.0
-    w4_step4a_other_income = float(employee["w4_step4a_other_income"]) if "w4_step4a_other_income" in cols and employee["w4_step4a_other_income"] is not None else 0.0
-    w4_step4b_deductions = float(employee["w4_step4b_deductions"]) if "w4_step4b_deductions" in cols and employee["w4_step4b_deductions"] is not None else 0.0
-    w4_step4c_extra_withholding = float(employee["w4_step4c_extra_withholding"]) if "w4_step4c_extra_withholding" in cols and employee["w4_step4c_extra_withholding"] is not None else 0.0
 
-    is_indiana_resident = "Yes" if "is_indiana_resident" in cols and bool(employee["is_indiana_resident"]) else "No"
-    county_of_residence = employee["county_of_residence"] if "county_of_residence" in cols and employee["county_of_residence"] else "-"
-    county_of_principal_employment = employee["county_of_principal_employment"] if "county_of_principal_employment" in cols and employee["county_of_principal_employment"] else "-"
-    county_tax_effective_year = employee["county_tax_effective_year"] if "county_tax_effective_year" in cols and employee["county_tax_effective_year"] else "-"
+    hourly_rate = get_float("hourly_rate")
+    overtime_rate = get_float("overtime_rate")
+    salary_amount = get_float("salary_amount")
+    status_text = "Active" if get_bool("is_active", True) else "Inactive"
+
+    middle_name = get_text("middle_name")
+    suffix = get_text("suffix")
+    ssn = get_text("ssn")
+
+    address_line_1 = get_text("address_line_1")
+    address_line_2 = get_text("address_line_2")
+    city = get_text("city")
+    state = get_text("state")
+    zip_code = get_text("zip")
+
+    w2_address_line_1 = get_text("w2_address_line_1")
+    w2_address_line_2 = get_text("w2_address_line_2")
+    w2_city = get_text("w2_city")
+    w2_state = get_text("w2_state")
+    w2_zip = get_text("w2_zip")
+
+    federal_filing_status = get_text("federal_filing_status", "Single")
+    pay_frequency = get_text("pay_frequency")
+    w4_step2_checked = "Yes" if get_bool("w4_step2_checked") else "No"
+    w4_step3_amount = get_float("w4_step3_amount")
+    w4_step4a_other_income = get_float("w4_step4a_other_income")
+    w4_step4b_deductions = get_float("w4_step4b_deductions")
+    w4_step4c_extra_withholding = get_float("w4_step4c_extra_withholding")
+
+    is_indiana_resident = "Yes" if get_bool("is_indiana_resident") else "No"
+    county_of_residence = get_text("county_of_residence")
+    county_of_principal_employment = get_text("county_of_principal_employment")
+    county_tax_effective_year = get_text("county_tax_effective_year")
 
     if pay_type == "Salary":
         pay_display = f"${salary_amount:,.2f} / year"
@@ -1219,15 +1255,15 @@ def view_employee(employee_id):
 
     payroll_history_mobile = "".join(
         f"""
-        <div class='mobile-list-card'>
-            <div class='mobile-list-top'>
-                <div class='mobile-list-title'>{escape(str(r['pay_date'] or '-'))}</div>
-                <div class='mobile-badge'>${float(r['net_pay'] or 0):.2f}</div>
+        <div class="mobile-pay-card">
+            <div class="mobile-pay-top">
+                <div class="mobile-pay-date">{escape(str(r['pay_date'] or '-'))}</div>
+                <div class="mobile-pay-net">${float(r['net_pay'] or 0):.2f}</div>
             </div>
-            <div class='mobile-list-grid'>
+            <div class="mobile-pay-grid">
                 <div><span>Pay Period</span><strong>{escape(str(r['pay_period_start'] or '-'))} to {escape(str(r['pay_period_end'] or '-'))}</strong></div>
                 <div><span>Pay Type</span><strong>{escape(str(r['pay_type'] or '-'))}</strong></div>
-                <div><span>Reg Hours</span><strong>{float(r['hours_regular'] or 0):.2f}</strong></div>
+                <div><span>Regular Hours</span><strong>{float(r['hours_regular'] or 0):.2f}</strong></div>
                 <div><span>OT Hours</span><strong>{float(r['hours_overtime'] or 0):.2f}</strong></div>
                 <div><span>Gross Pay</span><strong>${float(r['gross_pay'] or 0):.2f}</strong></div>
                 <div><span>Net Pay</span><strong>${float(r['net_pay'] or 0):.2f}</strong></div>
@@ -1240,236 +1276,327 @@ def view_employee(employee_id):
     content = f"""
     <style>
         .employee-view-page {{
-            display:grid;
-            gap:18px;
+            display: grid;
+            gap: 18px;
         }}
 
-        .employee-view-head {{
-            display:flex;
-            justify-content:space-between;
-            align-items:center;
-            gap:12px;
-            flex-wrap:wrap;
+        .employee-hero {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            flex-wrap: wrap;
+        }}
+
+        .employee-hero-left {{
+            min-width: 260px;
+            flex: 1 1 320px;
+        }}
+
+        .employee-hero h1 {{
+            margin: 0 0 8px;
+            color: #2f4f1f;
+        }}
+
+        .employee-subtitle {{
+            margin: 0;
+            color: #6b7280;
+        }}
+
+        .employee-badges {{
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 12px;
+        }}
+
+        .employee-badge {{
+            display: inline-flex;
+            align-items: center;
+            padding: 8px 14px;
+            border-radius: 999px;
+            font-weight: 700;
+            font-size: .92rem;
+            background: #f3f4f6;
+            color: #374151;
+            border: 1px solid rgba(15, 23, 42, 0.08);
+        }}
+
+        .employee-badge.active {{
+            background: #ecfdf3;
+            color: #166534;
+            border-color: rgba(22, 101, 52, 0.15);
+        }}
+
+        .employee-badge.inactive {{
+            background: #fef2f2;
+            color: #991b1b;
+            border-color: rgba(153, 27, 27, 0.12);
+        }}
+
+        .row-actions {{
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }}
+
+        .section-title {{
+            margin: 0 0 14px;
+            color: #2f4f1f;
         }}
 
         .employee-meta-grid {{
-            display:grid;
-            grid-template-columns:repeat(3, minmax(0, 1fr));
-            gap:12px;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
         }}
 
         .employee-meta-card {{
-            border:1px solid rgba(15, 23, 42, 0.08);
-            border-radius:12px;
-            padding:12px;
-            background:#fff;
+            background: #fff;
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 14px;
+            padding: 14px;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
         }}
 
         .employee-meta-card span {{
-            display:block;
-            font-size:.8rem;
-            color:#64748b;
-            margin-bottom:4px;
+            display: block;
+            font-size: .8rem;
+            color: #64748b;
+            margin-bottom: 4px;
         }}
 
         .employee-meta-card strong {{
-            display:block;
-            color:#0f172a;
-            line-height:1.3;
-            word-break:break-word;
+            display: block;
+            color: #0f172a;
+            line-height: 1.35;
+            word-break: break-word;
+        }}
+
+        .payroll-notes-box {{
+            margin-top: 16px;
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 14px;
+            padding: 14px;
+            background: #fafafa;
+            color: #0f172a;
+            line-height: 1.5;
+            word-break: break-word;
         }}
 
         .table-wrap {{
-            width:100%;
-            overflow-x:auto;
-        }}
-
-        .mobile-only {{
-            display:none;
+            width: 100%;
+            overflow-x: auto;
         }}
 
         .desktop-only {{
-            display:block;
+            display: block;
         }}
 
-        .mobile-list {{
-            display:grid;
-            gap:12px;
+        .mobile-only {{
+            display: none;
         }}
 
-        .mobile-list-card {{
-            border:1px solid rgba(15, 23, 42, 0.08);
-            border-radius:14px;
-            padding:14px;
-            background:#fff;
-            box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
+        .mobile-pay-list {{
+            display: grid;
+            gap: 12px;
         }}
 
-        .mobile-list-top {{
-            display:flex;
-            justify-content:space-between;
-            align-items:flex-start;
-            gap:10px;
-            margin-bottom:10px;
+        .mobile-pay-card {{
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 14px;
+            padding: 14px;
+            background: #fff;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
         }}
 
-        .mobile-list-title {{
-            font-weight:700;
-            color:#0f172a;
-            line-height:1.25;
-            word-break:break-word;
+        .mobile-pay-top {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 10px;
         }}
 
-        .mobile-badge {{
-            font-size:.85rem;
-            font-weight:700;
-            color:#334155;
-            background:#f1f5f9;
-            padding:6px 10px;
-            border-radius:999px;
-            white-space:nowrap;
+        .mobile-pay-date {{
+            font-weight: 700;
+            color: #0f172a;
+            line-height: 1.25;
         }}
 
-        .mobile-list-grid {{
-            display:grid;
-            grid-template-columns:1fr 1fr;
-            gap:10px 12px;
-            margin-bottom:12px;
+        .mobile-pay-net {{
+            font-size: .85rem;
+            font-weight: 700;
+            color: #334155;
+            background: #f1f5f9;
+            padding: 6px 10px;
+            border-radius: 999px;
+            white-space: nowrap;
         }}
 
-        .mobile-list-grid span {{
-            display:block;
-            font-size:.78rem;
-            color:#64748b;
-            margin-bottom:3px;
+        .mobile-pay-grid {{
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px 12px;
         }}
 
-        .mobile-list-grid strong {{
-            display:block;
-            color:#0f172a;
-            font-size:.95rem;
-            line-height:1.25;
-            word-break:break-word;
+        .mobile-pay-grid span {{
+            display: block;
+            font-size: .78rem;
+            color: #64748b;
+            margin-bottom: 3px;
+        }}
+
+        .mobile-pay-grid strong {{
+            display: block;
+            color: #0f172a;
+            font-size: .95rem;
+            line-height: 1.25;
+            word-break: break-word;
         }}
 
         @media (max-width: 900px) {{
             .employee-meta-grid {{
-                grid-template-columns:1fr;
+                grid-template-columns: 1fr 1fr;
             }}
         }}
 
         @media (max-width: 640px) {{
+            .employee-hero {{
+                flex-direction: column;
+                align-items: stretch;
+            }}
+
+            .row-actions {{
+                width: 100%;
+            }}
+
+            .row-actions .btn {{
+                flex: 1 1 auto;
+                text-align: center;
+            }}
+
+            .employee-meta-grid {{
+                grid-template-columns: 1fr;
+            }}
+
             .desktop-only {{
-                display:none !important;
+                display: none !important;
             }}
 
             .mobile-only {{
-                display:block !important;
+                display: block !important;
             }}
 
-            .mobile-list-grid {{
-                grid-template-columns:1fr;
+            .mobile-pay-grid {{
+                grid-template-columns: 1fr;
             }}
         }}
     </style>
 
-    <div class='employee-view-page'>
-        <div class='card'>
-            <div class='employee-view-head'>
-                <div>
-                    <h1 style='margin-bottom:6px;'>{escape(employee_name)}</h1>
-                    <p class='muted' style='margin:0;'>Employee details, payroll profile, tax setup, and W-2 identity fields.</p>
+    <div class="employee-view-page">
+        <div class="card">
+            <div class="employee-hero">
+                <div class="employee-hero-left">
+                    <h1>{escape(employee_name)}</h1>
+                    <p class="employee-subtitle">Full employee profile, payroll setup, tax setup, and payroll history.</p>
+                    <div class="employee-badges">
+                        <div class="employee-badge {'active' if status_text == 'Active' else 'inactive'}">{escape(status_text)}</div>
+                        <div class="employee-badge">{escape(str(position))}</div>
+                        <div class="employee-badge">{escape(str(pay_type))}</div>
+                    </div>
                 </div>
-                <div class='row-actions'>
-                    <a class='btn' href='{url_for("employees.edit_employee", employee_id=employee_id)}'>Edit Employee</a>
-                    <a class='btn warning' href='{url_for("payroll.employee_payroll")}'>Payroll</a>
-                    <a class='btn secondary' href='{url_for("employees.employees")}'>Back to Employees</a>
+                <div class="row-actions">
+                    <a class="btn" href="{url_for('employees.edit_employee', employee_id=employee_id)}">Edit Employee</a>
+                    <a class="btn warning" href="{url_for('payroll.employee_payroll')}">Payroll</a>
+                    <a class="btn secondary" href="{url_for('employees.employees')}">Back to Employees</a>
                 </div>
             </div>
         </div>
 
-        <div class='card'>
-            <h2>Employee Information</h2>
-            <div class='employee-meta-grid'>
-                <div class='employee-meta-card'><span>Name</span><strong>{escape(employee_name)}</strong></div>
-                <div class='employee-meta-card'><span>Status</span><strong>{escape(status_text)}</strong></div>
-                <div class='employee-meta-card'><span>Middle Name</span><strong>{escape(str(middle_name))}</strong></div>
-                <div class='employee-meta-card'><span>Suffix</span><strong>{escape(str(suffix))}</strong></div>
-                <div class='employee-meta-card'><span>Phone</span><strong>{escape(str(phone))}</strong></div>
-                <div class='employee-meta-card'><span>Email</span><strong>{escape(str(email))}</strong></div>
-                <div class='employee-meta-card'><span>Position</span><strong>{escape(str(position))}</strong></div>
-                <div class='employee-meta-card'><span>Hire Date</span><strong>{escape(str(hire_date))}</strong></div>
+        <div class="card">
+            <h2 class="section-title">Employee Information</h2>
+            <div class="employee-meta-grid">
+                <div class="employee-meta-card"><span>Name</span><strong>{escape(employee_name)}</strong></div>
+                <div class="employee-meta-card"><span>Status</span><strong>{escape(status_text)}</strong></div>
+                <div class="employee-meta-card"><span>Position</span><strong>{escape(str(position))}</strong></div>
+                <div class="employee-meta-card"><span>Phone</span><strong>{escape(str(phone))}</strong></div>
+                <div class="employee-meta-card"><span>Email</span><strong>{escape(str(email))}</strong></div>
+                <div class="employee-meta-card"><span>Hire Date</span><strong>{escape(str(hire_date))}</strong></div>
+                <div class="employee-meta-card"><span>Middle Name</span><strong>{escape(str(middle_name))}</strong></div>
+                <div class="employee-meta-card"><span>Suffix</span><strong>{escape(str(suffix))}</strong></div>
             </div>
         </div>
 
-        <div class='card'>
-            <h2>Employee Address</h2>
-            <div class='employee-meta-grid'>
-                <div class='employee-meta-card'><span>Address Line 1</span><strong>{escape(str(address_line_1))}</strong></div>
-                <div class='employee-meta-card'><span>Address Line 2</span><strong>{escape(str(address_line_2))}</strong></div>
-                <div class='employee-meta-card'><span>City</span><strong>{escape(str(city))}</strong></div>
-                <div class='employee-meta-card'><span>State</span><strong>{escape(str(state))}</strong></div>
-                <div class='employee-meta-card'><span>ZIP</span><strong>{escape(str(zip_code))}</strong></div>
+        <div class="card">
+            <h2 class="section-title">Employee Address</h2>
+            <div class="employee-meta-grid">
+                <div class="employee-meta-card"><span>Address Line 1</span><strong>{escape(str(address_line_1))}</strong></div>
+                <div class="employee-meta-card"><span>Address Line 2</span><strong>{escape(str(address_line_2))}</strong></div>
+                <div class="employee-meta-card"><span>City</span><strong>{escape(str(city))}</strong></div>
+                <div class="employee-meta-card"><span>State</span><strong>{escape(str(state))}</strong></div>
+                <div class="employee-meta-card"><span>ZIP</span><strong>{escape(str(zip_code))}</strong></div>
             </div>
         </div>
 
-        <div class='card'>
-            <h2>W-2 Identity & Mailing Info</h2>
-            <div class='employee-meta-grid'>
-                <div class='employee-meta-card'><span>SSN</span><strong>{escape(str(ssn))}</strong></div>
-                <div class='employee-meta-card'><span>W-2 Address Line 1</span><strong>{escape(str(w2_address_line_1))}</strong></div>
-                <div class='employee-meta-card'><span>W-2 Address Line 2</span><strong>{escape(str(w2_address_line_2))}</strong></div>
-                <div class='employee-meta-card'><span>W-2 City</span><strong>{escape(str(w2_city))}</strong></div>
-                <div class='employee-meta-card'><span>W-2 State</span><strong>{escape(str(w2_state))}</strong></div>
-                <div class='employee-meta-card'><span>W-2 ZIP</span><strong>{escape(str(w2_zip))}</strong></div>
+        <div class="card">
+            <h2 class="section-title">W-2 Identity & Mailing Info</h2>
+            <div class="employee-meta-grid">
+                <div class="employee-meta-card"><span>SSN</span><strong>{escape(str(ssn))}</strong></div>
+                <div class="employee-meta-card"><span>W-2 Address Line 1</span><strong>{escape(str(w2_address_line_1))}</strong></div>
+                <div class="employee-meta-card"><span>W-2 Address Line 2</span><strong>{escape(str(w2_address_line_2))}</strong></div>
+                <div class="employee-meta-card"><span>W-2 City</span><strong>{escape(str(w2_city))}</strong></div>
+                <div class="employee-meta-card"><span>W-2 State</span><strong>{escape(str(w2_state))}</strong></div>
+                <div class="employee-meta-card"><span>W-2 ZIP</span><strong>{escape(str(w2_zip))}</strong></div>
             </div>
         </div>
 
-        <div class='card'>
-            <h2>Payroll Setup</h2>
-            <div class='employee-meta-grid'>
-                <div class='employee-meta-card'><span>Pay Type</span><strong>{escape(str(pay_type))}</strong></div>
-                <div class='employee-meta-card'><span>Rate / Salary</span><strong>{pay_display}</strong></div>
-                <div class='employee-meta-card'><span>Overtime Rate</span><strong>${overtime_rate:,.2f}</strong></div>
-                <div class='employee-meta-card'><span>Default Hours</span><strong>{escape(str(default_hours))}</strong></div>
-                <div class='employee-meta-card'><span>Pay Frequency</span><strong>{escape(str(pay_frequency))}</strong></div>
+        <div class="card">
+            <h2 class="section-title">Payroll Setup</h2>
+            <div class="employee-meta-grid">
+                <div class="employee-meta-card"><span>Pay Type</span><strong>{escape(str(pay_type))}</strong></div>
+                <div class="employee-meta-card"><span>Rate / Salary</span><strong>{pay_display}</strong></div>
+                <div class="employee-meta-card"><span>Overtime Rate</span><strong>${overtime_rate:,.2f}</strong></div>
+                <div class="employee-meta-card"><span>Default Hours</span><strong>{escape(str(default_hours))}</strong></div>
+                <div class="employee-meta-card"><span>Pay Frequency</span><strong>{escape(str(pay_frequency))}</strong></div>
             </div>
 
-            <div style='margin-top:18px;'>
-                <strong>Payroll Notes</strong><br>
-                <div class='muted' style='margin-top:6px;'>{escape(str(payroll_notes))}</div>
-            </div>
-        </div>
-
-        <div class='card'>
-            <h2>Federal Tax / W-4</h2>
-            <div class='employee-meta-grid'>
-                <div class='employee-meta-card'><span>Federal Filing Status</span><strong>{escape(str(federal_filing_status))}</strong></div>
-                <div class='employee-meta-card'><span>Step 2 Box Checked</span><strong>{escape(w4_step2_checked)}</strong></div>
-                <div class='employee-meta-card'><span>Step 3 Credits</span><strong>${w4_step3_amount:,.2f}</strong></div>
-                <div class='employee-meta-card'><span>Step 4(a) Other Income</span><strong>${w4_step4a_other_income:,.2f}</strong></div>
-                <div class='employee-meta-card'><span>Step 4(b) Deductions</span><strong>${w4_step4b_deductions:,.2f}</strong></div>
-                <div class='employee-meta-card'><span>Step 4(c) Extra Withholding</span><strong>${w4_step4c_extra_withholding:,.2f}</strong></div>
+            <div class="payroll-notes-box">
+                <span style="display:block; font-size:.8rem; color:#64748b; margin-bottom:6px;">Payroll Notes</span>
+                <strong style="font-weight:600;">{escape(str(payroll_notes))}</strong>
             </div>
         </div>
 
-        <div class='card'>
-            <h2>Indiana Local Tax Setup</h2>
-            <div class='employee-meta-grid'>
-                <div class='employee-meta-card'><span>Indiana Resident on Jan 1</span><strong>{escape(is_indiana_resident)}</strong></div>
-                <div class='employee-meta-card'><span>County Tax Effective Year</span><strong>{escape(str(county_tax_effective_year))}</strong></div>
-                <div class='employee-meta-card'><span>County of Residence</span><strong>{escape(str(county_of_residence))}</strong></div>
-                <div class='employee-meta-card'><span>County of Principal Employment</span><strong>{escape(str(county_of_principal_employment))}</strong></div>
+        <div class="card">
+            <h2 class="section-title">Federal Tax / W-4</h2>
+            <div class="employee-meta-grid">
+                <div class="employee-meta-card"><span>Federal Filing Status</span><strong>{escape(str(federal_filing_status))}</strong></div>
+                <div class="employee-meta-card"><span>Step 2 Box Checked</span><strong>{escape(w4_step2_checked)}</strong></div>
+                <div class="employee-meta-card"><span>Step 3 Credits</span><strong>${w4_step3_amount:,.2f}</strong></div>
+                <div class="employee-meta-card"><span>Step 4(a) Other Income</span><strong>${w4_step4a_other_income:,.2f}</strong></div>
+                <div class="employee-meta-card"><span>Step 4(b) Deductions</span><strong>${w4_step4b_deductions:,.2f}</strong></div>
+                <div class="employee-meta-card"><span>Step 4(c) Extra Withholding</span><strong>${w4_step4c_extra_withholding:,.2f}</strong></div>
             </div>
         </div>
 
-        <div class='card'>
-            <div class='section-head'>
-                <h2>Payroll History</h2>
-                <a class='btn small' href='{url_for("payroll.employee_payroll")}'>Open Payroll</a>
+        <div class="card">
+            <h2 class="section-title">Indiana Local Tax Setup</h2>
+            <div class="employee-meta-grid">
+                <div class="employee-meta-card"><span>Indiana Resident on Jan 1</span><strong>{escape(is_indiana_resident)}</strong></div>
+                <div class="employee-meta-card"><span>County Tax Effective Year</span><strong>{escape(str(county_tax_effective_year))}</strong></div>
+                <div class="employee-meta-card"><span>County of Residence</span><strong>{escape(str(county_of_residence))}</strong></div>
+                <div class="employee-meta-card"><span>County of Principal Employment</span><strong>{escape(str(county_of_principal_employment))}</strong></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="section-head">
+                <h2 class="section-title" style="margin-bottom:0;">Payroll History</h2>
+                <a class="btn small" href="{url_for('payroll.employee_payroll')}">Open Payroll</a>
             </div>
 
-            <div class='table-wrap desktop-only'>
+            <div class="table-wrap desktop-only">
                 <table>
                     <tr>
                         <th>Pay Date</th>
@@ -1484,9 +1611,9 @@ def view_employee(employee_id):
                 </table>
             </div>
 
-            <div class='mobile-only'>
-                <div class='mobile-list'>
-                    {payroll_history_mobile or "<div class='mobile-list-card muted'>No payroll history found.</div>"}
+            <div class="mobile-only">
+                <div class="mobile-pay-list">
+                    {payroll_history_mobile or "<div class='mobile-pay-card muted'>No payroll history found.</div>"}
                 </div>
             </div>
         </div>
@@ -1494,7 +1621,6 @@ def view_employee(employee_id):
     """
 
     return render_page(content, employee_name)
-
 
 @employees_bp.route("/employees/<int:employee_id>/edit", methods=["GET", "POST"])
 @login_required
