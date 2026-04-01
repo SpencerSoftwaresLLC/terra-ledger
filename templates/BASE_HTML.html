@@ -708,6 +708,19 @@ label {
         transform: translateX(0);
     }
 
+    body.sidebar-open .main-content {
+    pointer-events: none;
+    }
+
+    body.sidebar-open .sidebar,
+    body.sidebar-open .mobile-sidebar-overlay {
+        pointer-events: auto;
+    }
+
+    body.sidebar-open .page-content-inner {
+        overflow: hidden;
+    }
+
     .sidebar-brand {
         border-bottom: none;
         padding-bottom: 0;
@@ -1173,17 +1186,36 @@ document.addEventListener("DOMContentLoaded", function () {
     const mobileSidebarOverlay = document.getElementById("mobileSidebarOverlay");
     const helpOverlay = document.getElementById("helpAssistantOverlay");
 
+    function blurActiveElement() {
+        const active = document.activeElement;
+        if (!active) return;
+
+        const tag = (active.tagName || "").toLowerCase();
+        const isEditable =
+            tag === "input" ||
+            tag === "select" ||
+            tag === "textarea" ||
+            active.isContentEditable;
+
+        if (isEditable && typeof active.blur === "function") {
+            active.blur();
+        }
+    }
+
     function closeCompanyMenu() {
         if (topMenu) topMenu.style.display = "none";
     }
 
     function toggleCompanyMenu(e) {
         e.stopPropagation();
+        blurActiveElement();
         if (!topMenu) return;
         topMenu.style.display = topMenu.style.display === "block" ? "none" : "block";
     }
 
     function openSidebar() {
+        blurActiveElement();
+        closeCompanyMenu();
         body.classList.add("sidebar-open");
     }
 

@@ -259,10 +259,17 @@ def subscription_required_page():
     content = render_template_string(
         """
         <div class="card" style="max-width:900px;margin:0 auto;">
-            <h1>Subscription Required</h1>
-            <p class="muted">
-                TerraLedger access is currently locked for this account.
-            </p>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                <div>
+                    <h1 style="margin-bottom:6px;">Subscription Required</h1>
+                    <p class="muted" style="margin:0;">
+                        TerraLedger access is currently locked for this account.
+                    </p>
+                </div>
+                <div class="row-actions">
+                    <a class="btn secondary" href="{{ settings_url }}">Back to Settings</a>
+                </div>
+            </div>
 
             <div style="margin-top:20px;">
                 <div class="card" style="margin:0;">
@@ -283,7 +290,7 @@ def subscription_required_page():
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button class="btn secondary" type="submit">Refresh Access</button>
                         </form>
-                        <a class="btn secondary" href="{{ billing_url }}">View Billing Page</a>
+                        <a class="btn" href="{{ billing_url }}">View Billing Page</a>
                     </div>
                 </div>
             </div>
@@ -294,6 +301,7 @@ def subscription_required_page():
         renewal=renewal,
         refresh_url=url_for("billing.refresh_billing_status"),
         billing_url=url_for("billing.billing_page"),
+        settings_url=url_for("settings.settings"),
     )
 
     return render_page(content, title="Subscription Required")
@@ -348,10 +356,17 @@ def billing_page():
     </style>
 
     <div class="card">
-        <h1>Billing</h1>
-        <p class="muted">
-            Manage your subscription status, account access, and billing history here.
-        </p>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+            <div>
+                <h1 style="margin-bottom:6px;">Billing</h1>
+                <p class="muted" style="margin:0;">
+                    Manage your subscription status, account access, and billing history here.
+                </p>
+            </div>
+            <div class="row-actions">
+                <a class="btn secondary" href="{{ url_for('settings.settings') }}">Back to Settings</a>
+            </div>
+        </div>
     </div>
 
     {% if billing_notice %}
