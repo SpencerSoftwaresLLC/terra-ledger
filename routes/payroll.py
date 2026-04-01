@@ -922,32 +922,40 @@ def employee_payroll():
     )
 
     payroll_rows = ""
+    payroll_mobile_cards = ""
+
     for r in rows:
         payment_method = clean_text_input(r["payment_method"]) or "-"
         check_number = r["check_number"] if "check_number" in r.keys() else None
+        employee_name = (clean_text_input(r["first_name"]) + " " + clean_text_input(r["last_name"])).strip() or "-"
         row_csrf = generate_csrf()
 
         actions_html = []
+        mobile_actions_html = []
+
         if payment_method == "Check" or check_number:
-            actions_html.append(
+            print_link = (
                 f"<a class='btn secondary small' href='{url_for('payroll.print_payroll_check', payroll_id=r['id'])}' target='_blank'>Print Check</a>"
             )
-        actions_html.append(
-            f"""
-            <form method='post'
-                  action='{url_for("payroll.delete_payroll_entry", payroll_id=r["id"])}'
-                  onsubmit="return confirm('Delete this payroll entry?');"
-                  style='margin:0;'>
-                <input type="hidden" name="csrf_token" value="{row_csrf}">
-                <button class='btn danger small' type='submit'>Delete</button>
-            </form>
-            """
-        )
+            actions_html.append(print_link)
+            mobile_actions_html.append(print_link)
+
+        delete_form = f"""
+        <form method='post'
+              action='{url_for("payroll.delete_payroll_entry", payroll_id=r["id"])}'
+              onsubmit="return confirm('Delete this payroll entry?');"
+              style='margin:0;'>
+            <input type="hidden" name="csrf_token" value="{row_csrf}">
+            <button class='btn danger small' type='submit'>Delete</button>
+        </form>
+        """
+        actions_html.append(delete_form)
+        mobile_actions_html.append(delete_form)
 
         payroll_rows += f"""
         <tr>
             <td>{html_escape(clean_text_display(r['pay_date']))}</td>
-            <td class='wrap'>{html_escape((clean_text_input(r['first_name']) + ' ' + clean_text_input(r['last_name'])).strip() or '-')}</td>
+            <td class='wrap'>{html_escape(employee_name)}</td>
             <td>{html_escape(clean_text_display(r['pay_type']))}</td>
             <td>{html_escape(payment_method)}</td>
             <td class='center'>{html_escape(str(check_number) if check_number else '-')}</td>
@@ -965,6 +973,35 @@ def employee_payroll():
                 </div>
             </td>
         </tr>
+        """
+
+        payroll_mobile_cards += f"""
+        <div class='mobile-list-card'>
+            <div class='mobile-list-top'>
+                <div>
+                    <div class='mobile-list-title'>{html_escape(employee_name)}</div>
+                    <div class='mobile-list-subtitle'>{html_escape(clean_text_display(r['pay_date']))}</div>
+                </div>
+                <div class='mobile-badge'>{html_escape(clean_text_display(r['pay_type']))}</div>
+            </div>
+
+            <div class='mobile-list-grid'>
+                <div><span>Payment Method</span><strong>{html_escape(payment_method)}</strong></div>
+                <div><span>Check #</span><strong>{html_escape(str(check_number) if check_number else '-')}</strong></div>
+                <div><span>Gross Pay</span><strong>${float(r['gross_pay'] or 0):.2f}</strong></div>
+                <div><span>Federal</span><strong>${float(r['federal_withholding'] or 0):.2f}</strong></div>
+                <div><span>State</span><strong>${float(r['state_withholding'] or 0):.2f}</strong></div>
+                <div><span>Social Security</span><strong>${float(r['social_security'] or 0):.2f}</strong></div>
+                <div><span>Medicare</span><strong>${float(r['medicare'] or 0):.2f}</strong></div>
+                <div><span>Local Tax</span><strong>${float(r['local_tax'] or 0):.2f}</strong></div>
+                <div><span>Other Deductions</span><strong>${float(r['other_deductions'] or 0):.2f}</strong></div>
+                <div><span>Net Pay</span><strong class='mobile-net-pay'>${float(r['net_pay'] or 0):.2f}</strong></div>
+            </div>
+
+            <div class='mobile-list-actions'>
+                {''.join(mobile_actions_html)}
+            </div>
+        </div>
         """
 
     tax_defaults_html = f"""
@@ -987,6 +1024,7 @@ def employee_payroll():
     <style>
         .static-table-wrap {{
             width: 100%;
+            overflow-x: auto;
         }}
 
         .static-table {{
@@ -1045,6 +1083,124 @@ def employee_payroll():
 
         .payroll-net {{
             font-weight: 700;
+        }}
+
+        .desktop-only {{
+            display: block;
+        }}
+
+        .mobile-only {{
+            display: none;
+        }}
+
+        .mobile-list {{
+            display: grid;
+            gap: 12px;
+        }}
+
+        .mobile-list-card {{
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 14px;
+            padding: 14px;
+            background: #fff;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }}
+
+        .mobile-list-top {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 10px;
+        }}
+
+        .mobile-list-title {{
+            font-weight: 700;
+            color: #0f172a;
+            line-height: 1.25;
+            word-break: break-word;
+        }}
+
+        .mobile-list-subtitle {{
+            margin-top: 4px;
+            font-size: .9rem;
+            color: #64748b;
+            line-height: 1.25;
+            word-break: break-word;
+        }}
+
+        .mobile-badge {{
+            font-size: .85rem;
+            font-weight: 700;
+            color: #334155;
+            background: #f1f5f9;
+            padding: 6px 10px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }}
+
+        .mobile-list-grid {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px 12px;
+            margin-bottom: 12px;
+        }}
+
+        .mobile-list-grid span {{
+            display: block;
+            font-size: .78rem;
+            color: #64748b;
+            margin-bottom: 3px;
+        }}
+
+        .mobile-list-grid strong {{
+            display: block;
+            color: #0f172a;
+            font-size: .95rem;
+            line-height: 1.25;
+            word-break: break-word;
+        }}
+
+        .mobile-net-pay {{
+            color: #2f4f1f;
+            font-weight: 700;
+        }}
+
+        .mobile-list-actions {{
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }}
+
+        .mobile-list-actions form {{
+            margin: 0;
+        }}
+
+        @media (max-width: 640px) {{
+            .desktop-only {{
+                display: none !important;
+            }}
+
+            .mobile-only {{
+                display: block !important;
+            }}
+
+            .mobile-list-grid {{
+                grid-template-columns: 1fr;
+            }}
+
+            .mobile-list-actions .btn,
+            .mobile-list-actions button,
+            .mobile-list-actions form {{
+                flex: 1 1 auto;
+            }}
+
+            .mobile-list-actions .btn,
+            .mobile-list-actions button {{
+                width: 100%;
+                text-align: center;
+            }}
         }}
     </style>
 
@@ -1191,7 +1347,8 @@ def employee_payroll():
 
     <div class='card'>
         <h2>Payroll History</h2>
-        <div class='static-table-wrap'>
+
+        <div class='static-table-wrap desktop-only'>
             <table class='static-table'>
                 <colgroup>
                     <col style='width:8%;'>
@@ -1227,6 +1384,12 @@ def employee_payroll():
                 </tr>
                 {payroll_rows or "<tr><td colspan='14' class='muted'>No payroll entries yet.</td></tr>"}
             </table>
+        </div>
+
+        <div class='mobile-only'>
+            <div class='mobile-list'>
+                {payroll_mobile_cards or "<div class='mobile-list-card muted'>No payroll entries yet.</div>"}
+            </div>
         </div>
     </div>
 
