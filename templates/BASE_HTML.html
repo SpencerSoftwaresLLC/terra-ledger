@@ -650,13 +650,15 @@ label {
         inset: 0;
         background: rgba(15, 23, 42, 0.48);
         opacity: 0;
+        visibility: hidden;
         pointer-events: none;
-        transition: opacity 0.2s ease;
+        transition: opacity 0.2s ease, visibility 0.2s ease;
         z-index: 39;
     }
 
     body.sidebar-open .mobile-sidebar-overlay {
         opacity: 1;
+        visibility: visible;
         pointer-events: auto;
     }
 
@@ -675,14 +677,19 @@ label {
             14px;
         gap: 12px;
         transform: translateX(-100%);
-        transition: transform 0.22s ease;
+        transition: transform 0.22s ease, visibility 0.22s ease;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
         box-shadow: 6px 0 24px rgba(0,0,0,0.22);
+        visibility: hidden;
+        pointer-events: none;
+        z-index: 40;
     }
 
     body.sidebar-open .sidebar {
         transform: translateX(0);
+        visibility: visible;
+        pointer-events: auto;
     }
 
     .sidebar-brand {
@@ -742,7 +749,7 @@ label {
         justify-content: flex-end !important;
         gap: 8px;
         margin-left: 0;
-        overflow: hidden;
+        overflow: visible;
     }
 
     .topbar-right .btn,
@@ -1125,8 +1132,6 @@ label {
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     const body = document.body;
-    body.classList.remove("sidebar-open");
-
     const topButton = document.getElementById("companyMenuButtonTop");
     const topMenu = document.getElementById("companyMenuTop");
     const mobileMenuButton = document.getElementById("mobileMenuButton");
@@ -1134,11 +1139,16 @@ document.addEventListener("DOMContentLoaded", function () {
     const mobileSidebarOverlay = document.getElementById("mobileSidebarOverlay");
     const helpOverlay = document.getElementById("helpAssistantOverlay");
 
+    body.classList.remove("sidebar-open");
+
     function closeCompanyMenu() {
-        if (topMenu) topMenu.style.display = "none";
+        if (topMenu) {
+            topMenu.style.display = "none";
+        }
     }
 
     function toggleCompanyMenu(e) {
+        e.preventDefault();
         e.stopPropagation();
         if (!topMenu) return;
         topMenu.style.display = topMenu.style.display === "block" ? "none" : "block";
@@ -1153,7 +1163,10 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function toggleSidebar(e) {
-        if (e) e.stopPropagation();
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
         if (body.classList.contains("sidebar-open")) {
             closeSidebar();
         } else {
@@ -1161,20 +1174,31 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
-    if (topButton && topMenu) {
+    if (topButton) {
         topButton.addEventListener("click", toggleCompanyMenu);
+        topButton.addEventListener("touchend", toggleCompanyMenu, { passive: false });
+    }
 
+    if (topMenu) {
         topMenu.addEventListener("click", function (e) {
             e.stopPropagation();
         });
+        topMenu.addEventListener("touchend", function (e) {
+            e.stopPropagation();
+        }, { passive: false });
     }
 
     if (mobileMenuButton) {
         mobileMenuButton.addEventListener("click", toggleSidebar);
+        mobileMenuButton.addEventListener("touchend", toggleSidebar, { passive: false });
     }
 
     if (mobileSidebarOverlay) {
         mobileSidebarOverlay.addEventListener("click", closeSidebar);
+        mobileSidebarOverlay.addEventListener("touchend", function (e) {
+            e.preventDefault();
+            closeSidebar();
+        }, { passive: false });
     }
 
     if (appSidebar) {
@@ -1189,6 +1213,17 @@ document.addEventListener("DOMContentLoaded", function () {
     document.addEventListener("click", function () {
         closeCompanyMenu();
     });
+
+    document.addEventListener("touchend", function (e) {
+        if (
+            topMenu &&
+            topButton &&
+            !topMenu.contains(e.target) &&
+            !topButton.contains(e.target)
+        ) {
+            closeCompanyMenu();
+        }
+    }, { passive: true });
 
     document.addEventListener("keydown", function (e) {
         if (e.key === "Escape") {
@@ -1212,6 +1247,11 @@ document.addEventListener("DOMContentLoaded", function () {
         if (window.innerWidth > 820) {
             closeSidebar();
         }
+    });
+
+    window.addEventListener("pageshow", function () {
+        closeSidebar();
+        closeCompanyMenu();
     });
 });
 </script>
