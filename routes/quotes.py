@@ -431,8 +431,11 @@ def quotes():
     conn.close()
 
     quote_row_list = []
+    quote_mobile_cards = []
+
     for r in rows:
         delete_csrf = generate_csrf()
+
         quote_row_list.append(
             f"""<tr>
                 <td>#{r['id']}</td>
@@ -456,12 +459,58 @@ def quotes():
                 </td>
             </tr>"""
         )
+
+        quote_mobile_cards.append(
+            f"""
+            <div class='mobile-list-card'>
+                <div class='mobile-list-top'>
+                    <div class='mobile-list-title'>Quote #{escape(r['quote_number'] or '-')}</div>
+                    <div class='mobile-badge'>{escape(r['status'] or '-')}</div>
+                </div>
+
+                <div class='mobile-list-grid'>
+                    <div><span>ID</span><strong>#{r['id']}</strong></div>
+                    <div><span>Customer</span><strong>{escape(r['customer_name'] or '-')}</strong></div>
+                    <div><span>Total</span><strong>${float(r['total'] or 0):.2f}</strong></div>
+                    <div><span>Status</span><strong>{escape(r['status'] or '-')}</strong></div>
+                </div>
+
+                <div class='mobile-list-actions'>
+                    <a class='btn secondary small' href='{url_for("quotes.view_quote", quote_id=r["id"])}'>View</a>
+                    <a class='btn small' href='{url_for("quotes.email_quote_preview", quote_id=r["id"])}'>Email</a>
+                    <a class='btn success small' href='{url_for("quotes.convert_quote_to_job", quote_id=r["id"])}'>Convert to Job</a>
+                    <form method='post'
+                          action='{url_for("quotes.delete_quote", quote_id=r["id"])}'
+                          style='display:inline;'
+                          onsubmit="return confirm('Delete this quote?');">
+                        <input type="hidden" name="csrf_token" value="{delete_csrf}">
+                        <button class='btn danger small' type='submit'>Delete</button>
+                    </form>
+                </div>
+            </div>
+            """
+        )
+
     quote_rows = "".join(quote_row_list)
+    quote_mobile_cards_html = "".join(quote_mobile_cards)
 
     form_csrf = generate_csrf()
 
     content = f"""
     <style>
+        .quotes-page {{
+            display:grid;
+            gap:18px;
+        }}
+
+        .quotes-head {{
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:12px;
+            flex-wrap:wrap;
+        }}
+
         .customer-search-wrap {{
             position: relative;
         }}
@@ -503,144 +552,246 @@ def quotes():
         .grid {{
             align-items: start;
         }}
+
+        .table-wrap {{
+            width:100%;
+            overflow-x:auto;
+        }}
+
+        .mobile-only {{
+            display:none;
+        }}
+
+        .desktop-only {{
+            display:block;
+        }}
+
+        .mobile-list {{
+            display:grid;
+            gap:12px;
+        }}
+
+        .mobile-list-card {{
+            border:1px solid rgba(15, 23, 42, 0.08);
+            border-radius:14px;
+            padding:14px;
+            background:#fff;
+            box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
+        }}
+
+        .mobile-list-top {{
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:10px;
+            margin-bottom:10px;
+        }}
+
+        .mobile-list-title {{
+            font-weight:700;
+            color:#0f172a;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-badge {{
+            font-size:.85rem;
+            font-weight:700;
+            color:#334155;
+            background:#f1f5f9;
+            padding:6px 10px;
+            border-radius:999px;
+            white-space:nowrap;
+        }}
+
+        .mobile-list-grid {{
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:10px 12px;
+            margin-bottom:12px;
+        }}
+
+        .mobile-list-grid span {{
+            display:block;
+            font-size:.78rem;
+            color:#64748b;
+            margin-bottom:3px;
+        }}
+
+        .mobile-list-grid strong {{
+            display:block;
+            color:#0f172a;
+            font-size:.95rem;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-list-actions {{
+            display:flex;
+            gap:8px;
+            flex-wrap:wrap;
+        }}
+
+        @media (max-width: 640px) {{
+            .desktop-only {{
+                display:none !important;
+            }}
+
+            .mobile-only {{
+                display:block !important;
+            }}
+
+            .mobile-list-grid {{
+                grid-template-columns:1fr;
+            }}
+        }}
     </style>
 
-    <div class='card'>
-        <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
-            <h1 style='margin:0;'>Quotes</h1>
-            <div class='row-actions'>
-                <a class='btn warning' href='{url_for("quotes.finished_quotes")}'>Finished Quotes</a>
-            </div>
-        </div>
-
-        <form method='post'>
-            <input type="hidden" name="csrf_token" value="{form_csrf}">
-            <div class='grid'>
-                <div class='customer-search-wrap'>
-                    <label>Customer</label>
-                    <input type='text' id='customer_search' placeholder='Search customer name, company, or email...' autocomplete='off' required>
-                    <input type='hidden' name='customer_id' id='customer_id' required>
-                    <div id='customer_results' class='customer-results'></div>
-                </div>
-
-                <div>
-                    <label>Quote Number</label>
-                    <input name='quote_number' placeholder='Auto-assigned if left blank'>
-                </div>
-
-                <div>
-                    <label>Quote Date</label>
-                    <input type='date' name='quote_date' value='{date.today().isoformat()}'>
-                </div>
-
-                <div>
-                    <label>Expiration Date</label>
-                    <input type='date' name='expiration_date'>
-                </div>
-
-                <div>
-                    <label>Status</label>
-                    <select name='status'>
-                        <option>Draft</option>
-                        <option>Sent</option>
-                        <option>Approved</option>
-                    </select>
+    <div class='quotes-page'>
+        <div class='card'>
+            <div class='quotes-head'>
+                <h1 style='margin:0;'>Quotes</h1>
+                <div class='row-actions'>
+                    <a class='btn warning' href='{url_for("quotes.finished_quotes")}'>Finished Quotes</a>
                 </div>
             </div>
 
-            <br><label>Notes</label><textarea name='notes'>{escape(default_quote_notes)}</textarea><br>
-            <button class='btn'>Create Quote</button>
-        </form>
-    </div>
+            <form method='post'>
+                <input type="hidden" name="csrf_token" value="{form_csrf}">
+                <div class='grid'>
+                    <div class='customer-search-wrap'>
+                        <label>Customer</label>
+                        <input type='text' id='customer_search' placeholder='Search customer name, company, or email...' autocomplete='off' required>
+                        <input type='hidden' name='customer_id' id='customer_id' required>
+                        <div id='customer_results' class='customer-results'></div>
+                    </div>
 
-    <div class='card'>
-        <h2>Quote List</h2>
-        <div class='table-wrap'>
-            <table>
-                <tr><th>ID</th><th>Number</th><th>Customer</th><th>Total</th><th>Status</th><th>Actions</th></tr>
-                {quote_rows or '<tr><td colspan="6" class="muted">No quotes yet.</td></tr>'}
-            </table>
+                    <div>
+                        <label>Quote Number</label>
+                        <input name='quote_number' placeholder='Auto-assigned if left blank'>
+                    </div>
+
+                    <div>
+                        <label>Quote Date</label>
+                        <input type='date' name='quote_date' value='{date.today().isoformat()}'>
+                    </div>
+
+                    <div>
+                        <label>Expiration Date</label>
+                        <input type='date' name='expiration_date'>
+                    </div>
+
+                    <div>
+                        <label>Status</label>
+                        <select name='status'>
+                            <option>Draft</option>
+                            <option>Sent</option>
+                            <option>Approved</option>
+                        </select>
+                    </div>
+                </div>
+
+                <br><label>Notes</label><textarea name='notes'>{escape(default_quote_notes)}</textarea><br>
+                <button class='btn'>Create Quote</button>
+            </form>
         </div>
-    </div>
 
-    <script>
-        const customers = {json.dumps(customer_list)};
+        <div class='card'>
+            <h2>Quote List</h2>
 
-        const searchInput = document.getElementById("customer_search");
-        const customerIdInput = document.getElementById("customer_id");
-        const resultsBox = document.getElementById("customer_results");
+            <div class='table-wrap desktop-only'>
+                <table>
+                    <tr><th>ID</th><th>Number</th><th>Customer</th><th>Total</th><th>Status</th><th>Actions</th></tr>
+                    {quote_rows or '<tr><td colspan="6" class="muted">No quotes yet.</td></tr>'}
+                </table>
+            </div>
 
-        function escapeHtml(text) {{
-            return String(text || "")
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
-        }}
+            <div class='mobile-only'>
+                <div class='mobile-list'>
+                    {quote_mobile_cards_html or "<div class='mobile-list-card muted'>No quotes yet.</div>"}
+                </div>
+            </div>
+        </div>
 
-        function closeResults() {{
-            resultsBox.innerHTML = "";
-            resultsBox.classList.remove("show");
-        }}
+        <script>
+            const customers = {json.dumps(customer_list)};
 
-        function renderCustomerResults(matches) {{
-            if (!matches.length) {{
-                resultsBox.innerHTML = "<div class='customer-result-item muted'>No customers found</div>";
+            const searchInput = document.getElementById("customer_search");
+            const customerIdInput = document.getElementById("customer_id");
+            const resultsBox = document.getElementById("customer_results");
+
+            function escapeHtml(text) {{
+                return String(text || "")
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+            }}
+
+            function closeResults() {{
+                resultsBox.innerHTML = "";
+                resultsBox.classList.remove("show");
+            }}
+
+            function renderCustomerResults(matches) {{
+                if (!matches.length) {{
+                    resultsBox.innerHTML = "<div class='customer-result-item muted'>No customers found</div>";
+                    resultsBox.classList.add("show");
+                    return;
+                }}
+
+                resultsBox.innerHTML = matches.map(c => `
+                    <div class="customer-result-item" data-id="${{c.id}}">
+                        <strong>${{escapeHtml(c.name || "Unnamed Customer")}}</strong>
+                        ${{c.company ? `<div class="muted small">${{escapeHtml(c.company)}}</div>` : ""}}
+                        ${{c.email ? `<div class="muted small">${{escapeHtml(c.email)}}</div>` : ""}}
+                    </div>
+                `).join("");
+
                 resultsBox.classList.add("show");
-                return;
-            }}
 
-            resultsBox.innerHTML = matches.map(c => `
-                <div class="customer-result-item" data-id="${{c.id}}">
-                    <strong>${{escapeHtml(c.name || "Unnamed Customer")}}</strong>
-                    ${{c.company ? `<div class="muted small">${{escapeHtml(c.company)}}</div>` : ""}}
-                    ${{c.email ? `<div class="muted small">${{escapeHtml(c.email)}}</div>` : ""}}
-                </div>
-            `).join("");
+                document.querySelectorAll(".customer-result-item[data-id]").forEach(item => {{
+                    item.addEventListener("click", function () {{
+                        const id = this.dataset.id;
+                        const customer = customers.find(x => String(x.id) === String(id));
+                        if (!customer) return;
 
-            resultsBox.classList.add("show");
+                        customerIdInput.value = customer.id;
+                        searchInput.value = customer.company
+                            ? `${{customer.name}} - ${{customer.company}}`
+                            : customer.name;
 
-            document.querySelectorAll(".customer-result-item[data-id]").forEach(item => {{
-                item.addEventListener("click", function () {{
-                    const id = this.dataset.id;
-                    const customer = customers.find(x => String(x.id) === String(id));
-                    if (!customer) return;
-
-                    customerIdInput.value = customer.id;
-                    searchInput.value = customer.company
-                        ? `${{customer.name}} - ${{customer.company}}`
-                        : customer.name;
-
-                    closeResults();
+                        closeResults();
+                    }});
                 }});
+            }}
+
+            searchInput.addEventListener("input", function () {{
+                const q = this.value.trim().toLowerCase();
+                customerIdInput.value = "";
+
+                if (!q) {{
+                    closeResults();
+                    return;
+                }}
+
+                const matches = customers.filter(c =>
+                    (c.name && c.name.toLowerCase().includes(q)) ||
+                    (c.company && c.company.toLowerCase().includes(q)) ||
+                    (c.email && c.email.toLowerCase().includes(q))
+                ).slice(0, 8);
+
+                renderCustomerResults(matches);
             }});
-        }}
 
-        searchInput.addEventListener("input", function () {{
-            const q = this.value.trim().toLowerCase();
-            customerIdInput.value = "";
-
-            if (!q) {{
-                closeResults();
-                return;
-            }}
-
-            const matches = customers.filter(c =>
-                (c.name && c.name.toLowerCase().includes(q)) ||
-                (c.company && c.company.toLowerCase().includes(q)) ||
-                (c.email && c.email.toLowerCase().includes(q))
-            ).slice(0, 8);
-
-            renderCustomerResults(matches);
-        }});
-
-        document.addEventListener("click", function (e) {{
-            if (!e.target.closest(".customer-search-wrap")) {{
-                closeResults();
-            }}
-        }});
-    </script>
+            document.addEventListener("click", function (e) {{
+                if (!e.target.closest(".customer-search-wrap")) {{
+                    closeResults();
+                }}
+            }});
+        </script>
+    </div>
     """
     return render_page(content, "Quotes")
 
@@ -733,8 +884,12 @@ def view_quote(quote_id):
     conn.close()
 
     item_row_list = []
+    item_mobile_cards = []
+
     for i in items:
         delete_item_csrf = generate_csrf()
+        unit_cost_display = "-" if (i["item_type"] or "").strip().lower() in ["dump_fee", "labor"] else f"${float(i['unit_cost'] or 0):.2f}"
+
         item_row_list.append(
             f"""
             <tr>
@@ -743,7 +898,7 @@ def view_quote(quote_id):
                 <td>{float(i['quantity'] or 0):g}</td>
                 <td>{escape(i['unit'] or '-')}</td>
                 <td>${float(i['unit_price'] or 0):.2f}</td>
-                <td>{"-" if (i['item_type'] or '').strip().lower() in ['dump_fee', 'labor'] else f"${float(i['unit_cost'] or 0):.2f}"}</td>
+                <td>{unit_cost_display}</td>
                 <td>${float(i['line_total'] or 0):.2f}</td>
                 <td>
                     <form method="post"
@@ -757,24 +912,237 @@ def view_quote(quote_id):
             </tr>
             """
         )
+
+        item_mobile_cards.append(
+            f"""
+            <div class='mobile-list-card'>
+                <div class='mobile-list-top'>
+                    <div class='mobile-list-title'>{escape(_display_item_type(i['item_type']))} - {escape(i['description'] or '')}</div>
+                </div>
+
+                <div class='mobile-list-grid'>
+                    <div><span>Qty</span><strong>{float(i['quantity'] or 0):g}</strong></div>
+                    <div><span>Unit</span><strong>{escape(i['unit'] or '-')}</strong></div>
+                    <div><span>Sale Price / Rate / Fee</span><strong>${float(i['unit_price'] or 0):.2f}</strong></div>
+                    <div><span>Unit Cost (Internal)</span><strong>{unit_cost_display}</strong></div>
+                    <div><span>Line Total</span><strong>${float(i['line_total'] or 0):.2f}</strong></div>
+                </div>
+
+                <div class='mobile-list-actions'>
+                    <form method="post"
+                          action="{url_for('quotes.delete_quote_item', quote_id=quote_id, item_id=i['id'])}"
+                          style="display:inline;"
+                          onsubmit="return confirm('Delete this line item?');">
+                        <input type="hidden" name="csrf_token" value="{delete_item_csrf}">
+                        <button class="btn danger small" type="submit">Delete</button>
+                    </form>
+                </div>
+            </div>
+            """
+        )
+
     item_rows = "".join(item_row_list)
+    item_mobile_cards_html = "".join(item_mobile_cards)
 
     add_item_csrf = generate_csrf()
 
     content = f"""
+    <style>
+        .quote-view-page {{
+            display:grid;
+            gap:18px;
+        }}
+
+        .quote-head {{
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:12px;
+            flex-wrap:wrap;
+        }}
+
+        .quote-meta-grid {{
+            display:grid;
+            grid-template-columns:repeat(3, minmax(0, 1fr));
+            gap:12px;
+            margin-top:14px;
+        }}
+
+        .quote-meta-card,
+        .quote-total-card {{
+            border:1px solid rgba(15, 23, 42, 0.08);
+            border-radius:12px;
+            padding:12px;
+            background:#fff;
+        }}
+
+        .quote-meta-card span,
+        .quote-total-card span {{
+            display:block;
+            font-size:.8rem;
+            color:#64748b;
+            margin-bottom:4px;
+        }}
+
+        .quote-meta-card strong,
+        .quote-total-card strong {{
+            display:block;
+            color:#0f172a;
+            line-height:1.3;
+            word-break:break-word;
+        }}
+
+        .quote-total-grid {{
+            display:grid;
+            grid-template-columns:1fr;
+            gap:12px;
+            margin-top:12px;
+        }}
+
+        .table-wrap {{
+            width:100%;
+            overflow-x:auto;
+        }}
+
+        .mobile-only {{
+            display:none;
+        }}
+
+        .desktop-only {{
+            display:block;
+        }}
+
+        .mobile-list {{
+            display:grid;
+            gap:12px;
+        }}
+
+        .mobile-list-card {{
+            border:1px solid rgba(15, 23, 42, 0.08);
+            border-radius:14px;
+            padding:14px;
+            background:#fff;
+            box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
+        }}
+
+        .mobile-list-top {{
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:10px;
+            margin-bottom:10px;
+        }}
+
+        .mobile-list-title {{
+            font-weight:700;
+            color:#0f172a;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-badge {{
+            font-size:.85rem;
+            font-weight:700;
+            color:#334155;
+            background:#f1f5f9;
+            padding:6px 10px;
+            border-radius:999px;
+            white-space:nowrap;
+        }}
+
+        .mobile-list-grid {{
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:10px 12px;
+            margin-bottom:12px;
+        }}
+
+        .mobile-list-grid span {{
+            display:block;
+            font-size:.78rem;
+            color:#64748b;
+            margin-bottom:3px;
+        }}
+
+        .mobile-list-grid strong {{
+            display:block;
+            color:#0f172a;
+            font-size:.95rem;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-list-actions {{
+            display:flex;
+            gap:8px;
+            flex-wrap:wrap;
+        }}
+
+        @media (max-width: 900px) {{
+            .quote-meta-grid {{
+                grid-template-columns:1fr;
+            }}
+        }}
+
+        @media (max-width: 640px) {{
+            .desktop-only {{
+                display:none !important;
+            }}
+
+            .mobile-only {{
+                display:block !important;
+            }}
+
+            .mobile-list-grid {{
+                grid-template-columns:1fr;
+            }}
+        }}
+    </style>
+
+    <div class='quote-view-page'>
         <div class='card'>
-            <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
+            <div class='quote-head'>
                 <div>
                     <h1 style='margin-bottom:6px;'>Quote #{quote['id']} <span class='pill'>{escape(quote['status'] or '-')}</span></h1>
-                    <p style='margin:0;'>
-                        <strong>Customer:</strong> {escape(quote['customer_name'] or '-')}<br>
-                        <strong>Total:</strong> ${float(quote['total'] or 0):.2f}
-                    </p>
                 </div>
                 <div class='row-actions'>
                     <a class='btn secondary' href='{url_for("quotes.quotes")}'>Back to Quotes</a>
                     <a class='btn' href='{url_for("quotes.email_quote_preview", quote_id=quote_id)}'>Email Quote</a>
                     <a class='btn success' href='{url_for("quotes.convert_quote_to_job", quote_id=quote_id)}'>Convert to Job</a>
+                </div>
+            </div>
+
+            <div class='quote-meta-grid'>
+                <div class='quote-meta-card'>
+                    <span>Customer</span>
+                    <strong>{escape(quote['customer_name'] or '-')}</strong>
+                </div>
+                <div class='quote-meta-card'>
+                    <span>Customer Email</span>
+                    <strong>{escape(quote['customer_email'] or '-')}</strong>
+                </div>
+                <div class='quote-meta-card'>
+                    <span>Status</span>
+                    <strong>{escape(quote['status'] or '-')}</strong>
+                </div>
+                <div class='quote-meta-card'>
+                    <span>Quote Number</span>
+                    <strong>{escape(quote['quote_number'] or '-')}</strong>
+                </div>
+                <div class='quote-meta-card'>
+                    <span>Quote Date</span>
+                    <strong>{escape(str(quote['quote_date'] or '-'))}</strong>
+                </div>
+                <div class='quote-meta-card'>
+                    <span>Expiration Date</span>
+                    <strong>{escape(str(quote['expiration_date'] or '-'))}</strong>
+                </div>
+            </div>
+
+            <div class='quote-total-grid'>
+                <div class='quote-total-card'>
+                    <span>Total</span>
+                    <strong>${float(quote['total'] or 0):.2f}</strong>
                 </div>
             </div>
         </div>
@@ -835,7 +1203,8 @@ def view_quote(quote_id):
 
         <div class='card'>
             <h2>Items</h2>
-            <div class='table-wrap'>
+
+            <div class='table-wrap desktop-only'>
                 <table>
                     <tr>
                         <th>Type</th>
@@ -849,6 +1218,12 @@ def view_quote(quote_id):
                     </tr>
                     {item_rows or '<tr><td colspan="8" class="muted">No items yet.</td></tr>'}
                 </table>
+            </div>
+
+            <div class='mobile-only'>
+                <div class='mobile-list'>
+                    {item_mobile_cards_html or "<div class='mobile-list-card muted'>No items yet.</div>"}
+                </div>
             </div>
         </div>
 
@@ -930,7 +1305,8 @@ def view_quote(quote_id):
                 toggleQuoteItemType();
             }});
         </script>
-        """
+    </div>
+    """
     return render_page(content, f"Quote #{quote_id}")
 
 
@@ -1460,44 +1836,189 @@ def finished_quotes():
 
     conn.close()
 
-    quote_rows = "".join(
-        f"""
-        <tr>
-            <td>#{r['id']}</td>
-            <td>{escape(r['quote_number'] or '-')}</td>
-            <td>{escape(r['customer_name'] or '-')}</td>
-            <td>${float(r['total'] or 0):.2f}</td>
-            <td>{escape(r['status'] or '-')}</td>
-            <td>
-                <div class='row-actions'>
+    quote_rows = []
+    quote_mobile_cards = []
+
+    for r in rows:
+        quote_rows.append(
+            f"""
+            <tr>
+                <td>#{r['id']}</td>
+                <td>{escape(r['quote_number'] or '-')}</td>
+                <td>{escape(r['customer_name'] or '-')}</td>
+                <td>${float(r['total'] or 0):.2f}</td>
+                <td>{escape(r['status'] or '-')}</td>
+                <td>
+                    <div class='row-actions'>
+                        <a class='btn secondary small' href='{url_for("quotes.view_quote", quote_id=r["id"])}'>View</a>
+                        <a class='btn warning small' href='{url_for("quotes.reopen_quote", quote_id=r["id"])}'>Reopen</a>
+                    </div>
+                </td>
+            </tr>
+            """
+        )
+
+        quote_mobile_cards.append(
+            f"""
+            <div class='mobile-list-card'>
+                <div class='mobile-list-top'>
+                    <div class='mobile-list-title'>Quote #{escape(r['quote_number'] or '-')}</div>
+                    <div class='mobile-badge'>{escape(r['status'] or '-')}</div>
+                </div>
+
+                <div class='mobile-list-grid'>
+                    <div><span>ID</span><strong>#{r['id']}</strong></div>
+                    <div><span>Customer</span><strong>{escape(r['customer_name'] or '-')}</strong></div>
+                    <div><span>Total</span><strong>${float(r['total'] or 0):.2f}</strong></div>
+                    <div><span>Status</span><strong>{escape(r['status'] or '-')}</strong></div>
+                </div>
+
+                <div class='mobile-list-actions'>
                     <a class='btn secondary small' href='{url_for("quotes.view_quote", quote_id=r["id"])}'>View</a>
                     <a class='btn warning small' href='{url_for("quotes.reopen_quote", quote_id=r["id"])}'>Reopen</a>
                 </div>
-            </td>
-        </tr>
-        """
-        for r in rows
-    )
+            </div>
+            """
+        )
+
+    quote_rows_html = "".join(quote_rows)
+    quote_mobile_cards_html = "".join(quote_mobile_cards)
 
     content = f"""
-    <div class='card'>
-        <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
-            <div>
-                <h1 style='margin:0;'>Finished Quotes</h1>
-                <p class='muted' style='margin:6px 0 0 0;'>Quotes tied to fully paid work.</p>
-            </div>
-            <div class='row-actions'>
-                <a class='btn secondary' href='{url_for("quotes.quotes")}'>Back to Active Quotes</a>
+    <style>
+        .quotes-page {{
+            display:grid;
+            gap:18px;
+        }}
+
+        .quotes-head {{
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:12px;
+            flex-wrap:wrap;
+        }}
+
+        .table-wrap {{
+            width:100%;
+            overflow-x:auto;
+        }}
+
+        .mobile-only {{
+            display:none;
+        }}
+
+        .desktop-only {{
+            display:block;
+        }}
+
+        .mobile-list {{
+            display:grid;
+            gap:12px;
+        }}
+
+        .mobile-list-card {{
+            border:1px solid rgba(15, 23, 42, 0.08);
+            border-radius:14px;
+            padding:14px;
+            background:#fff;
+            box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
+        }}
+
+        .mobile-list-top {{
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:10px;
+            margin-bottom:10px;
+        }}
+
+        .mobile-list-title {{
+            font-weight:700;
+            color:#0f172a;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-badge {{
+            font-size:.85rem;
+            font-weight:700;
+            color:#334155;
+            background:#f1f5f9;
+            padding:6px 10px;
+            border-radius:999px;
+            white-space:nowrap;
+        }}
+
+        .mobile-list-grid {{
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:10px 12px;
+            margin-bottom:12px;
+        }}
+
+        .mobile-list-grid span {{
+            display:block;
+            font-size:.78rem;
+            color:#64748b;
+            margin-bottom:3px;
+        }}
+
+        .mobile-list-grid strong {{
+            display:block;
+            color:#0f172a;
+            font-size:.95rem;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-list-actions {{
+            display:flex;
+            gap:8px;
+            flex-wrap:wrap;
+        }}
+
+        @media (max-width: 640px) {{
+            .desktop-only {{
+                display:none !important;
+            }}
+
+            .mobile-only {{
+                display:block !important;
+            }}
+
+            .mobile-list-grid {{
+                grid-template-columns:1fr;
+            }}
+        }}
+    </style>
+
+    <div class='quotes-page'>
+        <div class='card'>
+            <div class='quotes-head'>
+                <div>
+                    <h1 style='margin:0;'>Finished Quotes</h1>
+                    <p class='muted' style='margin:6px 0 0 0;'>Quotes tied to fully paid work.</p>
+                </div>
+                <div class='row-actions'>
+                    <a class='btn secondary' href='{url_for("quotes.quotes")}'>Back to Active Quotes</a>
+                </div>
             </div>
         </div>
-    </div>
 
-    <div class='card'>
-        <div class='table-wrap'>
-            <table>
-                <tr><th>ID</th><th>Number</th><th>Customer</th><th>Total</th><th>Status</th><th>Actions</th></tr>
-                {quote_rows or '<tr><td colspan="6" class="muted">No finished quotes yet.</td></tr>'}
-            </table>
+        <div class='card'>
+            <div class='table-wrap desktop-only'>
+                <table>
+                    <tr><th>ID</th><th>Number</th><th>Customer</th><th>Total</th><th>Status</th><th>Actions</th></tr>
+                    {quote_rows_html or '<tr><td colspan="6" class="muted">No finished quotes yet.</td></tr>'}
+                </table>
+            </div>
+
+            <div class='mobile-only'>
+                <div class='mobile-list'>
+                    {quote_mobile_cards_html or "<div class='mobile-list-card muted'>No finished quotes yet.</div>"}
+                </div>
+            </div>
         </div>
     </div>
     """

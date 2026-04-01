@@ -247,253 +247,276 @@ def _employee_form_html(employee=None, form_action="", submit_label="Save Employ
     csrf_token_value = generate_csrf()
 
     content = f"""
-    <div class='card'>
-        <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
-            <div>
-                <h1 style='margin-bottom:6px;'>{escape(page_title)}</h1>
-                <p class='muted' style='margin:0;'>Manage employee information, payroll setup, federal withholding, Indiana local tax setup, and W-2 identity details.</p>
-            </div>
-            <div class='row-actions'>
-                <a class='btn warning' href='{url_for("payroll.employee_payroll")}'>Payroll</a>
-                <a class='btn secondary' href='{url_for("employees.employees")}'>Back to Employees</a>
+    <style>
+        .employee-form-page {{
+            display:grid;
+            gap:18px;
+        }}
+
+        .employee-form-head {{
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:12px;
+            flex-wrap:wrap;
+        }}
+
+        @media (max-width: 640px) {{
+            .employee-form-head {{
+                align-items:flex-start;
+            }}
+        }}
+    </style>
+
+    <div class='employee-form-page'>
+        <div class='card'>
+            <div class='employee-form-head'>
+                <div>
+                    <h1 style='margin-bottom:6px;'>{escape(page_title)}</h1>
+                    <p class='muted' style='margin:0;'>Manage employee information, payroll setup, federal withholding, Indiana local tax setup, and W-2 identity details.</p>
+                </div>
+                <div class='row-actions'>
+                    <a class='btn warning' href='{url_for("payroll.employee_payroll")}'>Payroll</a>
+                    <a class='btn secondary' href='{url_for("employees.employees")}'>Back to Employees</a>
+                </div>
             </div>
         </div>
+
+        <form method='post' action='{form_action}'>
+            <input type="hidden" name="csrf_token" value="{csrf_token_value}">
+            <div class='card'>
+                <h2>Employee Information</h2>
+                <div class='grid'>
+                    <div>
+                        <label>First Name</label>
+                        <input name='first_name' value='{val("first_name")}' required>
+                    </div>
+                    <div>
+                        <label>Middle Name</label>
+                        <input name='middle_name' value='{val("middle_name")}'>
+                    </div>
+                    <div>
+                        <label>Last Name</label>
+                        <input name='last_name' value='{val("last_name")}' required>
+                    </div>
+                    <div>
+                        <label>Suffix</label>
+                        <input name='suffix' value='{val("suffix")}' placeholder='Jr, Sr, II'>
+                    </div>
+                    <div>
+                        <label>Phone</label>
+                        <input name='phone' value='{val("phone")}'>
+                    </div>
+                    <div>
+                        <label>Email</label>
+                        <input name='email' type='email' value='{val("email")}'>
+                    </div>
+                    <div>
+                        <label>Position</label>
+                        <input name='position' value='{val("position")}'>
+                    </div>
+                    <div>
+                        <label>Hire Date</label>
+                        <input name='hire_date' type='date' value='{val("hire_date")}'>
+                    </div>
+                </div>
+            </div>
+
+            <div class='card'>
+                <h2>Employee Address</h2>
+                <div class='grid'>
+                    <div style='grid-column:1 / -1;'>
+                        <label>Address Line 1</label>
+                        <input name='address_line_1' value='{val("address_line_1")}'>
+                    </div>
+                    <div style='grid-column:1 / -1;'>
+                        <label>Address Line 2</label>
+                        <input name='address_line_2' value='{val("address_line_2")}'>
+                    </div>
+                    <div>
+                        <label>City</label>
+                        <input name='city' value='{val("city")}'>
+                    </div>
+                    <div>
+                        <label>State</label>
+                        <input name='state' value='{val("state", "IN")}' maxlength='2'>
+                    </div>
+                    <div>
+                        <label>ZIP</label>
+                        <input name='zip' value='{val("zip")}'>
+                    </div>
+                </div>
+            </div>
+
+            <div class='card'>
+                <h2>W-2 Identity & Mailing Info</h2>
+                <div class='grid'>
+                    <div>
+                        <label>SSN</label>
+                        <input name='ssn' value='{val("ssn")}' placeholder='123-45-6789'>
+                    </div>
+
+                    <div style='grid-column:1 / -1;'>
+                        <label>W-2 Address Line 1</label>
+                        <input name='w2_address_line_1' value='{val("w2_address_line_1")}' placeholder='Leave blank to use employee address later if desired'>
+                    </div>
+
+                    <div style='grid-column:1 / -1;'>
+                        <label>W-2 Address Line 2</label>
+                        <input name='w2_address_line_2' value='{val("w2_address_line_2")}'>
+                    </div>
+
+                    <div>
+                        <label>W-2 City</label>
+                        <input name='w2_city' value='{val("w2_city")}'>
+                    </div>
+
+                    <div>
+                        <label>W-2 State</label>
+                        <input name='w2_state' value='{val("w2_state")}' maxlength='2'>
+                    </div>
+
+                    <div>
+                        <label>W-2 ZIP</label>
+                        <input name='w2_zip' value='{val("w2_zip")}'>
+                    </div>
+                </div>
+
+                <div class='muted' style='margin-top:12px;'>
+                    These fields will be used for year-end W-2 preparation and employee statement printing.
+                </div>
+            </div>
+
+            <div class='card'>
+                <h2>Payroll Setup</h2>
+                <div class='grid'>
+                    <div>
+                        <label>Pay Type</label>
+                        <select name='pay_type'>
+                            <option value='Hourly' {selected("pay_type", "Hourly", "Hourly")}>Hourly</option>
+                            <option value='Salary' {selected("pay_type", "Salary")}>Salary</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Hourly Rate</label>
+                        <input name='hourly_rate' type='number' step='0.01' value='{val("hourly_rate", "0")}'>
+                    </div>
+                    <div>
+                        <label>Overtime Rate</label>
+                        <input name='overtime_rate' type='number' step='0.01' value='{val("overtime_rate", "0")}'>
+                    </div>
+                    <div>
+                        <label>Salary Amount</label>
+                        <input name='salary_amount' type='number' step='0.01' value='{val("salary_amount", "0")}'>
+                    </div>
+                    <div>
+                        <label>Default Hours</label>
+                        <input name='default_hours' type='number' step='0.01' value='{val("default_hours", "0")}'>
+                    </div>
+                    <div>
+                        <label>Pay Frequency</label>
+                        <select name='pay_frequency'>
+                            <option value='Weekly' {selected("pay_frequency", "Weekly")}>Weekly</option>
+                            <option value='Biweekly' {selected("pay_frequency", "Biweekly", "Biweekly")}>Biweekly</option>
+                            <option value='Semimonthly' {selected("pay_frequency", "Semimonthly")}>Semimonthly</option>
+                            <option value='Monthly' {selected("pay_frequency", "Monthly")}>Monthly</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style='margin-top:16px;'>
+                    <label>Payroll Notes</label>
+                    <textarea name='payroll_notes'>{val("payroll_notes")}</textarea>
+                </div>
+            </div>
+
+            <div class='card'>
+                <h2>Federal Tax / W-4</h2>
+                <div class='grid'>
+                    <div>
+                        <label>Federal Filing Status</label>
+                        <select name='federal_filing_status'>
+                            <option value='Single' {selected("federal_filing_status", "Single", "Single")}>Single</option>
+                            <option value='Married Filing Jointly' {selected("federal_filing_status", "Married Filing Jointly")}>Married Filing Jointly</option>
+                            <option value='Married Filing Separately' {selected("federal_filing_status", "Married Filing Separately")}>Married Filing Separately</option>
+                            <option value='Head of Household' {selected("federal_filing_status", "Head of Household")}>Head of Household</option>
+                        </select>
+                    </div>
+
+                    <div class='checkbox-field'>
+                        <label class='checkbox-label'>
+                            <input type='checkbox' name='w4_step2_checked' {checked("w4_step2_checked")}>
+                            Step 2 Box Checked
+                        </label>
+                        <div class='muted small'>Check if employee has multiple jobs or spouse works.</div>
+                    </div>
+
+                    <div>
+                        <label>Step 3 Credits</label>
+                        <input name='w4_step3_amount' type='number' step='0.01' value='{val("w4_step3_amount", "0")}'>
+                    </div>
+
+                    <div>
+                        <label>Step 4(a) Other Income</label>
+                        <input name='w4_step4a_other_income' type='number' step='0.01' value='{val("w4_step4a_other_income", "0")}'>
+                    </div>
+
+                    <div>
+                        <label>Step 4(b) Deductions</label>
+                        <input name='w4_step4b_deductions' type='number' step='0.01' value='{val("w4_step4b_deductions", "0")}'>
+                    </div>
+
+                    <div>
+                        <label>Step 4(c) Extra Withholding</label>
+                        <input name='w4_step4c_extra_withholding' type='number' step='0.01' value='{val("w4_step4c_extra_withholding", "0")}'>
+                    </div>
+                </div>
+            </div>
+
+            <div class='card'>
+                <h2>Indiana Local Tax Setup</h2>
+                <div class='grid'>
+                    <div class='checkbox-field'>
+                        <label class='checkbox-label'>
+                            <input type='checkbox' name='is_indiana_resident' {checked("is_indiana_resident", True)}>
+                            Indiana Resident on January 1
+                        </label>
+                        <div class='muted small'>Residents usually use county of residence. Non-residents usually use county of principal employment.</div>
+                    </div>
+
+                    <div>
+                        <label>County Tax Effective Year</label>
+                        <input name='county_tax_effective_year' type='number' step='1' value='{escape(str(county_tax_year_default))}'>
+                    </div>
+
+                    <div>
+                        <label>County of Residence</label>
+                        <select name='county_of_residence'>
+                            {_county_options_html(county_of_residence)}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label>County of Principal Employment</label>
+                        <select name='county_of_principal_employment'>
+                            {_county_options_html(county_of_principal_employment)}
+                        </select>
+                    </div>
+                </div>
+
+                <div class='muted' style='margin-top:12px;'>
+                    Store the January 1 county values here so payroll can calculate Indiana local withholding correctly.
+                </div>
+            </div>
+
+            <div class='card'>
+                <div class='row-actions'>
+                    <button class='btn success' type='submit'>{escape(submit_label)}</button>
+                    <a class='btn secondary' href='{url_for("employees.employees")}'>Cancel</a>
+                </div>
+            </div>
+        </form>
     </div>
-
-    <form method='post' action='{form_action}'>
-        <input type="hidden" name="csrf_token" value="{csrf_token_value}">
-        <div class='card'>
-            <h2>Employee Information</h2>
-            <div class='grid'>
-                <div>
-                    <label>First Name</label>
-                    <input name='first_name' value='{val("first_name")}' required>
-                </div>
-                <div>
-                    <label>Middle Name</label>
-                    <input name='middle_name' value='{val("middle_name")}'>
-                </div>
-                <div>
-                    <label>Last Name</label>
-                    <input name='last_name' value='{val("last_name")}' required>
-                </div>
-                <div>
-                    <label>Suffix</label>
-                    <input name='suffix' value='{val("suffix")}' placeholder='Jr, Sr, II'>
-                </div>
-                <div>
-                    <label>Phone</label>
-                    <input name='phone' value='{val("phone")}'>
-                </div>
-                <div>
-                    <label>Email</label>
-                    <input name='email' type='email' value='{val("email")}'>
-                </div>
-                <div>
-                    <label>Position</label>
-                    <input name='position' value='{val("position")}'>
-                </div>
-                <div>
-                    <label>Hire Date</label>
-                    <input name='hire_date' type='date' value='{val("hire_date")}'>
-                </div>
-            </div>
-        </div>
-
-        <div class='card'>
-            <h2>Employee Address</h2>
-            <div class='grid'>
-                <div style='grid-column:1 / -1;'>
-                    <label>Address Line 1</label>
-                    <input name='address_line_1' value='{val("address_line_1")}'>
-                </div>
-                <div style='grid-column:1 / -1;'>
-                    <label>Address Line 2</label>
-                    <input name='address_line_2' value='{val("address_line_2")}'>
-                </div>
-                <div>
-                    <label>City</label>
-                    <input name='city' value='{val("city")}'>
-                </div>
-                <div>
-                    <label>State</label>
-                    <input name='state' value='{val("state", "IN")}' maxlength='2'>
-                </div>
-                <div>
-                    <label>ZIP</label>
-                    <input name='zip' value='{val("zip")}'>
-                </div>
-            </div>
-        </div>
-
-        <div class='card'>
-            <h2>W-2 Identity & Mailing Info</h2>
-            <div class='grid'>
-                <div>
-                    <label>SSN</label>
-                    <input name='ssn' value='{val("ssn")}' placeholder='123-45-6789'>
-                </div>
-
-                <div style='grid-column:1 / -1;'>
-                    <label>W-2 Address Line 1</label>
-                    <input name='w2_address_line_1' value='{val("w2_address_line_1")}' placeholder='Leave blank to use employee address later if desired'>
-                </div>
-
-                <div style='grid-column:1 / -1;'>
-                    <label>W-2 Address Line 2</label>
-                    <input name='w2_address_line_2' value='{val("w2_address_line_2")}'>
-                </div>
-
-                <div>
-                    <label>W-2 City</label>
-                    <input name='w2_city' value='{val("w2_city")}'>
-                </div>
-
-                <div>
-                    <label>W-2 State</label>
-                    <input name='w2_state' value='{val("w2_state")}' maxlength='2'>
-                </div>
-
-                <div>
-                    <label>W-2 ZIP</label>
-                    <input name='w2_zip' value='{val("w2_zip")}'>
-                </div>
-            </div>
-
-            <div class='muted' style='margin-top:12px;'>
-                These fields will be used for year-end W-2 preparation and employee statement printing.
-            </div>
-        </div>
-
-        <div class='card'>
-            <h2>Payroll Setup</h2>
-            <div class='grid'>
-                <div>
-                    <label>Pay Type</label>
-                    <select name='pay_type'>
-                        <option value='Hourly' {selected("pay_type", "Hourly", "Hourly")}>Hourly</option>
-                        <option value='Salary' {selected("pay_type", "Salary")}>Salary</option>
-                    </select>
-                </div>
-                <div>
-                    <label>Hourly Rate</label>
-                    <input name='hourly_rate' type='number' step='0.01' value='{val("hourly_rate", "0")}'>
-                </div>
-                <div>
-                    <label>Overtime Rate</label>
-                    <input name='overtime_rate' type='number' step='0.01' value='{val("overtime_rate", "0")}'>
-                </div>
-                <div>
-                    <label>Salary Amount</label>
-                    <input name='salary_amount' type='number' step='0.01' value='{val("salary_amount", "0")}'>
-                </div>
-                <div>
-                    <label>Default Hours</label>
-                    <input name='default_hours' type='number' step='0.01' value='{val("default_hours", "0")}'>
-                </div>
-                <div>
-                    <label>Pay Frequency</label>
-                    <select name='pay_frequency'>
-                        <option value='Weekly' {selected("pay_frequency", "Weekly")}>Weekly</option>
-                        <option value='Biweekly' {selected("pay_frequency", "Biweekly", "Biweekly")}>Biweekly</option>
-                        <option value='Semimonthly' {selected("pay_frequency", "Semimonthly")}>Semimonthly</option>
-                        <option value='Monthly' {selected("pay_frequency", "Monthly")}>Monthly</option>
-                    </select>
-                </div>
-            </div>
-
-            <div style='margin-top:16px;'>
-                <label>Payroll Notes</label>
-                <textarea name='payroll_notes'>{val("payroll_notes")}</textarea>
-            </div>
-        </div>
-
-        <div class='card'>
-            <h2>Federal Tax / W-4</h2>
-            <div class='grid'>
-                <div>
-                    <label>Federal Filing Status</label>
-                    <select name='federal_filing_status'>
-                        <option value='Single' {selected("federal_filing_status", "Single", "Single")}>Single</option>
-                        <option value='Married Filing Jointly' {selected("federal_filing_status", "Married Filing Jointly")}>Married Filing Jointly</option>
-                        <option value='Married Filing Separately' {selected("federal_filing_status", "Married Filing Separately")}>Married Filing Separately</option>
-                        <option value='Head of Household' {selected("federal_filing_status", "Head of Household")}>Head of Household</option>
-                    </select>
-                </div>
-
-                <div class='checkbox-field'>
-                    <label class='checkbox-label'>
-                        <input type='checkbox' name='w4_step2_checked' {checked("w4_step2_checked")}>
-                        Step 2 Box Checked
-                    </label>
-                    <div class='muted small'>Check if employee has multiple jobs or spouse works.</div>
-                </div>
-
-                <div>
-                    <label>Step 3 Credits</label>
-                    <input name='w4_step3_amount' type='number' step='0.01' value='{val("w4_step3_amount", "0")}'>
-                </div>
-
-                <div>
-                    <label>Step 4(a) Other Income</label>
-                    <input name='w4_step4a_other_income' type='number' step='0.01' value='{val("w4_step4a_other_income", "0")}'>
-                </div>
-
-                <div>
-                    <label>Step 4(b) Deductions</label>
-                    <input name='w4_step4b_deductions' type='number' step='0.01' value='{val("w4_step4b_deductions", "0")}'>
-                </div>
-
-                <div>
-                    <label>Step 4(c) Extra Withholding</label>
-                    <input name='w4_step4c_extra_withholding' type='number' step='0.01' value='{val("w4_step4c_extra_withholding", "0")}'>
-                </div>
-            </div>
-        </div>
-
-        <div class='card'>
-            <h2>Indiana Local Tax Setup</h2>
-            <div class='grid'>
-                <div class='checkbox-field'>
-                    <label class='checkbox-label'>
-                        <input type='checkbox' name='is_indiana_resident' {checked("is_indiana_resident", True)}>
-                        Indiana Resident on January 1
-                    </label>
-                    <div class='muted small'>Residents usually use county of residence. Non-residents usually use county of principal employment.</div>
-                </div>
-
-                <div>
-                    <label>County Tax Effective Year</label>
-                    <input name='county_tax_effective_year' type='number' step='1' value='{escape(str(county_tax_year_default))}'>
-                </div>
-
-                <div>
-                    <label>County of Residence</label>
-                    <select name='county_of_residence'>
-                        {_county_options_html(county_of_residence)}
-                    </select>
-                </div>
-
-                <div>
-                    <label>County of Principal Employment</label>
-                    <select name='county_of_principal_employment'>
-                        {_county_options_html(county_of_principal_employment)}
-                    </select>
-                </div>
-            </div>
-
-            <div class='muted' style='margin-top:12px;'>
-                Store the January 1 county values here so payroll can calculate Indiana local withholding correctly.
-            </div>
-        </div>
-
-        <div class='card'>
-            <div class='row-actions'>
-                <button class='btn success' type='submit'>{escape(submit_label)}</button>
-                <a class='btn secondary' href='{url_for("employees.employees")}'>Cancel</a>
-            </div>
-        </div>
-    </form>
     """
     return content
 
@@ -612,6 +635,8 @@ def employees():
     conn.close()
 
     employee_rows_list = []
+    mobile_cards = []
+
     for r in rows:
         csrf_token_value = generate_csrf()
 
@@ -647,6 +672,16 @@ def employees():
             </form>
             """
 
+        delete_form = f"""
+        <form method='post'
+              action='{url_for("employees.delete_employee", employee_id=r["id"])}'
+              class='inline-form'
+              onsubmit="return confirm('Delete this employee? This cannot be undone.');">
+            <input type="hidden" name="csrf_token" value="{csrf_token_value}">
+            <button class='btn danger small' type='submit'>Delete</button>
+        </form>
+        """
+
         employee_rows_list.append(
             f"""
             <tr>
@@ -661,57 +696,194 @@ def employees():
                     <div class='row-actions'>
                         <a class='btn secondary small' href='{url_for("employees.view_employee", employee_id=r["id"])}'>View</a>
                         {status_form}
-                        <form method='post'
-                              action='{url_for("employees.delete_employee", employee_id=r["id"])}'
-                              class='inline-form'
-                              onsubmit="return confirm('Delete this employee? This cannot be undone.');">
-                            <input type="hidden" name="csrf_token" value="{csrf_token_value}">
-                            <button class='btn danger small' type='submit'>Delete</button>
-                        </form>
+                        {delete_form}
                     </div>
                 </td>
             </tr>
             """
         )
 
+        mobile_cards.append(
+            f"""
+            <div class='mobile-list-card'>
+                <div class='mobile-list-top'>
+                    <div class='mobile-list-title'>{display_name}</div>
+                    <div class='mobile-badge'>{status_text}</div>
+                </div>
+
+                <div class='mobile-list-grid'>
+                    <div><span>Phone</span><strong>{phone_value}</strong></div>
+                    <div><span>Email</span><strong>{email_value}</strong></div>
+                    <div><span>Position</span><strong>{position_value}</strong></div>
+                    <div><span>Pay Type</span><strong>{pay_type_value}</strong></div>
+                    <div><span>Rate / Salary</span><strong>{rate_display}</strong></div>
+                </div>
+
+                <div class='mobile-list-actions'>
+                    <a class='btn secondary small' href='{url_for("employees.view_employee", employee_id=r["id"])}'>View</a>
+                    {status_form}
+                    {delete_form}
+                </div>
+            </div>
+            """
+        )
+
     employee_rows = "".join(employee_rows_list)
+    mobile_cards_html = "".join(mobile_cards)
 
     active_btn_class = "btn" if show != "all" else "btn secondary"
     all_btn_class = "btn" if show == "all" else "btn secondary"
 
     content = f"""
-    <div class='card'>
-        <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
-            <div>
-                <h1 style='margin-bottom:6px;'>Employees</h1>
-                <p class='muted' style='margin:0;'>Manage active and inactive employees.</p>
-            </div>
-            <div class='row-actions'>
-                <a href='{url_for("employees.employees", show="active")}' class='{active_btn_class}'>Active Employees</a>
-                <a href='{url_for("employees.employees", show="all")}' class='{all_btn_class}'>All Employees</a>
-                <a href='{url_for("employees.time_clock")}' class='btn'>Clock In / Out</a>
-                <a href='{url_for("payroll.employee_payroll")}' class='btn warning'>Payroll</a>
-                <a href='{url_for("employees.new_employee")}' class='btn success'>+ New Employee</a>
+    <style>
+        .employees-page {{
+            display:grid;
+            gap:18px;
+        }}
+
+        .employees-head {{
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:12px;
+            flex-wrap:wrap;
+        }}
+
+        .table-wrap {{
+            width:100%;
+            overflow-x:auto;
+        }}
+
+        .mobile-only {{
+            display:none;
+        }}
+
+        .desktop-only {{
+            display:block;
+        }}
+
+        .mobile-list {{
+            display:grid;
+            gap:12px;
+        }}
+
+        .mobile-list-card {{
+            border:1px solid rgba(15, 23, 42, 0.08);
+            border-radius:14px;
+            padding:14px;
+            background:#fff;
+            box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
+        }}
+
+        .mobile-list-top {{
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:10px;
+            margin-bottom:10px;
+        }}
+
+        .mobile-list-title {{
+            font-weight:700;
+            color:#0f172a;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-badge {{
+            font-size:.85rem;
+            font-weight:700;
+            color:#334155;
+            background:#f1f5f9;
+            padding:6px 10px;
+            border-radius:999px;
+            white-space:nowrap;
+        }}
+
+        .mobile-list-grid {{
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:10px 12px;
+            margin-bottom:12px;
+        }}
+
+        .mobile-list-grid span {{
+            display:block;
+            font-size:.78rem;
+            color:#64748b;
+            margin-bottom:3px;
+        }}
+
+        .mobile-list-grid strong {{
+            display:block;
+            color:#0f172a;
+            font-size:.95rem;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-list-actions {{
+            display:flex;
+            gap:8px;
+            flex-wrap:wrap;
+        }}
+
+        @media (max-width: 640px) {{
+            .desktop-only {{
+                display:none !important;
+            }}
+
+            .mobile-only {{
+                display:block !important;
+            }}
+
+            .mobile-list-grid {{
+                grid-template-columns:1fr;
+            }}
+        }}
+    </style>
+
+    <div class='employees-page'>
+        <div class='card'>
+            <div class='employees-head'>
+                <div>
+                    <h1 style='margin-bottom:6px;'>Employees</h1>
+                    <p class='muted' style='margin:0;'>Manage active and inactive employees.</p>
+                </div>
+                <div class='row-actions'>
+                    <a href='{url_for("employees.employees", show="active")}' class='{active_btn_class}'>Active Employees</a>
+                    <a href='{url_for("employees.employees", show="all")}' class='{all_btn_class}'>All Employees</a>
+                    <a href='{url_for("employees.time_clock")}' class='btn'>Clock In / Out</a>
+                    <a href='{url_for("payroll.employee_payroll")}' class='btn warning'>Payroll</a>
+                    <a href='{url_for("employees.new_employee")}' class='btn success'>+ New Employee</a>
+                </div>
             </div>
         </div>
-    </div>
 
-    <div class='card'>
-        <h2>{'All Employees' if show == 'all' else 'Active Employees'}</h2>
-        <div class='table-wrap'>
-        <table>
-            <tr>
-                <th>Name</th>
-                <th>Phone</th>
-                <th>Email</th>
-                <th>Position</th>
-                <th>Pay Type</th>
-                <th>Rate / Salary</th>
-                <th>Status</th>
-                <th>Actions</th>
-            </tr>
-            {employee_rows or "<tr><td colspan='8' class='muted'>No employees found.</td></tr>"}
-        </table>
+        <div class='card'>
+            <h2>{'All Employees' if show == 'all' else 'Active Employees'}</h2>
+
+            <div class='table-wrap desktop-only'>
+                <table>
+                    <tr>
+                        <th>Name</th>
+                        <th>Phone</th>
+                        <th>Email</th>
+                        <th>Position</th>
+                        <th>Pay Type</th>
+                        <th>Rate / Salary</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                    {employee_rows or "<tr><td colspan='8' class='muted'>No employees found.</td></tr>"}
+                </table>
+            </div>
+
+            <div class='mobile-only'>
+                <div class='mobile-list'>
+                    {mobile_cards_html or "<div class='mobile-list-card muted'>No employees found.</div>"}
+                </div>
+            </div>
         </div>
     </div>
     """
@@ -1045,113 +1217,279 @@ def view_employee(employee_id):
         for r in payroll_rows
     )
 
+    payroll_history_mobile = "".join(
+        f"""
+        <div class='mobile-list-card'>
+            <div class='mobile-list-top'>
+                <div class='mobile-list-title'>{escape(str(r['pay_date'] or '-'))}</div>
+                <div class='mobile-badge'>${float(r['net_pay'] or 0):.2f}</div>
+            </div>
+            <div class='mobile-list-grid'>
+                <div><span>Pay Period</span><strong>{escape(str(r['pay_period_start'] or '-'))} to {escape(str(r['pay_period_end'] or '-'))}</strong></div>
+                <div><span>Pay Type</span><strong>{escape(str(r['pay_type'] or '-'))}</strong></div>
+                <div><span>Reg Hours</span><strong>{float(r['hours_regular'] or 0):.2f}</strong></div>
+                <div><span>OT Hours</span><strong>{float(r['hours_overtime'] or 0):.2f}</strong></div>
+                <div><span>Gross Pay</span><strong>${float(r['gross_pay'] or 0):.2f}</strong></div>
+                <div><span>Net Pay</span><strong>${float(r['net_pay'] or 0):.2f}</strong></div>
+            </div>
+        </div>
+        """
+        for r in payroll_rows
+    )
+
     content = f"""
-    <div class='card'>
-        <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
-            <div>
-                <h1 style='margin-bottom:6px;'>{escape(employee_name)}</h1>
-                <p class='muted' style='margin:0;'>Employee details, payroll profile, tax setup, and W-2 identity fields.</p>
+    <style>
+        .employee-view-page {{
+            display:grid;
+            gap:18px;
+        }}
+
+        .employee-view-head {{
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:12px;
+            flex-wrap:wrap;
+        }}
+
+        .employee-meta-grid {{
+            display:grid;
+            grid-template-columns:repeat(3, minmax(0, 1fr));
+            gap:12px;
+        }}
+
+        .employee-meta-card {{
+            border:1px solid rgba(15, 23, 42, 0.08);
+            border-radius:12px;
+            padding:12px;
+            background:#fff;
+        }}
+
+        .employee-meta-card span {{
+            display:block;
+            font-size:.8rem;
+            color:#64748b;
+            margin-bottom:4px;
+        }}
+
+        .employee-meta-card strong {{
+            display:block;
+            color:#0f172a;
+            line-height:1.3;
+            word-break:break-word;
+        }}
+
+        .table-wrap {{
+            width:100%;
+            overflow-x:auto;
+        }}
+
+        .mobile-only {{
+            display:none;
+        }}
+
+        .desktop-only {{
+            display:block;
+        }}
+
+        .mobile-list {{
+            display:grid;
+            gap:12px;
+        }}
+
+        .mobile-list-card {{
+            border:1px solid rgba(15, 23, 42, 0.08);
+            border-radius:14px;
+            padding:14px;
+            background:#fff;
+            box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
+        }}
+
+        .mobile-list-top {{
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:10px;
+            margin-bottom:10px;
+        }}
+
+        .mobile-list-title {{
+            font-weight:700;
+            color:#0f172a;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-badge {{
+            font-size:.85rem;
+            font-weight:700;
+            color:#334155;
+            background:#f1f5f9;
+            padding:6px 10px;
+            border-radius:999px;
+            white-space:nowrap;
+        }}
+
+        .mobile-list-grid {{
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:10px 12px;
+            margin-bottom:12px;
+        }}
+
+        .mobile-list-grid span {{
+            display:block;
+            font-size:.78rem;
+            color:#64748b;
+            margin-bottom:3px;
+        }}
+
+        .mobile-list-grid strong {{
+            display:block;
+            color:#0f172a;
+            font-size:.95rem;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        @media (max-width: 900px) {{
+            .employee-meta-grid {{
+                grid-template-columns:1fr;
+            }}
+        }}
+
+        @media (max-width: 640px) {{
+            .desktop-only {{
+                display:none !important;
+            }}
+
+            .mobile-only {{
+                display:block !important;
+            }}
+
+            .mobile-list-grid {{
+                grid-template-columns:1fr;
+            }}
+        }}
+    </style>
+
+    <div class='employee-view-page'>
+        <div class='card'>
+            <div class='employee-view-head'>
+                <div>
+                    <h1 style='margin-bottom:6px;'>{escape(employee_name)}</h1>
+                    <p class='muted' style='margin:0;'>Employee details, payroll profile, tax setup, and W-2 identity fields.</p>
+                </div>
+                <div class='row-actions'>
+                    <a class='btn' href='{url_for("employees.edit_employee", employee_id=employee_id)}'>Edit Employee</a>
+                    <a class='btn warning' href='{url_for("payroll.employee_payroll")}'>Payroll</a>
+                    <a class='btn secondary' href='{url_for("employees.employees")}'>Back to Employees</a>
+                </div>
             </div>
-            <div class='row-actions'>
-                <a class='btn' href='{url_for("employees.edit_employee", employee_id=employee_id)}'>Edit Employee</a>
-                <a class='btn warning' href='{url_for("payroll.employee_payroll")}'>Payroll</a>
-                <a class='btn secondary' href='{url_for("employees.employees")}'>Back to Employees</a>
+        </div>
+
+        <div class='card'>
+            <h2>Employee Information</h2>
+            <div class='employee-meta-grid'>
+                <div class='employee-meta-card'><span>Name</span><strong>{escape(employee_name)}</strong></div>
+                <div class='employee-meta-card'><span>Status</span><strong>{escape(status_text)}</strong></div>
+                <div class='employee-meta-card'><span>Middle Name</span><strong>{escape(str(middle_name))}</strong></div>
+                <div class='employee-meta-card'><span>Suffix</span><strong>{escape(str(suffix))}</strong></div>
+                <div class='employee-meta-card'><span>Phone</span><strong>{escape(str(phone))}</strong></div>
+                <div class='employee-meta-card'><span>Email</span><strong>{escape(str(email))}</strong></div>
+                <div class='employee-meta-card'><span>Position</span><strong>{escape(str(position))}</strong></div>
+                <div class='employee-meta-card'><span>Hire Date</span><strong>{escape(str(hire_date))}</strong></div>
             </div>
         </div>
-    </div>
 
-    <div class='card'>
-        <h2>Employee Information</h2>
-        <div class='grid'>
-            <div><strong>Name</strong><br>{escape(employee_name)}</div>
-            <div><strong>Status</strong><br>{escape(status_text)}</div>
-            <div><strong>Middle Name</strong><br>{escape(str(middle_name))}</div>
-            <div><strong>Suffix</strong><br>{escape(str(suffix))}</div>
-            <div><strong>Phone</strong><br>{escape(str(phone))}</div>
-            <div><strong>Email</strong><br>{escape(str(email))}</div>
-            <div><strong>Position</strong><br>{escape(str(position))}</div>
-            <div><strong>Hire Date</strong><br>{escape(str(hire_date))}</div>
-        </div>
-    </div>
-
-    <div class='card'>
-        <h2>Employee Address</h2>
-        <div class='grid'>
-            <div style='grid-column:1 / -1;'><strong>Address Line 1</strong><br>{escape(str(address_line_1))}</div>
-            <div style='grid-column:1 / -1;'><strong>Address Line 2</strong><br>{escape(str(address_line_2))}</div>
-            <div><strong>City</strong><br>{escape(str(city))}</div>
-            <div><strong>State</strong><br>{escape(str(state))}</div>
-            <div><strong>ZIP</strong><br>{escape(str(zip_code))}</div>
-        </div>
-    </div>
-
-    <div class='card'>
-        <h2>W-2 Identity & Mailing Info</h2>
-        <div class='grid'>
-            <div><strong>SSN</strong><br>{escape(str(ssn))}</div>
-            <div style='grid-column:1 / -1;'><strong>W-2 Address Line 1</strong><br>{escape(str(w2_address_line_1))}</div>
-            <div style='grid-column:1 / -1;'><strong>W-2 Address Line 2</strong><br>{escape(str(w2_address_line_2))}</div>
-            <div><strong>W-2 City</strong><br>{escape(str(w2_city))}</div>
-            <div><strong>W-2 State</strong><br>{escape(str(w2_state))}</div>
-            <div><strong>W-2 ZIP</strong><br>{escape(str(w2_zip))}</div>
-        </div>
-    </div>
-
-    <div class='card'>
-        <h2>Payroll Setup</h2>
-        <div class='grid'>
-            <div><strong>Pay Type</strong><br>{escape(str(pay_type))}</div>
-            <div><strong>Rate / Salary</strong><br>{pay_display}</div>
-            <div><strong>Overtime Rate</strong><br>${overtime_rate:,.2f}</div>
-            <div><strong>Default Hours</strong><br>{escape(str(default_hours))}</div>
-            <div><strong>Pay Frequency</strong><br>{escape(str(pay_frequency))}</div>
+        <div class='card'>
+            <h2>Employee Address</h2>
+            <div class='employee-meta-grid'>
+                <div class='employee-meta-card'><span>Address Line 1</span><strong>{escape(str(address_line_1))}</strong></div>
+                <div class='employee-meta-card'><span>Address Line 2</span><strong>{escape(str(address_line_2))}</strong></div>
+                <div class='employee-meta-card'><span>City</span><strong>{escape(str(city))}</strong></div>
+                <div class='employee-meta-card'><span>State</span><strong>{escape(str(state))}</strong></div>
+                <div class='employee-meta-card'><span>ZIP</span><strong>{escape(str(zip_code))}</strong></div>
+            </div>
         </div>
 
-        <div style='margin-top:18px;'>
-            <strong>Payroll Notes</strong><br>
-            <div class='muted' style='margin-top:6px;'>{escape(str(payroll_notes))}</div>
+        <div class='card'>
+            <h2>W-2 Identity & Mailing Info</h2>
+            <div class='employee-meta-grid'>
+                <div class='employee-meta-card'><span>SSN</span><strong>{escape(str(ssn))}</strong></div>
+                <div class='employee-meta-card'><span>W-2 Address Line 1</span><strong>{escape(str(w2_address_line_1))}</strong></div>
+                <div class='employee-meta-card'><span>W-2 Address Line 2</span><strong>{escape(str(w2_address_line_2))}</strong></div>
+                <div class='employee-meta-card'><span>W-2 City</span><strong>{escape(str(w2_city))}</strong></div>
+                <div class='employee-meta-card'><span>W-2 State</span><strong>{escape(str(w2_state))}</strong></div>
+                <div class='employee-meta-card'><span>W-2 ZIP</span><strong>{escape(str(w2_zip))}</strong></div>
+            </div>
         </div>
-    </div>
 
-    <div class='card'>
-        <h2>Federal Tax / W-4</h2>
-        <div class='grid'>
-            <div><strong>Federal Filing Status</strong><br>{escape(str(federal_filing_status))}</div>
-            <div><strong>Step 2 Box Checked</strong><br>{escape(w4_step2_checked)}</div>
-            <div><strong>Step 3 Credits</strong><br>${w4_step3_amount:,.2f}</div>
-            <div><strong>Step 4(a) Other Income</strong><br>${w4_step4a_other_income:,.2f}</div>
-            <div><strong>Step 4(b) Deductions</strong><br>${w4_step4b_deductions:,.2f}</div>
-            <div><strong>Step 4(c) Extra Withholding</strong><br>${w4_step4c_extra_withholding:,.2f}</div>
-        </div>
-    </div>
+        <div class='card'>
+            <h2>Payroll Setup</h2>
+            <div class='employee-meta-grid'>
+                <div class='employee-meta-card'><span>Pay Type</span><strong>{escape(str(pay_type))}</strong></div>
+                <div class='employee-meta-card'><span>Rate / Salary</span><strong>{pay_display}</strong></div>
+                <div class='employee-meta-card'><span>Overtime Rate</span><strong>${overtime_rate:,.2f}</strong></div>
+                <div class='employee-meta-card'><span>Default Hours</span><strong>{escape(str(default_hours))}</strong></div>
+                <div class='employee-meta-card'><span>Pay Frequency</span><strong>{escape(str(pay_frequency))}</strong></div>
+            </div>
 
-    <div class='card'>
-        <h2>Indiana Local Tax Setup</h2>
-        <div class='grid'>
-            <div><strong>Indiana Resident on Jan 1</strong><br>{escape(is_indiana_resident)}</div>
-            <div><strong>County Tax Effective Year</strong><br>{escape(str(county_tax_effective_year))}</div>
-            <div><strong>County of Residence</strong><br>{escape(str(county_of_residence))}</div>
-            <div><strong>County of Principal Employment</strong><br>{escape(str(county_of_principal_employment))}</div>
+            <div style='margin-top:18px;'>
+                <strong>Payroll Notes</strong><br>
+                <div class='muted' style='margin-top:6px;'>{escape(str(payroll_notes))}</div>
+            </div>
         </div>
-    </div>
 
-    <div class='card'>
-        <div class='section-head'>
-            <h2>Payroll History</h2>
-            <a class='btn small' href='{url_for("payroll.employee_payroll")}'>Open Payroll</a>
+        <div class='card'>
+            <h2>Federal Tax / W-4</h2>
+            <div class='employee-meta-grid'>
+                <div class='employee-meta-card'><span>Federal Filing Status</span><strong>{escape(str(federal_filing_status))}</strong></div>
+                <div class='employee-meta-card'><span>Step 2 Box Checked</span><strong>{escape(w4_step2_checked)}</strong></div>
+                <div class='employee-meta-card'><span>Step 3 Credits</span><strong>${w4_step3_amount:,.2f}</strong></div>
+                <div class='employee-meta-card'><span>Step 4(a) Other Income</span><strong>${w4_step4a_other_income:,.2f}</strong></div>
+                <div class='employee-meta-card'><span>Step 4(b) Deductions</span><strong>${w4_step4b_deductions:,.2f}</strong></div>
+                <div class='employee-meta-card'><span>Step 4(c) Extra Withholding</span><strong>${w4_step4c_extra_withholding:,.2f}</strong></div>
+            </div>
         </div>
-        <table>
-            <tr>
-                <th>Pay Date</th>
-                <th>Pay Period</th>
-                <th>Pay Type</th>
-                <th>Reg Hours</th>
-                <th>OT Hours</th>
-                <th>Gross Pay</th>
-                <th>Net Pay</th>
-            </tr>
-            {payroll_history_rows or "<tr><td colspan='7' class='muted'>No payroll history found.</td></tr>"}
-        </table>
+
+        <div class='card'>
+            <h2>Indiana Local Tax Setup</h2>
+            <div class='employee-meta-grid'>
+                <div class='employee-meta-card'><span>Indiana Resident on Jan 1</span><strong>{escape(is_indiana_resident)}</strong></div>
+                <div class='employee-meta-card'><span>County Tax Effective Year</span><strong>{escape(str(county_tax_effective_year))}</strong></div>
+                <div class='employee-meta-card'><span>County of Residence</span><strong>{escape(str(county_of_residence))}</strong></div>
+                <div class='employee-meta-card'><span>County of Principal Employment</span><strong>{escape(str(county_of_principal_employment))}</strong></div>
+            </div>
+        </div>
+
+        <div class='card'>
+            <div class='section-head'>
+                <h2>Payroll History</h2>
+                <a class='btn small' href='{url_for("payroll.employee_payroll")}'>Open Payroll</a>
+            </div>
+
+            <div class='table-wrap desktop-only'>
+                <table>
+                    <tr>
+                        <th>Pay Date</th>
+                        <th>Pay Period</th>
+                        <th>Pay Type</th>
+                        <th>Reg Hours</th>
+                        <th>OT Hours</th>
+                        <th>Gross Pay</th>
+                        <th>Net Pay</th>
+                    </tr>
+                    {payroll_history_rows or "<tr><td colspan='7' class='muted'>No payroll history found.</td></tr>"}
+                </table>
+            </div>
+
+            <div class='mobile-only'>
+                <div class='mobile-list'>
+                    {payroll_history_mobile or "<div class='mobile-list-card muted'>No payroll history found.</div>"}
+                </div>
+            </div>
+        </div>
     </div>
     """
 
@@ -1624,182 +1962,331 @@ def time_clock():
     }
 
     time_clock_html = """
-    <div class='card'>
-        <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
-            <div>
-                <h1 style='margin-bottom:6px;'>Clock In / Out</h1>
-                <p class='muted' style='margin:0;'>Track employee hours using your company's chosen pay period.</p>
-            </div>
-            <div class='row-actions'>
-                <a class='btn secondary' href='{{ url_for("dashboard.dashboard") }}'>Back to Dashboard</a>
+    <style>
+        .time-clock-page {
+            display:grid;
+            gap:18px;
+        }
+
+        .time-clock-stat-grid {
+            display:grid;
+            grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));
+            gap:16px;
+        }
+
+        .time-clock-form-grid {
+            display:grid;
+            grid-template-columns:minmax(220px, 1fr) auto;
+            gap:12px;
+            align-items:end;
+        }
+
+        .mobile-only {
+            display:none;
+        }
+
+        .desktop-only {
+            display:block;
+        }
+
+        .mobile-list {
+            display:grid;
+            gap:12px;
+        }
+
+        .mobile-list-card {
+            border:1px solid rgba(15, 23, 42, 0.08);
+            border-radius:14px;
+            padding:14px;
+            background:#fff;
+            box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
+        }
+
+        .mobile-list-top {
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:10px;
+            margin-bottom:10px;
+        }
+
+        .mobile-list-title {
+            font-weight:700;
+            color:#0f172a;
+            line-height:1.25;
+            word-break:break-word;
+        }
+
+        .mobile-badge {
+            font-size:.85rem;
+            font-weight:700;
+            color:#334155;
+            background:#f1f5f9;
+            padding:6px 10px;
+            border-radius:999px;
+            white-space:nowrap;
+        }
+
+        .mobile-list-grid {
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:10px 12px;
+            margin-bottom:12px;
+        }
+
+        .mobile-list-grid span {
+            display:block;
+            font-size:.78rem;
+            color:#64748b;
+            margin-bottom:3px;
+        }
+
+        .mobile-list-grid strong {
+            display:block;
+            color:#0f172a;
+            font-size:.95rem;
+            line-height:1.25;
+            word-break:break-word;
+        }
+
+        @media (max-width: 640px) {
+            .time-clock-form-grid {
+                grid-template-columns:1fr;
+            }
+
+            .desktop-only {
+                display:none !important;
+            }
+
+            .mobile-only {
+                display:block !important;
+            }
+
+            .mobile-list-grid {
+                grid-template-columns:1fr;
+            }
+        }
+    </style>
+
+    <div class='time-clock-page'>
+        <div class='card'>
+            <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
+                <div>
+                    <h1 style='margin-bottom:6px;'>Clock In / Out</h1>
+                    <p class='muted' style='margin:0;'>Track employee hours using your company's chosen pay period.</p>
+                </div>
+                <div class='row-actions'>
+                    <a class='btn secondary' href='{{ url_for("dashboard.dashboard") }}'>Back to Dashboard</a>
+                </div>
             </div>
         </div>
-    </div>
 
-    <div class='card'>
-        <h2>Pay Period Settings</h2>
-        <form method='post' action='{{ url_for("employees.update_time_clock_settings") }}'>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div style='display:grid; grid-template-columns:minmax(220px, 1fr) auto; gap:12px; align-items:end;'>
-                <div>
-                    <label>Pay Period Start Day</label>
-                    <select name='time_clock_pay_period_start_day' required>
-                        {% for day_number, day_name in weekday_options %}
-                            <option value='{{ day_number }}' {% if day_number == pay_period_start_day %}selected{% endif %}>{{ day_name }}</option>
-                        {% endfor %}
-                    </select>
-                    <div class='muted' style='margin-top:6px;'>
-                        Current pay period runs {{ pay_period_start_label }} through {{ pay_period_end_label }}.
+        <div class='card'>
+            <h2>Pay Period Settings</h2>
+            <form method='post' action='{{ url_for("employees.update_time_clock_settings") }}'>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class='time-clock-form-grid'>
+                    <div>
+                        <label>Pay Period Start Day</label>
+                        <select name='time_clock_pay_period_start_day' required>
+                            {% for day_number, day_name in weekday_options %}
+                                <option value='{{ day_number }}' {% if day_number == pay_period_start_day %}selected{% endif %}>{{ day_name }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class='muted' style='margin-top:6px;'>
+                            Current pay period runs {{ pay_period_start_label }} through {{ pay_period_end_label }}.
+                        </div>
+                    </div>
+                    <div>
+                        <button class='btn' type='submit'>Save Pay Period</button>
                     </div>
                 </div>
-                <div>
-                    <button class='btn' type='submit'>Save Pay Period</button>
-                </div>
-            </div>
-        </form>
-    </div>
-
-    <div class='card'>
-        <div style='display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px;'>
-            <div style='border:1px solid #e5e7eb; border-radius:12px; padding:16px; background:#f8fafc;'>
-                <div class='muted' style='margin-bottom:6px;'>Current Pay Period</div>
-                <div style='font-size:1.1rem; font-weight:700;'>{{ pay_period_start }} to {{ pay_period_end }}</div>
-            </div>
-
-            <div style='border:1px solid #e5e7eb; border-radius:12px; padding:16px; background:#f8fafc;'>
-                <div class='muted' style='margin-bottom:6px;'>Employees</div>
-                <div style='font-size:1.4rem; font-weight:700;'>{{ employees|length }}</div>
-            </div>
-
-            <div style='border:1px solid #e5e7eb; border-radius:12px; padding:16px; background:#f8fafc;'>
-                <div class='muted' style='margin-bottom:6px;'>Currently Clocked In</div>
-                <div style='font-size:1.4rem; font-weight:700;'>{{ currently_clocked_in }}</div>
-            </div>
-        </div>
-    </div>
-
-    <div class='card'>
-        <h2>Clock Actions</h2>
-
-        <form method='post' action='{{ url_for("employees.time_clock_clock_in") }}' style='margin-bottom:14px;'>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div style='display:grid; grid-template-columns:minmax(220px, 1fr) auto; gap:12px; align-items:end;'>
-                <div>
-                    <label>Select Employee to Clock In</label>
-                    <select name='employee_id' required>
-                        <option value=''>Choose employee</option>
-                        {% for emp in employees if emp["id"] not in clocked_in_ids %}
-                            {% set emp_name = ((emp["first_name"] or "") ~ " " ~ (emp["last_name"] or "")).strip() or (emp["full_name"] or "") or ("Employee #" ~ emp["id"]) %}
-                            <option value='{{ emp["id"] }}'>{{ emp_name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div>
-                    <button class='btn success' type='submit'>Clock In</button>
-                </div>
-            </div>
-        </form>
-
-        <form method='post' action='{{ url_for("employees.time_clock_clock_out") }}'>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div style='display:grid; grid-template-columns:minmax(220px, 1fr) auto; gap:12px; align-items:end;'>
-                <div>
-                    <label>Select Employee to Clock Out</label>
-                    <select name='employee_id' required>
-                        <option value=''>Choose employee</option>
-                        {% for emp in employees if emp["id"] in clocked_in_ids %}
-                            {% set emp_name = ((emp["first_name"] or "") ~ " " ~ (emp["last_name"] or "")).strip() or (emp["full_name"] or "") or ("Employee #" ~ emp["id"]) %}
-                            <option value='{{ emp["id"] }}'>{{ emp_name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div>
-                    <button class='btn warning' type='submit'>Clock Out</button>
-                </div>
-            </div>
-        </form>
-    </div>
-
-    <div class='card'>
-        <h2>Current Employee Status</h2>
-        {% if employees_with_status %}
-            <div style='overflow-x:auto;'>
-                <table class='table'>
-                    <thead>
-                        <tr>
-                            <th>Employee</th>
-                            <th>Status</th>
-                            <th>Clocked In At</th>
-                            <th>Today</th>
-                            <th>This Pay Period</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for row in employees_with_status %}
-                            <tr>
-                                <td>{{ row.employee_name }}</td>
-                                <td>
-                                    {% if row.is_clocked_in %}
-                                        <span style='color:#166534; font-weight:700;'>Clocked In</span>
-                                    {% else %}
-                                        <span style='color:#666;'>Clocked Out</span>
-                                    {% endif %}
-                                </td>
-                                <td>{{ row.clock_in or "-" }}</td>
-                                <td>{{ format_hours(row.today_hours) }} hrs</td>
-                                <td>{{ format_hours(row.pay_period_hours) }} hrs</td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        {% else %}
-            <p class='muted'>No employees found.</p>
-        {% endif %}
-    </div>
-
-    <div class='card'>
-        <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px;'>
-            <div>
-                <h2 style='margin-bottom:4px;'>Recent Time Entries</h2>
-                <div class='muted'>Review recent punches and send the current hours summary email manually.</div>
-            </div>
-
-            <form method='post' action='{{ url_for("employees.send_time_clock_summary_now") }}' style='margin:0;'>
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button class='btn warning' type='submit'>Send Last Pay Period Summary</button>
             </form>
         </div>
 
-        {% if recent_entries %}
-            <div style='overflow-x:auto;'>
-                <table class='table'>
-                    <thead>
-                        <tr>
-                            <th>Employee</th>
-                            <th>Clock In</th>
-                            <th>Clock Out</th>
-                            <th>Total Hours</th>
-                            <th>Notes</th>
-                        </tr>
-                    </thead>
-                    <tbody>
+        <div class='card'>
+            <div class='time-clock-stat-grid'>
+                <div style='border:1px solid #e5e7eb; border-radius:12px; padding:16px; background:#f8fafc;'>
+                    <div class='muted' style='margin-bottom:6px;'>Current Pay Period</div>
+                    <div style='font-size:1.1rem; font-weight:700;'>{{ pay_period_start }} to {{ pay_period_end }}</div>
+                </div>
+
+                <div style='border:1px solid #e5e7eb; border-radius:12px; padding:16px; background:#f8fafc;'>
+                    <div class='muted' style='margin-bottom:6px;'>Employees</div>
+                    <div style='font-size:1.4rem; font-weight:700;'>{{ employees|length }}</div>
+                </div>
+
+                <div style='border:1px solid #e5e7eb; border-radius:12px; padding:16px; background:#f8fafc;'>
+                    <div class='muted' style='margin-bottom:6px;'>Currently Clocked In</div>
+                    <div style='font-size:1.4rem; font-weight:700;'>{{ currently_clocked_in }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class='card'>
+            <h2>Clock Actions</h2>
+
+            <form method='post' action='{{ url_for("employees.time_clock_clock_in") }}' style='margin-bottom:14px;'>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class='time-clock-form-grid'>
+                    <div>
+                        <label>Select Employee to Clock In</label>
+                        <select name='employee_id' required>
+                            <option value=''>Choose employee</option>
+                            {% for emp in employees if emp["id"] not in clocked_in_ids %}
+                                {% set emp_name = ((emp["first_name"] or "") ~ " " ~ (emp["last_name"] or "")).strip() or (emp["full_name"] or "") or ("Employee #" ~ emp["id"]) %}
+                                <option value='{{ emp["id"] }}'>{{ emp_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <button class='btn success' type='submit'>Clock In</button>
+                    </div>
+                </div>
+            </form>
+
+            <form method='post' action='{{ url_for("employees.time_clock_clock_out") }}'>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class='time-clock-form-grid'>
+                    <div>
+                        <label>Select Employee to Clock Out</label>
+                        <select name='employee_id' required>
+                            <option value=''>Choose employee</option>
+                            {% for emp in employees if emp["id"] in clocked_in_ids %}
+                                {% set emp_name = ((emp["first_name"] or "") ~ " " ~ (emp["last_name"] or "")).strip() or (emp["full_name"] or "") or ("Employee #" ~ emp["id"]) %}
+                                <option value='{{ emp["id"] }}'>{{ emp_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <button class='btn warning' type='submit'>Clock Out</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <div class='card'>
+            <h2>Current Employee Status</h2>
+            {% if employees_with_status %}
+                <div class='desktop-only' style='overflow-x:auto;'>
+                    <table class='table'>
+                        <thead>
+                            <tr>
+                                <th>Employee</th>
+                                <th>Status</th>
+                                <th>Clocked In At</th>
+                                <th>Today</th>
+                                <th>This Pay Period</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in employees_with_status %}
+                                <tr>
+                                    <td>{{ row.employee_name }}</td>
+                                    <td>
+                                        {% if row.is_clocked_in %}
+                                            <span style='color:#166534; font-weight:700;'>Clocked In</span>
+                                        {% else %}
+                                            <span style='color:#666;'>Clocked Out</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ row.clock_in or "-" }}</td>
+                                    <td>{{ format_hours(row.today_hours) }} hrs</td>
+                                    <td>{{ format_hours(row.pay_period_hours) }} hrs</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class='mobile-only'>
+                    <div class='mobile-list'>
+                        {% for row in employees_with_status %}
+                            <div class='mobile-list-card'>
+                                <div class='mobile-list-top'>
+                                    <div class='mobile-list-title'>{{ row.employee_name }}</div>
+                                    <div class='mobile-badge'>
+                                        {% if row.is_clocked_in %}Clocked In{% else %}Clocked Out{% endif %}
+                                    </div>
+                                </div>
+
+                                <div class='mobile-list-grid'>
+                                    <div><span>Clocked In At</span><strong>{{ row.clock_in or "-" }}</strong></div>
+                                    <div><span>Today</span><strong>{{ format_hours(row.today_hours) }} hrs</strong></div>
+                                    <div><span>This Pay Period</span><strong>{{ format_hours(row.pay_period_hours) }} hrs</strong></div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% else %}
+                <p class='muted'>No employees found.</p>
+            {% endif %}
+        </div>
+
+        <div class='card'>
+            <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px;'>
+                <div>
+                    <h2 style='margin-bottom:4px;'>Recent Time Entries</h2>
+                    <div class='muted'>Review recent punches and send the current hours summary email manually.</div>
+                </div>
+
+                <form method='post' action='{{ url_for("employees.send_time_clock_summary_now") }}' style='margin:0;'>
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class='btn warning' type='submit'>Send Last Pay Period Summary</button>
+                </form>
+            </div>
+
+            {% if recent_entries %}
+                <div class='desktop-only' style='overflow-x:auto;'>
+                    <table class='table'>
+                        <thead>
+                            <tr>
+                                <th>Employee</th>
+                                <th>Clock In</th>
+                                <th>Clock Out</th>
+                                <th>Total Hours</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in recent_entries %}
+                            {% set entry_name = ((row["first_name"] or "") ~ " " ~ (row["last_name"] or "")).strip() or (row["full_name"] or "") or ("Employee #" ~ row["employee_id"]) %}
+                                <tr>
+                                    <td>{{ entry_name }}</td>
+                                    <td>{{ row["clock_in"] }}</td>
+                                    <td>{{ row["clock_out"] or "-" }}</td>
+                                    <td>{{ format_hours(row["total_hours"]) }}</td>
+                                    <td>{{ row["notes"] or "" }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class='mobile-only'>
+                    <div class='mobile-list'>
                         {% for row in recent_entries %}
                         {% set entry_name = ((row["first_name"] or "") ~ " " ~ (row["last_name"] or "")).strip() or (row["full_name"] or "") or ("Employee #" ~ row["employee_id"]) %}
-                            <tr>
-                                <td>{{ entry_name }}</td>
-                                <td>{{ row["clock_in"] }}</td>
-                                <td>{{ row["clock_out"] or "-" }}</td>
-                                <td>{{ format_hours(row["total_hours"]) }}</td>
-                                <td>{{ row["notes"] or "" }}</td>
-                            </tr>
+                            <div class='mobile-list-card'>
+                                <div class='mobile-list-top'>
+                                    <div class='mobile-list-title'>{{ entry_name }}</div>
+                                    <div class='mobile-badge'>{{ format_hours(row["total_hours"]) }} hrs</div>
+                                </div>
+
+                                <div class='mobile-list-grid'>
+                                    <div><span>Clock In</span><strong>{{ row["clock_in"] }}</strong></div>
+                                    <div><span>Clock Out</span><strong>{{ row["clock_out"] or "-" }}</strong></div>
+                                    <div><span>Notes</span><strong>{{ row["notes"] or "" }}</strong></div>
+                                </div>
+                            </div>
                         {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        {% else %}
-            <p class='muted'>No time entries yet.</p>
-        {% endif %}
+                    </div>
+                </div>
+            {% else %}
+                <p class='muted'>No time entries yet.</p>
+            {% endif %}
+        </div>
     </div>
     """
 

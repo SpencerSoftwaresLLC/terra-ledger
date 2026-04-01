@@ -762,9 +762,12 @@ def invoices():
     conn.close()
 
     invoice_rows_html = ""
+    invoice_mobile_cards = ""
+
     for inv in rows:
         status = _clean_display(inv["status"])
         invoice_number = _clean_display(inv["invoice_number"] or inv["id"])
+
         invoice_rows_html += f"""
         <tr>
             <td>#{escape(str(invoice_number))}</td>
@@ -780,6 +783,25 @@ def invoices():
         </tr>
         """
 
+        invoice_mobile_cards += f"""
+        <div class='mobile-list-card'>
+            <div class='mobile-list-top'>
+                <div class='mobile-list-title'>Invoice #{escape(str(invoice_number))}</div>
+                <div class='mobile-badge'>{escape(status)}</div>
+            </div>
+            <div class='mobile-list-grid'>
+                <div><span>Customer</span><strong>{escape(_clean_display(inv["customer_name"]))}</strong></div>
+                <div><span>Date</span><strong>{escape(str(inv["invoice_date"] or "-"))}</strong></div>
+                <div><span>Total</span><strong>${_safe_float(inv["total"]):,.2f}</strong></div>
+                <div><span>Paid</span><strong>${_safe_float(inv["amount_paid"]):,.2f}</strong></div>
+                <div><span>Balance</span><strong>${_safe_float(inv["balance_due"]):,.2f}</strong></div>
+            </div>
+            <div class='mobile-list-actions'>
+                <a class='btn small' href='{url_for("invoices.view_invoice", invoice_id=inv["id"])}'>Open</a>
+            </div>
+        </div>
+        """
+
     if not invoice_rows_html:
         invoice_rows_html = """
         <tr>
@@ -787,38 +809,159 @@ def invoices():
         </tr>
         """
 
+    if not invoice_mobile_cards:
+        invoice_mobile_cards = "<div class='mobile-list-card muted'>No active invoices found.</div>"
+
     content = f"""
-    <div class='card'>
-        <div style='display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap;'>
-            <div>
-                <h1>Invoices</h1>
-                <p class='muted'>Track active invoice totals, payments, balances, and status.</p>
-            </div>
-            <div class='row-actions'>
-                <a class='btn secondary' href='{url_for("invoices.paid_invoices")}'>Paid Invoices</a>
-                <a class='btn success' href='{url_for("invoices.new_invoice")}'>New Invoice</a>
+    <style>
+        .invoice-page {{
+            display:grid;
+            gap:18px;
+        }}
+
+        .invoice-page-head {{
+            display:flex;
+            justify-content:space-between;
+            gap:12px;
+            align-items:center;
+            flex-wrap:wrap;
+        }}
+
+        .invoice-table-wrap {{
+            width:100%;
+            overflow-x:auto;
+        }}
+
+        .mobile-only {{
+            display:none;
+        }}
+
+        .desktop-only {{
+            display:block;
+        }}
+
+        .mobile-list {{
+            display:grid;
+            gap:12px;
+        }}
+
+        .mobile-list-card {{
+            border:1px solid rgba(15, 23, 42, 0.08);
+            border-radius:14px;
+            padding:14px;
+            background:#fff;
+            box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
+        }}
+
+        .mobile-list-top {{
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:10px;
+            margin-bottom:10px;
+        }}
+
+        .mobile-list-title {{
+            font-weight:700;
+            color:#0f172a;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-badge {{
+            font-size:.85rem;
+            font-weight:700;
+            color:#334155;
+            background:#f1f5f9;
+            padding:6px 10px;
+            border-radius:999px;
+            white-space:nowrap;
+        }}
+
+        .mobile-list-grid {{
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:10px 12px;
+            margin-bottom:12px;
+        }}
+
+        .mobile-list-grid span {{
+            display:block;
+            font-size:.78rem;
+            color:#64748b;
+            margin-bottom:3px;
+        }}
+
+        .mobile-list-grid strong {{
+            display:block;
+            color:#0f172a;
+            font-size:.95rem;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-list-actions {{
+            display:flex;
+            gap:8px;
+            flex-wrap:wrap;
+        }}
+
+        @media (max-width: 640px) {{
+            .desktop-only {{
+                display:none !important;
+            }}
+
+            .mobile-only {{
+                display:block !important;
+            }}
+
+            .mobile-list-grid {{
+                grid-template-columns:1fr;
+            }}
+        }}
+    </style>
+
+    <div class='invoice-page'>
+        <div class='card'>
+            <div class='invoice-page-head'>
+                <div>
+                    <h1>Invoices</h1>
+                    <p class='muted'>Track active invoice totals, payments, balances, and status.</p>
+                </div>
+                <div class='row-actions'>
+                    <a class='btn secondary' href='{url_for("invoices.paid_invoices")}'>Paid Invoices</a>
+                    <a class='btn success' href='{url_for("invoices.new_invoice")}'>New Invoice</a>
+                </div>
             </div>
         </div>
-    </div>
 
-    <div class='card'>
-        <table class='table'>
-            <thead>
-                <tr>
-                    <th>Invoice</th>
-                    <th>Customer</th>
-                    <th>Date</th>
-                    <th>Total</th>
-                    <th>Paid</th>
-                    <th>Balance</th>
-                    <th>Status</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                {invoice_rows_html}
-            </tbody>
-        </table>
+        <div class='card'>
+            <div class='invoice-table-wrap desktop-only'>
+                <table class='table'>
+                    <thead>
+                        <tr>
+                            <th>Invoice</th>
+                            <th>Customer</th>
+                            <th>Date</th>
+                            <th>Total</th>
+                            <th>Paid</th>
+                            <th>Balance</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {invoice_rows_html}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class='mobile-only'>
+                <div class='mobile-list'>
+                    {invoice_mobile_cards}
+                </div>
+            </div>
+        </div>
     </div>
     """
     return render_page(content, "Invoices")
@@ -850,9 +993,12 @@ def paid_invoices():
     conn.close()
 
     invoice_rows_html = ""
+    invoice_mobile_cards = ""
+
     for inv in rows:
         status = _clean_display(inv["status"])
         invoice_number = _clean_display(inv["invoice_number"] or inv["id"])
+
         invoice_rows_html += f"""
         <tr>
             <td>#{escape(str(invoice_number))}</td>
@@ -868,6 +1014,25 @@ def paid_invoices():
         </tr>
         """
 
+        invoice_mobile_cards += f"""
+        <div class='mobile-list-card'>
+            <div class='mobile-list-top'>
+                <div class='mobile-list-title'>Invoice #{escape(str(invoice_number))}</div>
+                <div class='mobile-badge'>{escape(status)}</div>
+            </div>
+            <div class='mobile-list-grid'>
+                <div><span>Customer</span><strong>{escape(_clean_display(inv["customer_name"]))}</strong></div>
+                <div><span>Date</span><strong>{escape(str(inv["invoice_date"] or "-"))}</strong></div>
+                <div><span>Total</span><strong>${_safe_float(inv["total"]):,.2f}</strong></div>
+                <div><span>Paid</span><strong>${_safe_float(inv["amount_paid"]):,.2f}</strong></div>
+                <div><span>Balance</span><strong>${_safe_float(inv["balance_due"]):,.2f}</strong></div>
+            </div>
+            <div class='mobile-list-actions'>
+                <a class='btn small' href='{url_for("invoices.view_invoice", invoice_id=inv["id"])}'>Open</a>
+            </div>
+        </div>
+        """
+
     if not invoice_rows_html:
         invoice_rows_html = """
         <tr>
@@ -875,37 +1040,158 @@ def paid_invoices():
         </tr>
         """
 
+    if not invoice_mobile_cards:
+        invoice_mobile_cards = "<div class='mobile-list-card muted'>No paid invoices found.</div>"
+
     content = f"""
-    <div class='card'>
-        <div style='display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap;'>
-            <div>
-                <h1>Paid Invoices</h1>
-                <p class='muted'>Invoices that have been paid in full.</p>
-            </div>
-            <div class='row-actions'>
-                <a class='btn secondary' href='{url_for("invoices.invoices")}'>Back to Invoices</a>
+    <style>
+        .invoice-page {{
+            display:grid;
+            gap:18px;
+        }}
+
+        .invoice-page-head {{
+            display:flex;
+            justify-content:space-between;
+            gap:12px;
+            align-items:center;
+            flex-wrap:wrap;
+        }}
+
+        .invoice-table-wrap {{
+            width:100%;
+            overflow-x:auto;
+        }}
+
+        .mobile-only {{
+            display:none;
+        }}
+
+        .desktop-only {{
+            display:block;
+        }}
+
+        .mobile-list {{
+            display:grid;
+            gap:12px;
+        }}
+
+        .mobile-list-card {{
+            border:1px solid rgba(15, 23, 42, 0.08);
+            border-radius:14px;
+            padding:14px;
+            background:#fff;
+            box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
+        }}
+
+        .mobile-list-top {{
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:10px;
+            margin-bottom:10px;
+        }}
+
+        .mobile-list-title {{
+            font-weight:700;
+            color:#0f172a;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-badge {{
+            font-size:.85rem;
+            font-weight:700;
+            color:#334155;
+            background:#f1f5f9;
+            padding:6px 10px;
+            border-radius:999px;
+            white-space:nowrap;
+        }}
+
+        .mobile-list-grid {{
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:10px 12px;
+            margin-bottom:12px;
+        }}
+
+        .mobile-list-grid span {{
+            display:block;
+            font-size:.78rem;
+            color:#64748b;
+            margin-bottom:3px;
+        }}
+
+        .mobile-list-grid strong {{
+            display:block;
+            color:#0f172a;
+            font-size:.95rem;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-list-actions {{
+            display:flex;
+            gap:8px;
+            flex-wrap:wrap;
+        }}
+
+        @media (max-width: 640px) {{
+            .desktop-only {{
+                display:none !important;
+            }}
+
+            .mobile-only {{
+                display:block !important;
+            }}
+
+            .mobile-list-grid {{
+                grid-template-columns:1fr;
+            }}
+        }}
+    </style>
+
+    <div class='invoice-page'>
+        <div class='card'>
+            <div class='invoice-page-head'>
+                <div>
+                    <h1>Paid Invoices</h1>
+                    <p class='muted'>Invoices that have been paid in full.</p>
+                </div>
+                <div class='row-actions'>
+                    <a class='btn secondary' href='{url_for("invoices.invoices")}'>Back to Invoices</a>
+                </div>
             </div>
         </div>
-    </div>
 
-    <div class='card'>
-        <table class='table'>
-            <thead>
-                <tr>
-                    <th>Invoice</th>
-                    <th>Customer</th>
-                    <th>Date</th>
-                    <th>Total</th>
-                    <th>Paid</th>
-                    <th>Balance</th>
-                    <th>Status</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                {invoice_rows_html}
-            </tbody>
-        </table>
+        <div class='card'>
+            <div class='invoice-table-wrap desktop-only'>
+                <table class='table'>
+                    <thead>
+                        <tr>
+                            <th>Invoice</th>
+                            <th>Customer</th>
+                            <th>Date</th>
+                            <th>Total</th>
+                            <th>Paid</th>
+                            <th>Balance</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {invoice_rows_html}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class='mobile-only'>
+                <div class='mobile-list'>
+                    {invoice_mobile_cards}
+                </div>
+            </div>
+        </div>
     </div>
     """
     return render_page(content, "Paid Invoices")
@@ -1325,6 +1611,7 @@ def view_invoice(invoice_id):
     conn.close()
 
     item_rows = ""
+    item_mobile_cards = ""
     for item in items:
         item_rows += f"""
         <tr>
@@ -1336,10 +1623,28 @@ def view_invoice(invoice_id):
         </tr>
         """
 
+        item_mobile_cards += f"""
+        <div class='mobile-list-card'>
+            <div class='mobile-list-top'>
+                <div class='mobile-list-title'>{escape(_clean_display(item["description"]))}</div>
+            </div>
+            <div class='mobile-list-grid'>
+                <div><span>Qty</span><strong>{_safe_float(item["quantity"]):,.2f}</strong></div>
+                <div><span>Unit</span><strong>{escape(_clean_display(item["unit"]))}</strong></div>
+                <div><span>Unit Price</span><strong>${_safe_float(item["unit_price"]):,.2f}</strong></div>
+                <div><span>Line Total</span><strong>${_safe_float(item["line_total"]):,.2f}</strong></div>
+            </div>
+        </div>
+        """
+
     if not item_rows:
         item_rows = "<tr><td colspan='5' class='muted'>No invoice items found.</td></tr>"
 
+    if not item_mobile_cards:
+        item_mobile_cards = "<div class='mobile-list-card muted'>No invoice items found.</div>"
+
     payment_rows = ""
+    payment_mobile_cards = ""
     for p in payments:
         payment_csrf = generate_csrf()
         payment_rows += f"""
@@ -1360,8 +1665,31 @@ def view_invoice(invoice_id):
         </tr>
         """
 
+        payment_mobile_cards += f"""
+        <div class='mobile-list-card'>
+            <div class='mobile-list-top'>
+                <div class='mobile-list-title'>Payment on {escape(str(p["payment_date"] or "-"))}</div>
+                <div class='mobile-badge'>${_safe_float(p["amount"]):,.2f}</div>
+            </div>
+            <div class='mobile-list-grid'>
+                <div><span>Method</span><strong>{escape(_clean_display(p["payment_method"]))}</strong></div>
+                <div><span>Reference</span><strong>{escape(_clean_display(p["reference"]))}</strong></div>
+            </div>
+            <div class='mobile-list-actions'>
+                <a class='btn small' href='{url_for("invoices.edit_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}'>Edit</a>
+                <form method='post' action='{url_for("invoices.delete_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}' style='display:inline;'>
+                    <input type="hidden" name="csrf_token" value="{payment_csrf}">
+                    <button class='btn secondary small' type='submit'>Delete</button>
+                </form>
+            </div>
+        </div>
+        """
+
     if not payment_rows:
         payment_rows = "<tr><td colspan='5' class='muted'>No payments recorded.</td></tr>"
+
+    if not payment_mobile_cards:
+        payment_mobile_cards = "<div class='mobile-list-card muted'>No payments recorded.</div>"
 
     invoice_number = _clean_display(invoice["invoice_number"] or invoice["id"])
     invoice_status = _clean_display(invoice["status"])
@@ -1381,133 +1709,340 @@ def view_invoice(invoice_id):
     """
 
     content = f"""
-    <div class='card'>
-        <div style='display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; align-items:flex-start;'>
-            <div>
-                <h1>Invoice #{escape(str(invoice_number))}</h1>
-                <p class='muted'>
-                    <strong>Customer:</strong> {escape(_clean_display(invoice["customer_name"]))}<br>
-                    <strong>Company:</strong> {escape(_clean_display(invoice["customer_company"]))}<br>
-                    <strong>Email:</strong> {escape(_clean_display(invoice["customer_email"]))}<br>
-                    <strong>Invoice Date:</strong> {escape(str(invoice["invoice_date"] or "-"))}<br>
-                    <strong>Due Date:</strong> {escape(str(invoice["due_date"] or "-"))}<br>
-                    <strong>Status:</strong> {escape(invoice_status)}
-                </p>
+    <style>
+        .invoice-view-page {{
+            display:grid;
+            gap:18px;
+        }}
+
+        .invoice-head {{
+            display:flex;
+            justify-content:space-between;
+            gap:16px;
+            flex-wrap:wrap;
+            align-items:flex-start;
+        }}
+
+        .invoice-actions-stack {{
+            display:flex;
+            flex-direction:column;
+            gap:10px;
+            align-items:flex-end;
+        }}
+
+        .invoice-meta-grid {{
+            display:grid;
+            grid-template-columns:repeat(3, minmax(0, 1fr));
+            gap:12px;
+            margin-top:14px;
+        }}
+
+        .invoice-meta-card,
+        .invoice-total-card {{
+            border:1px solid rgba(15, 23, 42, 0.08);
+            border-radius:12px;
+            padding:12px;
+            background:#fff;
+        }}
+
+        .invoice-meta-card span,
+        .invoice-total-card span {{
+            display:block;
+            font-size:.8rem;
+            color:#64748b;
+            margin-bottom:4px;
+        }}
+
+        .invoice-meta-card strong,
+        .invoice-total-card strong {{
+            display:block;
+            color:#0f172a;
+            line-height:1.3;
+            word-break:break-word;
+        }}
+
+        .invoice-total-grid {{
+            display:grid;
+            grid-template-columns:repeat(3, minmax(0, 1fr));
+            gap:16px;
+        }}
+
+        .invoice-table-wrap {{
+            width:100%;
+            overflow-x:auto;
+        }}
+
+        .mobile-only {{
+            display:none;
+        }}
+
+        .desktop-only {{
+            display:block;
+        }}
+
+        .mobile-list {{
+            display:grid;
+            gap:12px;
+        }}
+
+        .mobile-list-card {{
+            border:1px solid rgba(15, 23, 42, 0.08);
+            border-radius:14px;
+            padding:14px;
+            background:#fff;
+            box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
+        }}
+
+        .mobile-list-top {{
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:10px;
+            margin-bottom:10px;
+        }}
+
+        .mobile-list-title {{
+            font-weight:700;
+            color:#0f172a;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-badge {{
+            font-size:.85rem;
+            font-weight:700;
+            color:#334155;
+            background:#f1f5f9;
+            padding:6px 10px;
+            border-radius:999px;
+            white-space:nowrap;
+        }}
+
+        .mobile-list-grid {{
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:10px 12px;
+            margin-bottom:12px;
+        }}
+
+        .mobile-list-grid span {{
+            display:block;
+            font-size:.78rem;
+            color:#64748b;
+            margin-bottom:3px;
+        }}
+
+        .mobile-list-grid strong {{
+            display:block;
+            color:#0f172a;
+            font-size:.95rem;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-list-actions {{
+            display:flex;
+            gap:8px;
+            flex-wrap:wrap;
+        }}
+
+        @media (max-width: 900px) {{
+            .invoice-meta-grid,
+            .invoice-total-grid {{
+                grid-template-columns:1fr;
+            }}
+        }}
+
+        @media (max-width: 640px) {{
+            .desktop-only {{
+                display:none !important;
+            }}
+
+            .mobile-only {{
+                display:block !important;
+            }}
+
+            .mobile-list-grid {{
+                grid-template-columns:1fr;
+            }}
+
+            .invoice-actions-stack {{
+                align-items:stretch;
+                width:100%;
+            }}
+
+            .invoice-actions-stack .row-actions,
+            .invoice-actions-stack form {{
+                width:100%;
+            }}
+        }}
+    </style>
+
+    <div class='invoice-view-page'>
+        <div class='card'>
+            <div class='invoice-head'>
+                <div>
+                    <h1>Invoice #{escape(str(invoice_number))}</h1>
+                </div>
+
+                <div class='invoice-actions-stack'>
+                    <div class='row-actions' style='justify-content:flex-end;'>
+                        <a class='btn secondary' href='{url_for("invoices.invoices")}'>Back</a>
+                        <a class='btn' href='{url_for("invoices.email_invoice_preview", invoice_id=invoice_id)}'>Email Invoice</a>
+                        {toggle_button_html}
+                    </div>
+
+                    <form method='post'
+                          action='{url_for("invoices.delete_invoice", invoice_id=invoice_id)}'
+                          onsubmit="return confirm('Delete this invoice? This will also remove its items and payments.');">
+                        <input type="hidden" name="csrf_token" value="{delete_invoice_csrf}">
+                        <button class='btn danger small' type='submit'>Delete Invoice</button>
+                    </form>
+                </div>
             </div>
 
-            <div style='display:flex; flex-direction:column; gap:10px; align-items:flex-end;'>
-                <div class='row-actions' style='justify-content:flex-end;'>
-                    <a class='btn secondary' href='{url_for("invoices.invoices")}'>Back</a>
-                    <a class='btn' href='{url_for("invoices.email_invoice_preview", invoice_id=invoice_id)}'>Email Invoice</a>
-                    {toggle_button_html}
+            <div class='invoice-meta-grid'>
+                <div class='invoice-meta-card'>
+                    <span>Customer</span>
+                    <strong>{escape(_clean_display(invoice["customer_name"]))}</strong>
                 </div>
-
-                <form method='post'
-                      action='{url_for("invoices.delete_invoice", invoice_id=invoice_id)}'
-                      onsubmit="return confirm('Delete this invoice? This will also remove its items and payments.');">
-                    <input type="hidden" name="csrf_token" value="{delete_invoice_csrf}">
-                    <button class='btn danger small' type='submit'>Delete Invoice</button>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <div class='stats-grid'>
-        <div class='card stat-card'>
-            <div class='stat-label'>Total</div>
-            <div class='stat-value'>${_safe_float(invoice["total"]):,.2f}</div>
-        </div>
-
-        <div class='card stat-card'>
-            <div class='stat-label'>Paid</div>
-            <div class='stat-value' style='color:#16a34a;'>${_safe_float(invoice["amount_paid"]):,.2f}</div>
-        </div>
-
-        <div class='card stat-card'>
-            <div class='stat-label'>Balance Due</div>
-            <div class='stat-value' style='color:#dc2626;'>${_safe_float(invoice["balance_due"]):,.2f}</div>
-        </div>
-    </div>
-
-    <div class='card'>
-        <h2>Add Payment</h2>
-        <p class='muted'>
-            Use this for partial payments. Example: if a $500 invoice gets a $200 payment,
-            TerraLedger will mark it as Partial and leave $300 due.
-        </p>
-
-        <form method='post' action='{url_for("invoices.add_invoice_payment", invoice_id=invoice_id)}'>
-            <input type="hidden" name="csrf_token" value="{add_payment_csrf}">
-            <div class='grid'>
-                <div>
-                    <label>Amount</label>
-                    <input type='number' step='0.01' min='0.01' name='amount' required>
+                <div class='invoice-meta-card'>
+                    <span>Company</span>
+                    <strong>{escape(_clean_display(invoice["customer_company"]))}</strong>
                 </div>
-                <div>
-                    <label>Payment Date</label>
-                    <input type='date' name='payment_date' value='{date.today().isoformat()}'>
+                <div class='invoice-meta-card'>
+                    <span>Email</span>
+                    <strong>{escape(_clean_display(invoice["customer_email"]))}</strong>
                 </div>
-                <div>
-                    <label>Payment Method</label>
-                    <input name='payment_method' placeholder='Cash, Check, Card, ACH'>
+                <div class='invoice-meta-card'>
+                    <span>Invoice Date</span>
+                    <strong>{escape(str(invoice["invoice_date"] or "-"))}</strong>
                 </div>
-                <div>
-                    <label>Reference</label>
-                    <input name='reference' placeholder='Check # or transaction ID'>
+                <div class='invoice-meta-card'>
+                    <span>Due Date</span>
+                    <strong>{escape(str(invoice["due_date"] or "-"))}</strong>
                 </div>
-                <div style='grid-column:1 / -1;'>
-                    <label>Notes</label>
-                    <textarea name='notes'></textarea>
+                <div class='invoice-meta-card'>
+                    <span>Status</span>
+                    <strong>{escape(invoice_status)}</strong>
                 </div>
             </div>
-
-            <br>
-            <button class='btn success' type='submit'>Record Payment</button>
-        </form>
-    </div>
-
-    <div class='card'>
-        <h2>Invoice Items</h2>
-        <table class='table'>
-            <thead>
-                <tr>
-                    <th>Description</th>
-                    <th>Qty</th>
-                    <th>Unit</th>
-                    <th>Unit Price</th>
-                    <th>Line Total</th>
-                </tr>
-            </thead>
-            <tbody>
-                {item_rows}
-            </tbody>
-        </table>
-    </div>
-
-    <div class='card'>
-        <div class='section-head'>
-            <h2>Payment History</h2>
         </div>
 
-        <table class='table'>
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Amount</th>
-                    <th>Method</th>
-                    <th>Reference</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                {payment_rows}
-            </tbody>
-        </table>
-    </div>
+        <div class='invoice-total-grid'>
+            <div class='card stat-card invoice-total-card'>
+                <span>Total</span>
+                <strong>${_safe_float(invoice["total"]):,.2f}</strong>
+            </div>
 
-    <div class='card'>
-        <h2>Notes</h2>
-        <p>{escape(_clean_display(invoice["notes"]))}</p>
+            <div class='card stat-card invoice-total-card'>
+                <span>Paid</span>
+                <strong style='color:#16a34a;'>${_safe_float(invoice["amount_paid"]):,.2f}</strong>
+            </div>
+
+            <div class='card stat-card invoice-total-card'>
+                <span>Balance Due</span>
+                <strong style='color:#dc2626;'>${_safe_float(invoice["balance_due"]):,.2f}</strong>
+            </div>
+        </div>
+
+        <div class='card'>
+            <h2>Add Payment</h2>
+            <p class='muted'>
+                Use this for partial payments. Example: if a $500 invoice gets a $200 payment,
+                TerraLedger will mark it as Partial and leave $300 due.
+            </p>
+
+            <form method='post' action='{url_for("invoices.add_invoice_payment", invoice_id=invoice_id)}'>
+                <input type="hidden" name="csrf_token" value="{add_payment_csrf}">
+                <div class='grid'>
+                    <div>
+                        <label>Amount</label>
+                        <input type='number' step='0.01' min='0.01' name='amount' required>
+                    </div>
+                    <div>
+                        <label>Payment Date</label>
+                        <input type='date' name='payment_date' value='{date.today().isoformat()}'>
+                    </div>
+                    <div>
+                        <label>Payment Method</label>
+                        <input name='payment_method' placeholder='Cash, Check, Card, ACH'>
+                    </div>
+                    <div>
+                        <label>Reference</label>
+                        <input name='reference' placeholder='Check # or transaction ID'>
+                    </div>
+                    <div style='grid-column:1 / -1;'>
+                        <label>Notes</label>
+                        <textarea name='notes'></textarea>
+                    </div>
+                </div>
+
+                <br>
+                <button class='btn success' type='submit'>Record Payment</button>
+            </form>
+        </div>
+
+        <div class='card'>
+            <h2>Invoice Items</h2>
+
+            <div class='invoice-table-wrap desktop-only'>
+                <table class='table'>
+                    <thead>
+                        <tr>
+                            <th>Description</th>
+                            <th>Qty</th>
+                            <th>Unit</th>
+                            <th>Unit Price</th>
+                            <th>Line Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {item_rows}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class='mobile-only'>
+                <div class='mobile-list'>
+                    {item_mobile_cards}
+                </div>
+            </div>
+        </div>
+
+        <div class='card'>
+            <div class='section-head'>
+                <h2>Payment History</h2>
+            </div>
+
+            <div class='invoice-table-wrap desktop-only'>
+                <table class='table'>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Amount</th>
+                            <th>Method</th>
+                            <th>Reference</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {payment_rows}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class='mobile-only'>
+                <div class='mobile-list'>
+                    {payment_mobile_cards}
+                </div>
+            </div>
+        </div>
+
+        <div class='card'>
+            <h2>Notes</h2>
+            <p>{escape(_clean_display(invoice["notes"]))}</p>
+        </div>
     </div>
     """
     return render_page(content, f"Invoice #{invoice_number}")

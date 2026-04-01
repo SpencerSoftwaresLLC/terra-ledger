@@ -40,6 +40,8 @@ def customers():
         conn.close()
 
     customer_rows = ""
+    mobile_cards = ""
+
     for r in rows:
         customer_id = r["id"]
 
@@ -55,6 +57,10 @@ def customers():
         company = escape((r["company"] or "").strip()) if "company" in r.keys() and r["company"] else "-"
         phone = escape((r["phone"] or "").strip()) if "phone" in r.keys() and r["phone"] else "-"
         email = escape((r["email"] or "").strip()) if "email" in r.keys() and r["email"] else "-"
+        billing_address = escape((r["billing_address"] or "").strip()) if "billing_address" in r.keys() and r["billing_address"] else "-"
+        service_address = escape((r["service_address"] or "").strip()) if "service_address" in r.keys() and r["service_address"] else "-"
+
+        delete_csrf = generate_csrf()
 
         customer_rows += f"""
         <tr>
@@ -64,43 +70,192 @@ def customers():
             <td>{phone}</td>
             <td>{email}</td>
             <td style="white-space:nowrap;">
-                <a class="btn secondary" href="{url_for('customers.edit_customer', customer_id=customer_id)}">Edit</a>
+                <div class="row-actions">
+                    <a class="btn secondary small" href="{url_for('customers.edit_customer', customer_id=customer_id)}">Edit</a>
+
+                    <form method="post"
+                          action="{url_for('customers.delete_customer', customer_id=customer_id)}"
+                          style="display:inline;"
+                          onsubmit="return confirm('Delete this customer?');">
+                        <input type="hidden" name="csrf_token" value="{delete_csrf}">
+                        <button class="btn danger small" type="submit">Delete</button>
+                    </form>
+                </div>
+            </td>
+        </tr>
+        """
+
+        mobile_cards += f"""
+        <div class="mobile-list-card">
+            <div class="mobile-list-top">
+                <div class="mobile-list-title">{escape(display_name)}</div>
+                <div class="mobile-badge">#{customer_id}</div>
+            </div>
+
+            <div class="mobile-list-grid">
+                <div><span>Company</span><strong>{company}</strong></div>
+                <div><span>Phone</span><strong>{phone}</strong></div>
+                <div><span>Email</span><strong>{email}</strong></div>
+                <div><span>Billing Address</span><strong>{billing_address}</strong></div>
+                <div><span>Service Address</span><strong>{service_address}</strong></div>
+            </div>
+
+            <div class="mobile-list-actions">
+                <a class="btn secondary small" href="{url_for('customers.edit_customer', customer_id=customer_id)}">Edit</a>
 
                 <form method="post"
                       action="{url_for('customers.delete_customer', customer_id=customer_id)}"
                       style="display:inline;"
                       onsubmit="return confirm('Delete this customer?');">
-                    <input type="hidden" name="csrf_token" value="{generate_csrf()}">
-                    <button class="btn danger" type="submit">Delete</button>
+                    <input type="hidden" name="csrf_token" value="{delete_csrf}">
+                    <button class="btn danger small" type="submit">Delete</button>
                 </form>
-            </td>
-        </tr>
+            </div>
+        </div>
         """
 
     content = f"""
-    <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-            <h1 style="margin:0;">Customers</h1>
-            <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                <a class="btn secondary" href="{url_for('customers.export_customers')}">Export CSV</a>
-                <a class="btn" href="{url_for('customers.add_customer')}">Add Customer</a>
+    <style>
+        .customers-page {{
+            display: grid;
+            gap: 18px;
+        }}
+
+        .customers-head {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }}
+
+        .table-wrap {{
+            width: 100%;
+            overflow-x: auto;
+        }}
+
+        .mobile-only {{
+            display: none;
+        }}
+
+        .desktop-only {{
+            display: block;
+        }}
+
+        .mobile-list {{
+            display: grid;
+            gap: 12px;
+        }}
+
+        .mobile-list-card {{
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 14px;
+            padding: 14px;
+            background: #fff;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }}
+
+        .mobile-list-top {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 10px;
+        }}
+
+        .mobile-list-title {{
+            font-weight: 700;
+            color: #0f172a;
+            line-height: 1.25;
+            word-break: break-word;
+        }}
+
+        .mobile-badge {{
+            font-size: .85rem;
+            font-weight: 700;
+            color: #334155;
+            background: #f1f5f9;
+            padding: 6px 10px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }}
+
+        .mobile-list-grid {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px 12px;
+            margin-bottom: 12px;
+        }}
+
+        .mobile-list-grid span {{
+            display: block;
+            font-size: .78rem;
+            color: #64748b;
+            margin-bottom: 3px;
+        }}
+
+        .mobile-list-grid strong {{
+            display: block;
+            color: #0f172a;
+            font-size: .95rem;
+            line-height: 1.25;
+            word-break: break-word;
+        }}
+
+        .mobile-list-actions {{
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }}
+
+        @media (max-width: 640px) {{
+            .desktop-only {{
+                display: none !important;
+            }}
+
+            .mobile-only {{
+                display: block !important;
+            }}
+
+            .mobile-list-grid {{
+                grid-template-columns: 1fr;
+            }}
+        }}
+    </style>
+
+    <div class="customers-page">
+        <div class="card">
+            <div class="customers-head">
+                <h1 style="margin:0;">Customers</h1>
+                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <a class="btn secondary" href="{url_for('customers.export_customers')}">Export CSV</a>
+                    <a class="btn" href="{url_for('customers.add_customer')}">Add Customer</a>
+                </div>
             </div>
+
+            <p class="muted" style="margin-top:8px;">Sorted alphabetically by last name.</p>
         </div>
 
-        <p class="muted" style="margin-top:8px;">Sorted alphabetically by last name.</p>
+        <div class="card">
+            <div class="table-wrap desktop-only">
+                <table>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Company</th>
+                        <th>Phone</th>
+                        <th>Email</th>
+                        <th>Actions</th>
+                    </tr>
+                    {customer_rows or '<tr><td colspan="6" class="muted">No customers found.</td></tr>'}
+                </table>
+            </div>
 
-        <div class="table-wrap">
-            <table>
-                <tr>
-                    <th>ID</th>
-                    <th>Name</th>
-                    <th>Company</th>
-                    <th>Phone</th>
-                    <th>Email</th>
-                    <th>Actions</th>
-                </tr>
-                {customer_rows or '<tr><td colspan="6" class="muted">No customers found.</td></tr>'}
-            </table>
+            <div class="mobile-only">
+                <div class="mobile-list">
+                    {mobile_cards or '<div class="mobile-list-card muted">No customers found.</div>'}
+                </div>
+            </div>
         </div>
     </div>
     """

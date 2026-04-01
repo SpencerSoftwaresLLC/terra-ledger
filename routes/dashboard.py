@@ -100,16 +100,6 @@ def _table_exists(conn, table_name):
 
 
 def _get_payroll_expense_total(conn, company_id):
-    """
-    Pull payroll cost directly from payroll_entries when available.
-
-    We treat payroll expense as:
-    gross pay
-    + employer-paid payroll taxes / burdens if those columns exist
-
-    This is only added separately if the ledger does not already appear to
-    contain payroll-sourced entries for the company.
-    """
     if not _table_exists(conn, "payroll_entries"):
         return 0.0
 
@@ -258,12 +248,9 @@ def dashboard():
             entry_type = row["entry_type"] or ""
             source_type = str(row["source_type"] or "").strip().lower()
 
-            # invoice payments are counted from invoice_payments below
             if source_type in {"invoice_payment", "invoice_paid", "invoice_mark_paid"}:
                 continue
 
-            # if payroll ledger rows exist, we let ledger own them and do not add
-            # payroll_entries separately later
             if _is_expense_type(entry_type):
                 expense_total += amount
             else:
@@ -429,13 +416,76 @@ def dashboard():
         for r in aging_rows
     )
 
+    aging_mobile_cards = "".join(
+        f"""
+        <div class='mobile-list-card'>
+            <div class='mobile-list-top'>
+                <div class='mobile-list-title'>{_safe_text(r['invoice_number'], f"#{r['id']}")}</div>
+                <div class='mobile-list-amount'>${_safe_float(r['balance_due']):,.2f}</div>
+            </div>
+            <div class='mobile-list-grid'>
+                <div><span>Customer</span><strong>{_safe_text(r['customer_name'])}</strong></div>
+                <div><span>Bucket</span><strong>{_safe_text(r['aging_bucket'])}</strong></div>
+                <div><span>Invoice Date</span><strong>{_safe_text(r['invoice_date'])}</strong></div>
+                <div><span>Due Date</span><strong>{_safe_text(r['due_date'])}</strong></div>
+            </div>
+            <div class='mobile-list-actions'>
+                <a class='btn secondary small dashboard-btn' href='{url_for("invoices.view_invoice", invoice_id=r["id"])}'>View Invoice</a>
+            </div>
+        </div>
+        """
+        for r in aging_rows
+    )
+
+    upcoming_mobile_cards = "".join(
+        f"""
+        <div class='mobile-list-card'>
+            <div class='mobile-list-top'>
+                <div class='mobile-list-title'>#{r['id']} - {_safe_text(r['title'])}</div>
+                <div class='mobile-badge'>{_safe_text(r['status'])}</div>
+            </div>
+            <div class='mobile-list-grid'>
+                <div><span>Customer</span><strong>{_safe_text(r['customer_name'])}</strong></div>
+                <div><span>Status</span><strong>{_safe_text(r['status'])}</strong></div>
+            </div>
+            <div class='mobile-list-actions'>
+                <a class='btn secondary small dashboard-btn' href='{url_for("jobs.view_job", job_id=r["id"])}'>View Job</a>
+            </div>
+        </div>
+        """
+        for r in upcoming_jobs
+    )
+
+    unpaid_mobile_cards = "".join(
+        f"""
+        <div class='mobile-list-card'>
+            <div class='mobile-list-top'>
+                <div class='mobile-list-title'>#{r['id']} - {_safe_text(r['customer_name'])}</div>
+                <div class='mobile-list-amount'>${_safe_float(r['balance_due']):,.2f}</div>
+            </div>
+            <div class='mobile-list-grid'>
+                <div><span>Status</span><strong>{_safe_text(r['status'])}</strong></div>
+                <div><span>Balance</span><strong>${_safe_float(r['balance_due']):,.2f}</strong></div>
+            </div>
+            <div class='mobile-list-actions'>
+                <a class='btn secondary small dashboard-btn' href='{url_for("invoices.view_invoice", invoice_id=r["id"])}'>View Invoice</a>
+            </div>
+        </div>
+        """
+        for r in unpaid_invoices
+    )
+
     content = f"""
     <style>
+    .dashboard-page {{
+        display: grid;
+        gap: 18px;
+    }}
+
     .dashboard-grid {{
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 18px;
-        margin-top: 18px;
         align-items: start;
     }}
 
@@ -445,57 +495,189 @@ def dashboard():
         overflow: hidden;
     }}
 
-    .dashboard-grid .table-wrap {{
+    .dashboard-grid .table-wrap,
+    .dashboard-aging-table-wrap {{
         width: 100%;
         overflow-x: auto;
     }}
 
-    .dashboard-financials {{
-        display:flex;
-        gap:16px;
-        justify-content:center;
-        flex-wrap:wrap;
-        margin-top:18px;
+    .dashboard-stats-grid {{
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 16px;
     }}
 
-    .dashboard-financial-card {{
-        width:260px;
+    .dashboard-financials {{
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+    }}
+
+    .dashboard-financial-card,
+    .dashboard-stat-card {{
+        min-width: 0;
     }}
 
     .dashboard-btn {{
         white-space: nowrap;
     }}
 
-    @media (max-width: 900px) {{
+    .dashboard-section-head {{
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        gap:12px;
+        flex-wrap:wrap;
+        margin-bottom:14px;
+    }}
+
+    .dashboard-total-outstanding {{
+        text-align:right;
+    }}
+
+    .dashboard-aging-summary {{
+        width:100%;
+        table-layout:fixed;
+        border-collapse:collapse;
+        margin-bottom:18px;
+    }}
+
+    .dashboard-aging-summary th {{
+        text-align:center;
+        background:#f8fafc;
+        padding:12px;
+    }}
+
+    .dashboard-aging-summary td {{
+        text-align:center;
+        font-size:1.2rem;
+        font-weight:700;
+        padding:14px;
+    }}
+
+    .mobile-only {{
+        display: none;
+    }}
+
+    .desktop-only {{
+        display: block;
+    }}
+
+    .mobile-list {{
+        display:grid;
+        gap:12px;
+    }}
+
+    .mobile-list-card {{
+        border:1px solid rgba(15, 23, 42, 0.08);
+        border-radius:14px;
+        padding:14px;
+        background:#fff;
+        box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
+    }}
+
+    .mobile-list-top {{
+        display:flex;
+        justify-content:space-between;
+        align-items:flex-start;
+        gap:10px;
+        margin-bottom:10px;
+    }}
+
+    .mobile-list-title {{
+        font-weight:700;
+        color:#0f172a;
+        line-height:1.25;
+        word-break:break-word;
+    }}
+
+    .mobile-list-amount {{
+        font-weight:800;
+        color:#0f172a;
+        white-space:nowrap;
+    }}
+
+    .mobile-badge {{
+        font-size:.85rem;
+        font-weight:700;
+        color:#334155;
+        background:#f1f5f9;
+        padding:6px 10px;
+        border-radius:999px;
+        white-space:nowrap;
+    }}
+
+    .mobile-list-grid {{
+        display:grid;
+        grid-template-columns:1fr 1fr;
+        gap:10px 12px;
+        margin-bottom:12px;
+    }}
+
+    .mobile-list-grid span {{
+        display:block;
+        font-size:.78rem;
+        color:#64748b;
+        margin-bottom:3px;
+    }}
+
+    .mobile-list-grid strong {{
+        display:block;
+        color:#0f172a;
+        font-size:.95rem;
+        line-height:1.25;
+        word-break:break-word;
+    }}
+
+    .mobile-list-actions {{
+        display:flex;
+        gap:8px;
+        flex-wrap:wrap;
+    }}
+
+    @media (max-width: 1000px) {{
+        .dashboard-stats-grid {{
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }}
+
+        .dashboard-financials {{
+            grid-template-columns: 1fr;
+        }}
+
         .dashboard-grid {{
             grid-template-columns: 1fr;
         }}
     }}
 
     @media (max-width: 640px) {{
-        .dashboard-financials {{
+        .dashboard-page {{
+            gap: 14px;
+        }}
+
+        .dashboard-stats-grid {{
+            grid-template-columns: 1fr 1fr;
             gap: 10px;
         }}
 
-        .dashboard-financial-card {{
-            width: 100%;
+        .dashboard-financials {{
+            grid-template-columns: 1fr;
+            gap: 10px;
+        }}
+
+        .dashboard-section-head {{
+            align-items:flex-start;
+        }}
+
+        .dashboard-total-outstanding {{
+            text-align:left;
+            width:100%;
         }}
 
         .dashboard-btn,
         .btn.small {{
-            padding: 6px 10px !important;
-            font-size: 0.82rem !important;
+            padding: 8px 10px !important;
+            font-size: 0.84rem !important;
             line-height: 1.2 !important;
-            min-height: auto !important;
-        }}
-
-        .section-head {{
-            gap: 10px;
-        }}
-
-        .section-head .btn {{
-            padding: 6px 10px !important;
-            font-size: 0.82rem !important;
             min-height: auto !important;
         }}
 
@@ -504,143 +686,189 @@ def dashboard():
         }}
 
         .stat-value {{
-            font-size: 1.2rem !important;
+            font-size: 1.15rem !important;
         }}
 
         table th,
         table td {{
             font-size: 0.85rem;
         }}
+
+        .desktop-only {{
+            display: none !important;
+        }}
+
+        .mobile-only {{
+            display: block !important;
+        }}
+
+        .mobile-list-grid {{
+            grid-template-columns:1fr;
+        }}
     }}
     </style>
 
-    <h1>Dashboard</h1>
+    <div class='dashboard-page'>
+        <h1>Dashboard</h1>
 
-    <div class='stats-grid'>
-        <div class='card stat-card'>
-            <div class='stat-label'>Customers</div>
-            <div class='stat-value'>{customers_count}</div>
-        </div>
-
-        <div class='card stat-card'>
-            <div class='stat-label'>Quotes</div>
-            <div class='stat-value'>{quotes_count}</div>
-        </div>
-
-        <div class='card stat-card'>
-            <div class='stat-label'>Jobs</div>
-            <div class='stat-value'>{jobs_count}</div>
-        </div>
-
-        <div class='card stat-card'>
-            <div class='stat-label'>Invoices</div>
-            <div class='stat-value'>{invoices_count}</div>
-        </div>
-    </div>
-
-    <div class="dashboard-financials">
-        <div class='card stat-card dashboard-financial-card'>
-            <div class='stat-label'>Income</div>
-            <div class='stat-value' style="color:#16a34a;">+${income_total:,.2f}</div>
-        </div>
-
-        <div class='card stat-card dashboard-financial-card'>
-            <div class='stat-label'>Expenses</div>
-            <div class='stat-value' style="color:#dc2626;">-${expense_total:,.2f}</div>
-        </div>
-
-        <div class='card stat-card dashboard-financial-card'>
-            <div class='stat-label'>Profit</div>
-            <div class='stat-value' style="color:{'#16a34a' if profit_total >= 0 else '#dc2626'};">
-                {'+' if profit_total >= 0 else '-'}${abs(profit_total):,.2f}
+        <div class='dashboard-stats-grid'>
+            <div class='card stat-card dashboard-stat-card'>
+                <div class='stat-label'>Customers</div>
+                <div class='stat-value'>{customers_count}</div>
             </div>
-        </div>
-    </div>
 
-    <div class='card' style='padding:20px;'>
-        <div style='display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; margin-bottom:18px;'>
-            <div>
-                <h2 style='margin:0 0 6px 0;'>Outstanding Invoice Aging</h2>
+            <div class='card stat-card dashboard-stat-card'>
+                <div class='stat-label'>Quotes</div>
+                <div class='stat-value'>{quotes_count}</div>
             </div>
-            <div style='text-align:right;'>
-                <div class='muted' style='font-size:.9rem;'>Total Outstanding</div>
-                <div style='font-size:1.6rem; font-weight:800; color:#0f172a;'>${total_outstanding:,.2f}</div>
+
+            <div class='card stat-card dashboard-stat-card'>
+                <div class='stat-label'>Jobs</div>
+                <div class='stat-value'>{jobs_count}</div>
+            </div>
+
+            <div class='card stat-card dashboard-stat-card'>
+                <div class='stat-label'>Invoices</div>
+                <div class='stat-value'>{invoices_count}</div>
             </div>
         </div>
 
-        <div style='overflow-x:auto;'>
-            <table style='width:100%; table-layout:fixed; border-collapse:collapse; margin-bottom:18px;'>
-                <tr>
-                    <th style='text-align:center; background:#f8fafc; width:20%; padding:12px;'>Current</th>
-                    <th style='text-align:center; background:#f8fafc; width:20%; padding:12px;'>1-30</th>
-                    <th style='text-align:center; background:#f8fafc; width:20%; padding:12px;'>31-60</th>
-                    <th style='text-align:center; background:#f8fafc; width:20%; padding:12px;'>61-90</th>
-                    <th style='text-align:center; background:#f8fafc; width:20%; padding:12px;'>90+</th>
-                </tr>
-                <tr>
-                    <td style='text-align:center; font-size:1.2rem; font-weight:700; padding:14px;'>${aging_totals["Current"]:,.2f}</td>
-                    <td style='text-align:center; font-size:1.2rem; font-weight:700; padding:14px;'>${aging_totals["1-30"]:,.2f}</td>
-                    <td style='text-align:center; font-size:1.2rem; font-weight:700; padding:14px;'>${aging_totals["31-60"]:,.2f}</td>
-                    <td style='text-align:center; font-size:1.2rem; font-weight:700; padding:14px;'>${aging_totals["61-90"]:,.2f}</td>
-                    <td style='text-align:center; font-size:1.2rem; font-weight:700; padding:14px;'>${aging_totals["90+"]:,.2f}</td>
-                </tr>
-            </table>
-        </div>
-
-        <div class='table-wrap'>
-            <table>
-                <tr>
-                    <th>Invoice</th>
-                    <th>Customer</th>
-                    <th>Invoice Date</th>
-                    <th>Due Date</th>
-                    <th>Bucket</th>
-                    <th>Balance Due</th>
-                    <th></th>
-                </tr>
-                {aging_table_rows or "<tr><td colspan='7'>No outstanding invoices.</td></tr>"}
-            </table>
-        </div>
-    </div>
-
-    <div class='dashboard-grid'>
-        <div class='card'>
-            <div class='section-head'>
-                <h2>Upcoming Jobs</h2>
-                <a class='btn small dashboard-btn' href='{url_for("jobs.jobs")}'>View All</a>
+        <div class='dashboard-financials'>
+            <div class='card stat-card dashboard-financial-card'>
+                <div class='stat-label'>Income</div>
+                <div class='stat-value' style="color:#16a34a;">+${income_total:,.2f}</div>
             </div>
 
-            <div class='table-wrap'>
-                <table>
+            <div class='card stat-card dashboard-financial-card'>
+                <div class='stat-label'>Expenses</div>
+                <div class='stat-value' style="color:#dc2626;">-${expense_total:,.2f}</div>
+            </div>
+
+            <div class='card stat-card dashboard-financial-card'>
+                <div class='stat-label'>Profit</div>
+                <div class='stat-value' style="color:{'#16a34a' if profit_total >= 0 else '#dc2626'};">
+                    {'+' if profit_total >= 0 else '-'}${abs(profit_total):,.2f}
+                </div>
+            </div>
+        </div>
+
+        <div class='card' style='padding:20px;'>
+            <div class='dashboard-section-head'>
+                <div>
+                    <h2 style='margin:0 0 6px 0;'>Outstanding Invoice Aging</h2>
+                </div>
+                <div class='dashboard-total-outstanding'>
+                    <div class='muted' style='font-size:.9rem;'>Total Outstanding</div>
+                    <div style='font-size:1.6rem; font-weight:800; color:#0f172a;'>${total_outstanding:,.2f}</div>
+                </div>
+            </div>
+
+            <div class='dashboard-aging-table-wrap desktop-only'>
+                <table class='dashboard-aging-summary'>
                     <tr>
-                        <th>ID</th>
-                        <th>Title</th>
-                        <th>Customer</th>
-                        <th>Status</th>
-                        <th></th>
+                        <th style='width:20%;'>Current</th>
+                        <th style='width:20%;'>1-30</th>
+                        <th style='width:20%;'>31-60</th>
+                        <th style='width:20%;'>61-90</th>
+                        <th style='width:20%;'>90+</th>
                     </tr>
-                    {upcoming_rows or "<tr><td colspan='5'>No jobs.</td></tr>"}
+                    <tr>
+                        <td>${aging_totals["Current"]:,.2f}</td>
+                        <td>${aging_totals["1-30"]:,.2f}</td>
+                        <td>${aging_totals["31-60"]:,.2f}</td>
+                        <td>${aging_totals["61-90"]:,.2f}</td>
+                        <td>${aging_totals["90+"]:,.2f}</td>
+                    </tr>
                 </table>
             </div>
-        </div>
 
-        <div class='card'>
-            <div class='section-head'>
-                <h2>Unpaid Invoices</h2>
-                <a class='btn small dashboard-btn' href='{url_for("invoices.invoices")}'>View All</a>
+            <div class='mobile-only' style='margin-bottom:14px;'>
+                <div class='mobile-list'>
+                    <div class='mobile-list-card'>
+                        <div class='mobile-list-grid'>
+                            <div><span>Current</span><strong>${aging_totals["Current"]:,.2f}</strong></div>
+                            <div><span>1-30</span><strong>${aging_totals["1-30"]:,.2f}</strong></div>
+                            <div><span>31-60</span><strong>${aging_totals["31-60"]:,.2f}</strong></div>
+                            <div><span>61-90</span><strong>${aging_totals["61-90"]:,.2f}</strong></div>
+                            <div><span>90+</span><strong>${aging_totals["90+"]:,.2f}</strong></div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <div class='table-wrap'>
+            <div class='table-wrap desktop-only'>
                 <table>
                     <tr>
-                        <th>ID</th>
+                        <th>Invoice</th>
                         <th>Customer</th>
-                        <th>Status</th>
-                        <th>Balance</th>
+                        <th>Invoice Date</th>
+                        <th>Due Date</th>
+                        <th>Bucket</th>
+                        <th>Balance Due</th>
                         <th></th>
                     </tr>
-                    {unpaid_rows or "<tr><td colspan='5'>No unpaid invoices.</td></tr>"}
+                    {aging_table_rows or "<tr><td colspan='7'>No outstanding invoices.</td></tr>"}
                 </table>
+            </div>
+
+            <div class='mobile-only'>
+                <div class='mobile-list'>
+                    {aging_mobile_cards or "<div class='mobile-list-card'>No outstanding invoices.</div>"}
+                </div>
+            </div>
+        </div>
+
+        <div class='dashboard-grid'>
+            <div class='card'>
+                <div class='dashboard-section-head'>
+                    <h2 style='margin:0;'>Upcoming Jobs</h2>
+                    <a class='btn small dashboard-btn' href='{url_for("jobs.jobs")}'>View All</a>
+                </div>
+
+                <div class='table-wrap desktop-only'>
+                    <table>
+                        <tr>
+                            <th>ID</th>
+                            <th>Title</th>
+                            <th>Customer</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                        {upcoming_rows or "<tr><td colspan='5'>No jobs.</td></tr>"}
+                    </table>
+                </div>
+
+                <div class='mobile-only'>
+                    <div class='mobile-list'>
+                        {upcoming_mobile_cards or "<div class='mobile-list-card'>No jobs.</div>"}
+                    </div>
+                </div>
+            </div>
+
+            <div class='card'>
+                <div class='dashboard-section-head'>
+                    <h2 style='margin:0;'>Unpaid Invoices</h2>
+                    <a class='btn small dashboard-btn' href='{url_for("invoices.invoices")}'>View All</a>
+                </div>
+
+                <div class='table-wrap desktop-only'>
+                    <table>
+                        <tr>
+                            <th>ID</th>
+                            <th>Customer</th>
+                            <th>Status</th>
+                            <th>Balance</th>
+                            <th></th>
+                        </tr>
+                        {unpaid_rows or "<tr><td colspan='5'>No unpaid invoices.</td></tr>"}
+                    </table>
+                </div>
+
+                <div class='mobile-only'>
+                    <div class='mobile-list'>
+                        {unpaid_mobile_cards or "<div class='mobile-list-card'>No unpaid invoices.</div>"}
+                    </div>
+                </div>
             </div>
         </div>
     </div>

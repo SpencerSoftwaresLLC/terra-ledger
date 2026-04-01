@@ -387,13 +387,6 @@ def _build_week_time_rows(start_hour=6, end_hour=20):
     return rows
 
 
-def _jobs_overlap(job_a, job_b):
-    return (
-        job_a["start_minutes"] < job_b["end_minutes"]
-        and job_a["end_minutes"] > job_b["start_minutes"]
-    )
-
-
 def _layout_day_jobs(day_jobs):
     if not day_jobs:
         return []
@@ -506,6 +499,12 @@ def calendar_page():
             })
         weeks.append(week_cells)
 
+    month_mobile_days = []
+    for week in weeks:
+        for cell in week:
+            if cell["in_month"]:
+                month_mobile_days.append(cell)
+
     week_days = _build_week_columns(week_start, week_jobs_raw)
     week_time_rows = _build_week_time_rows(6, 20)
 
@@ -547,8 +546,6 @@ def calendar_page():
                 --default-bg: rgba(148, 163, 184, 0.12);
                 --default-border: rgba(148, 163, 184, 0.35);
                 --default-text: #cbd5e1;
-
-                --blue-soft: rgba(56, 189, 248, 0.12);
             }
 
             * { box-sizing: border-box; }
@@ -650,14 +647,17 @@ def calendar_page():
                 font-size: 14px;
             }
 
-            .today-list {
+            .today-list,
+            .mobile-day-list,
+            .mobile-week-list {
                 display: grid;
                 gap: 10px;
             }
 
             .today-link,
             .job-link,
-            .week-job-link {
+            .week-job-link,
+            .mobile-job-link {
                 display: block;
                 text-decoration: none;
                 color: inherit;
@@ -677,7 +677,8 @@ def calendar_page():
 
             .today-link:hover .today-card,
             .job-link:hover .job-card,
-            .week-job-link:hover .week-job-card {
+            .week-job-link:hover .week-job-card,
+            .mobile-job-link:hover .mobile-job-card {
                 transform: translateY(-1px);
             }
 
@@ -969,6 +970,71 @@ def calendar_page():
                 line-height: 1.2;
             }
 
+            .mobile-only {
+                display: none;
+            }
+
+            .desktop-only {
+                display: block;
+            }
+
+            .mobile-month-shell,
+            .mobile-week-shell {
+                display: grid;
+                gap: 12px;
+            }
+
+            .mobile-day-card {
+                background: var(--panel);
+                border: 1px solid var(--border);
+                border-radius: 16px;
+                padding: 14px;
+                box-shadow: 0 12px 30px rgba(0,0,0,0.18);
+            }
+
+            .mobile-day-head {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 10px;
+                flex-wrap: wrap;
+                margin-bottom: 10px;
+            }
+
+            .mobile-day-title {
+                font-size: 16px;
+                font-weight: 700;
+            }
+
+            .mobile-day-sub {
+                color: var(--muted);
+                font-size: 13px;
+            }
+
+            .mobile-job-card {
+                border-radius: 12px;
+                padding: 10px 12px;
+                border: 1px solid var(--default-border);
+                background: var(--default-bg);
+            }
+
+            .mobile-job-time {
+                font-size: 12px;
+                font-weight: 700;
+                margin-bottom: 4px;
+            }
+
+            .mobile-job-title {
+                font-size: 14px;
+                font-weight: 700;
+                margin-bottom: 3px;
+                line-height: 1.3;
+            }
+
+            .mobile-job-meta {
+                font-size: 12px;
+            }
+
             .legend {
                 margin-top: 14px;
                 color: var(--muted);
@@ -986,7 +1052,9 @@ def calendar_page():
             .status-scheduled .today-meta,
             .status-scheduled .status-pill,
             .status-scheduled .week-job-time,
-            .status-scheduled .week-job-meta {
+            .status-scheduled .week-job-meta,
+            .status-scheduled .mobile-job-time,
+            .status-scheduled .mobile-job-meta {
                 color: var(--scheduled-text);
             }
 
@@ -1006,7 +1074,9 @@ def calendar_page():
             .status-in-progress .today-meta,
             .status-in-progress .status-pill,
             .status-in-progress .week-job-time,
-            .status-in-progress .week-job-meta {
+            .status-in-progress .week-job-meta,
+            .status-in-progress .mobile-job-time,
+            .status-in-progress .mobile-job-meta {
                 color: var(--progress-text);
             }
 
@@ -1026,7 +1096,9 @@ def calendar_page():
             .status-completed .today-meta,
             .status-completed .status-pill,
             .status-completed .week-job-time,
-            .status-completed .week-job-meta {
+            .status-completed .week-job-meta,
+            .status-completed .mobile-job-time,
+            .status-completed .mobile-job-meta {
                 color: var(--completed-text);
             }
 
@@ -1046,7 +1118,9 @@ def calendar_page():
             .status-invoiced .today-meta,
             .status-invoiced .status-pill,
             .status-invoiced .week-job-time,
-            .status-invoiced .week-job-meta {
+            .status-invoiced .week-job-meta,
+            .status-invoiced .mobile-job-time,
+            .status-invoiced .mobile-job-meta {
                 color: var(--invoiced-text);
             }
 
@@ -1066,7 +1140,9 @@ def calendar_page():
             .status-default .today-meta,
             .status-default .status-pill,
             .status-default .week-job-time,
-            .status-default .week-job-meta {
+            .status-default .week-job-meta,
+            .status-default .mobile-job-time,
+            .status-default .mobile-job-meta {
                 color: var(--default-text);
             }
 
@@ -1076,26 +1152,32 @@ def calendar_page():
             }
 
             @media (max-width: 980px) {
-                .dow-row,
-                .week-row {
-                    grid-template-columns: repeat(1, 1fr);
-                }
-
-                .dow-row {
-                    display: none;
-                }
-
-                .day-cell {
-                    min-height: auto;
-                }
-
-                .day-top {
-                    margin-bottom: 8px;
-                }
-
                 .today-card {
                     grid-template-columns: 1fr;
                     gap: 8px;
+                }
+            }
+
+            @media (max-width: 760px) {
+                .desktop-only {
+                    display: none !important;
+                }
+
+                .mobile-only {
+                    display: block !important;
+                }
+
+                .wrap {
+                    padding: 16px;
+                }
+
+                .title-block h1 {
+                    font-size: 24px;
+                }
+
+                .month-header,
+                .week-header {
+                    font-size: 18px;
                 }
             }
         </style>
@@ -1109,7 +1191,7 @@ def calendar_page():
                 </div>
 
                 <div class="view-actions" style="flex-direction: column; align-items: flex-end;">
-                    <div style="display:flex; gap:10px;">
+                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
                         <a class="btn {% if view_mode == 'month' %}active{% endif %}"
                            href="{{ url_for('calendar.calendar_page', view='month', year=year, month=month, date=focus_date.isoformat()) }}">
                             Month View
@@ -1173,112 +1255,190 @@ def calendar_page():
             </div>
 
             {% if view_mode == 'month' %}
-                <div class="calendar-shell">
-                    <div class="month-header">{{ month_name }}</div>
+                <div class="desktop-only">
+                    <div class="calendar-shell">
+                        <div class="month-header">{{ month_name }}</div>
 
-                    <div class="dow-row">
-                        <div class="dow">Sunday</div>
-                        <div class="dow">Monday</div>
-                        <div class="dow">Tuesday</div>
-                        <div class="dow">Wednesday</div>
-                        <div class="dow">Thursday</div>
-                        <div class="dow">Friday</div>
-                        <div class="dow">Saturday</div>
-                    </div>
-
-                    {% for week in weeks %}
-                        <div class="week-row">
-                            {% for cell in week %}
-                                <div class="day-cell {% if not cell.in_month %}outside{% endif %} {% if cell.is_today %}today{% endif %}">
-                                    <div class="day-top">
-                                        <div class="day-number">{{ cell.day_num }}</div>
-                                        {% if cell.is_today %}
-                                            <div class="today-badge">Today</div>
-                                        {% endif %}
-                                    </div>
-
-                                    {% if cell.jobs %}
-                                        {% for job in cell.jobs %}
-                                            <a class="job-link" href="{{ job.url }}">
-                                                <div class="job-card {{ job.status_class }}">
-                                                    <div class="job-time">{{ job.time_label }}</div>
-                                                    <div class="job-label">{{ job.label }}</div>
-                                                    {% if job.assigned_to %}
-                                                        <div class="job-meta">Assigned: {{ job.assigned_to }}</div>
-                                                    {% endif %}
-                                                    <div class="job-meta">{{ job.status or "No Status" }}</div>
-                                                </div>
-                                            </a>
-                                        {% endfor %}
-                                    {% else %}
-                                        <div class="empty-note">No scheduled jobs</div>
-                                    {% endif %}
-                                </div>
-                            {% endfor %}
+                        <div class="dow-row">
+                            <div class="dow">Sunday</div>
+                            <div class="dow">Monday</div>
+                            <div class="dow">Tuesday</div>
+                            <div class="dow">Wednesday</div>
+                            <div class="dow">Thursday</div>
+                            <div class="dow">Friday</div>
+                            <div class="dow">Saturday</div>
                         </div>
-                    {% endfor %}
-                </div>
-            {% else %}
-                <div class="week-shell">
-                    <div class="week-header">{{ week_label }}</div>
 
-                    <div class="week-grid">
-                        <div class="week-grid-inner">
-                            <div class="week-grid-header">
-                                <div class="week-time-head">Time</div>
-                                {% for day in week_days %}
-                                    <div class="week-day-head {% if day.is_today %}today{% endif %}">
-                                        <div class="week-day-name">{{ day.label }}</div>
-                                        <div class="week-day-number">{{ day.month_label }} {{ day.day_num }}</div>
+                        {% for week in weeks %}
+                            <div class="week-row">
+                                {% for cell in week %}
+                                    <div class="day-cell {% if not cell.in_month %}outside{% endif %} {% if cell.is_today %}today{% endif %}">
+                                        <div class="day-top">
+                                            <div class="day-number">{{ cell.day_num }}</div>
+                                            {% if cell.is_today %}
+                                                <div class="today-badge">Today</div>
+                                            {% endif %}
+                                        </div>
+
+                                        {% if cell.jobs %}
+                                            {% for job in cell.jobs %}
+                                                <a class="job-link" href="{{ job.url }}">
+                                                    <div class="job-card {{ job.status_class }}">
+                                                        <div class="job-time">{{ job.time_label }}</div>
+                                                        <div class="job-label">{{ job.label }}</div>
+                                                        {% if job.assigned_to %}
+                                                            <div class="job-meta">Assigned: {{ job.assigned_to }}</div>
+                                                        {% endif %}
+                                                        <div class="job-meta">{{ job.status or "No Status" }}</div>
+                                                    </div>
+                                                </a>
+                                            {% endfor %}
+                                        {% else %}
+                                            <div class="empty-note">No scheduled jobs</div>
+                                        {% endif %}
                                     </div>
                                 {% endfor %}
                             </div>
+                        {% endfor %}
+                    </div>
+                </div>
 
-                            <div class="week-grid-body">
-                                <div class="week-time-col">
-                                    {% for row in week_time_rows %}
-                                        <div class="week-time-slot">{{ row.label }}</div>
+                <div class="mobile-only">
+                    <div class="mobile-month-shell">
+                        <div class="month-header" style="border-radius:18px;">{{ month_name }}</div>
+
+                        {% for cell in month_mobile_days %}
+                            <div class="mobile-day-card {% if cell.is_today %}today{% endif %}" {% if cell.is_today %}style="box-shadow: inset 0 0 0 2px var(--today-ring), 0 12px 30px rgba(0,0,0,0.18);" {% endif %}>
+                                <div class="mobile-day-head">
+                                    <div>
+                                        <div class="mobile-day-title">{{ cell.date.strftime("%A, %B") }} {{ cell.day_num }}</div>
+                                        <div class="mobile-day-sub">
+                                            {% if cell.is_today %}Today{% else %}{{ cell.date.strftime("%Y-%m-%d") }}{% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {% if cell.jobs %}
+                                    <div class="mobile-day-list">
+                                        {% for job in cell.jobs %}
+                                            <a class="mobile-job-link" href="{{ job.url }}">
+                                                <div class="mobile-job-card {{ job.status_class }}">
+                                                    <div class="mobile-job-time">{{ job.time_label }}</div>
+                                                    <div class="mobile-job-title">{{ job.label }}</div>
+                                                    {% if job.assigned_to %}
+                                                        <div class="mobile-job-meta">Assigned: {{ job.assigned_to }}</div>
+                                                    {% endif %}
+                                                    <div class="mobile-job-meta">{{ job.status or "No Status" }}</div>
+                                                </div>
+                                            </a>
+                                        {% endfor %}
+                                    </div>
+                                {% else %}
+                                    <div class="empty-note">No scheduled jobs</div>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% else %}
+                <div class="desktop-only">
+                    <div class="week-shell">
+                        <div class="week-header">{{ week_label }}</div>
+
+                        <div class="week-grid">
+                            <div class="week-grid-inner">
+                                <div class="week-grid-header">
+                                    <div class="week-time-head">Time</div>
+                                    {% for day in week_days %}
+                                        <div class="week-day-head {% if day.is_today %}today{% endif %}">
+                                            <div class="week-day-name">{{ day.label }}</div>
+                                            <div class="week-day-number">{{ day.month_label }} {{ day.day_num }}</div>
+                                        </div>
                                     {% endfor %}
                                 </div>
 
-                                {% for day in week_days %}
-                                    <div class="week-day-col {% if day.is_today %}today{% endif %}">
+                                <div class="week-grid-body">
+                                    <div class="week-time-col">
+                                        {% for row in week_time_rows %}
+                                            <div class="week-time-slot">{{ row.label }}</div>
+                                        {% endfor %}
+                                    </div>
+
+                                    {% for day in week_days %}
+                                        <div class="week-day-col {% if day.is_today %}today{% endif %}">
+                                            {% for job in day.jobs %}
+                                                {% set display_start = job.start_minutes if job.start_minutes >= 360 else 360 %}
+                                                {% set display_end = job.end_minutes if job.end_minutes > display_start else (display_start + 60) %}
+                                                {% set top_px = ((display_start - 360) * 1.2) %}
+                                                {% set height_px = ((display_end - display_start) * 1.2) %}
+                                                {% if height_px < 42 %}
+                                                    {% set height_px = 42 %}
+                                                {% endif %}
+
+                                                {% set lane_width = 100 / job.lane_count %}
+                                                {% set left_pct = lane_width * job.lane_index %}
+                                                {% set width_pct = lane_width %}
+
+                                                <a class="week-job-link"
+                                                   href="{{ job.url }}"
+                                                   style="
+                                                       top: {{ top_px }}px;
+                                                       height: {{ height_px }}px;
+                                                       left: calc({{ left_pct }}% + 4px);
+                                                       width: calc({{ width_pct }}% - 8px);
+                                                       right: auto;
+                                                   ">
+                                                    <div class="week-job-card {{ job.status_class }}" style="height: {{ height_px }}px;">
+                                                        <div class="week-job-time">{{ job.time_label }}</div>
+                                                        <div class="week-job-title">{{ job.label }}</div>
+                                                        {% if job.assigned_to %}
+                                                            <div class="week-job-meta">{{ job.assigned_to }}</div>
+                                                        {% endif %}
+                                                        <div class="week-job-meta">{{ job.status or "No Status" }}</div>
+                                                    </div>
+                                                </a>
+                                            {% endfor %}
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mobile-only">
+                    <div class="mobile-week-shell">
+                        <div class="week-header" style="border-radius:18px;">{{ week_label }}</div>
+
+                        {% for day in week_days %}
+                            <div class="mobile-day-card {% if day.is_today %}today{% endif %}" {% if day.is_today %}style="box-shadow: inset 0 0 0 2px var(--today-ring), 0 12px 30px rgba(0,0,0,0.18);" {% endif %}>
+                                <div class="mobile-day-head">
+                                    <div>
+                                        <div class="mobile-day-title">{{ day.label }}, {{ day.month_label }} {{ day.day_num }}</div>
+                                        <div class="mobile-day-sub">{% if day.is_today %}Today{% else %}{{ day.iso }}{% endif %}</div>
+                                    </div>
+                                </div>
+
+                                {% if day.jobs %}
+                                    <div class="mobile-day-list">
                                         {% for job in day.jobs %}
-                                            {% set display_start = job.start_minutes if job.start_minutes >= 360 else 360 %}
-                                            {% set display_end = job.end_minutes if job.end_minutes > display_start else (display_start + 60) %}
-                                            {% set top_px = ((display_start - 360) * 1.2) %}
-                                            {% set height_px = ((display_end - display_start) * 1.2) %}
-                                            {% if height_px < 42 %}
-                                                {% set height_px = 42 %}
-                                            {% endif %}
-
-                                            {% set lane_width = 100 / job.lane_count %}
-                                            {% set left_pct = lane_width * job.lane_index %}
-                                            {% set width_pct = lane_width %}
-
-                                            <a class="week-job-link"
-                                               href="{{ job.url }}"
-                                               style="
-                                                   top: {{ top_px }}px;
-                                                   height: {{ height_px }}px;
-                                                   left: calc({{ left_pct }}% + 4px);
-                                                   width: calc({{ width_pct }}% - 8px);
-                                                   right: auto;
-                                               ">
-                                                <div class="week-job-card {{ job.status_class }}" style="height: {{ height_px }}px;">
-                                                    <div class="week-job-time">{{ job.time_label }}</div>
-                                                    <div class="week-job-title">{{ job.label }}</div>
+                                            <a class="mobile-job-link" href="{{ job.url }}">
+                                                <div class="mobile-job-card {{ job.status_class }}">
+                                                    <div class="mobile-job-time">{{ job.time_label }}</div>
+                                                    <div class="mobile-job-title">{{ job.label }}</div>
                                                     {% if job.assigned_to %}
-                                                        <div class="week-job-meta">{{ job.assigned_to }}</div>
+                                                        <div class="mobile-job-meta">Assigned: {{ job.assigned_to }}</div>
                                                     {% endif %}
-                                                    <div class="week-job-meta">{{ job.status or "No Status" }}</div>
+                                                    <div class="mobile-job-meta">{{ job.status or "No Status" }}</div>
                                                 </div>
                                             </a>
                                         {% endfor %}
                                     </div>
-                                {% endfor %}
+                                {% else %}
+                                    <div class="empty-note">No scheduled jobs</div>
+                                {% endif %}
                             </div>
-                        </div>
+                        {% endfor %}
                     </div>
                 </div>
             {% endif %}
@@ -1302,6 +1462,7 @@ def calendar_page():
         today_label=today_label,
         month_name=month_name,
         weeks=weeks,
+        month_mobile_days=month_mobile_days,
         prev_year=prev_year,
         prev_month=prev_month,
         next_year=next_year,

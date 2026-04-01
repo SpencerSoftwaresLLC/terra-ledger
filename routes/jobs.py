@@ -379,8 +379,10 @@ def jobs():
     conn.close()
 
     job_row_list = []
+    job_mobile_card_list = []
     for r in rows:
         delete_csrf = generate_csrf()
+
         job_row_list.append(
             f"""
             <tr>
@@ -412,7 +414,44 @@ def jobs():
             </tr>
             """
         )
+
+        job_mobile_card_list.append(
+            f"""
+            <div class='mobile-list-card'>
+                <div class='mobile-list-top'>
+                    <div class='mobile-list-title'>#{r['id']} - {escape(clean_text_display(r['title']))}</div>
+                    <div class='mobile-badge'>{escape(clean_text_display(r['status']))}</div>
+                </div>
+
+                <div class='mobile-list-grid'>
+                    <div><span>Customer</span><strong>{escape(clean_text_display(r['customer_name']))}</strong></div>
+                    <div><span>Date</span><strong>{escape(clean_text_display(r['scheduled_date']))}</strong></div>
+                    <div><span>Start</span><strong>{escape(clean_text_display(r['scheduled_start_time']))}</strong></div>
+                    <div><span>End</span><strong>{escape(clean_text_display(r['scheduled_end_time']))}</strong></div>
+                    <div><span>Assigned To</span><strong>{escape(clean_text_display(r['assigned_to']))}</strong></div>
+                    <div><span>Revenue</span><strong>${safe_float(r['revenue']):.2f}</strong></div>
+                    <div><span>Costs</span><strong>${safe_float(r['cost_total']):.2f}</strong></div>
+                    <div><span>Profit/Loss</span><strong>${safe_float(r['profit']):.2f}</strong></div>
+                </div>
+
+                <div class='mobile-list-actions'>
+                    <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
+                    <a class='btn warning small' href='{url_for("jobs.edit_job", job_id=r["id"])}'>Edit Job</a>
+                    <a class='btn success small' href='{url_for("jobs.convert_job_to_invoice", job_id=r["id"])}'>Convert to Invoice</a>
+                    <form method='post'
+                          action='{url_for("jobs.delete_job", job_id=r["id"])}'
+                          style='margin:0;'
+                          onsubmit="return confirm('Delete this job and all items?');">
+                        <input type="hidden" name="csrf_token" value="{delete_csrf}">
+                        <button class='btn danger small' type='submit'>Delete Job</button>
+                    </form>
+                </div>
+            </div>
+            """
+        )
+
     job_rows = "".join(job_row_list)
+    job_mobile_cards = "".join(job_mobile_card_list)
 
     create_job_csrf = generate_csrf()
 
@@ -511,113 +550,240 @@ def jobs():
         .jobs-profit {{
             font-weight: 700;
         }}
+
+        .jobs-page {{
+            display: grid;
+            gap: 18px;
+        }}
+
+        .jobs-section-head {{
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:12px;
+            flex-wrap:wrap;
+        }}
+
+        .mobile-only {{
+            display: none;
+        }}
+
+        .desktop-only {{
+            display: block;
+        }}
+
+        .mobile-list {{
+            display:grid;
+            gap:12px;
+        }}
+
+        .mobile-list-card {{
+            border:1px solid rgba(15, 23, 42, 0.08);
+            border-radius:14px;
+            padding:14px;
+            background:#fff;
+            box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
+        }}
+
+        .mobile-list-top {{
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:10px;
+            margin-bottom:10px;
+        }}
+
+        .mobile-list-title {{
+            font-weight:700;
+            color:#0f172a;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-badge {{
+            font-size:.85rem;
+            font-weight:700;
+            color:#334155;
+            background:#f1f5f9;
+            padding:6px 10px;
+            border-radius:999px;
+            white-space:nowrap;
+        }}
+
+        .mobile-list-grid {{
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:10px 12px;
+            margin-bottom:12px;
+        }}
+
+        .mobile-list-grid span {{
+            display:block;
+            font-size:.78rem;
+            color:#64748b;
+            margin-bottom:3px;
+        }}
+
+        .mobile-list-grid strong {{
+            display:block;
+            color:#0f172a;
+            font-size:.95rem;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-list-actions {{
+            display:flex;
+            gap:8px;
+            flex-wrap:wrap;
+            align-items:center;
+        }}
+
+        @media (max-width: 640px) {{
+            .desktop-only {{
+                display:none !important;
+            }}
+
+            .mobile-only {{
+                display:block !important;
+            }}
+
+            .mobile-list-grid {{
+                grid-template-columns:1fr;
+            }}
+
+            .jobs-section-head {{
+                align-items:flex-start;
+            }}
+
+            .static-actions .btn,
+            .mobile-list-actions .btn,
+            .btn.small {{
+                padding:8px 10px !important;
+                font-size:0.84rem !important;
+                line-height:1.2 !important;
+            }}
+
+            .customer-results {{
+                max-height: 220px;
+            }}
+        }}
     </style>
 
-    <div class='card'>
-        <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
-            <h1 style='margin:0;'>Jobs</h1>
-            <div class='row-actions'>
-                <a class='btn secondary' href='{url_for("jobs.export_jobs")}'>Export CSV</a>
-                <a class='btn warning' href='{url_for("jobs.finished_jobs")}'>Finished Jobs</a>
+    <div class='jobs-page'>
+        <div class='card'>
+            <div class='jobs-section-head'>
+                <h1 style='margin:0;'>Jobs</h1>
+                <div class='row-actions'>
+                    <a class='btn secondary' href='{url_for("jobs.export_jobs")}'>Export CSV</a>
+                    <a class='btn warning' href='{url_for("jobs.finished_jobs")}'>Finished Jobs</a>
+                </div>
             </div>
+
+            <form method='post' style='margin-top:18px;'>
+                <input type="hidden" name="csrf_token" value="{create_job_csrf}">
+                <div class='grid'>
+                    <div class='customer-search-wrap'>
+                        <label>Customer</label>
+                        <input type='text'
+                               id='customer_search'
+                               placeholder='Search customer name, company, or email...'
+                               autocomplete='off'
+                               required>
+                        <input type='hidden' name='customer_id' id='customer_id' required>
+                        <div id='customer_results' class='customer-results'></div>
+                    </div>
+
+                    <div>
+                        <label>Title</label>
+                        <input name='title' required>
+                    </div>
+
+                    <div>
+                        <label>Scheduled Date</label>
+                        <input type='date' name='scheduled_date'>
+                    </div>
+
+                    <div>
+                        <label>Start Time</label>
+                        <input type='time' name='scheduled_start_time'>
+                    </div>
+
+                    <div>
+                        <label>End Time</label>
+                        <input type='time' name='scheduled_end_time'>
+                    </div>
+
+                    <div>
+                        <label>Assigned To</label>
+                        <input name='assigned_to' placeholder='Crew / Employee'>
+                    </div>
+
+                    <div>
+                        <label>Status</label>
+                        <select name='status'>
+                            <option>Scheduled</option>
+                            <option>In Progress</option>
+                            <option>Completed</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label>Address</label>
+                        <input name='address'>
+                    </div>
+                </div>
+
+                <br>
+                <label>Notes</label>
+                <textarea name='notes'></textarea>
+                <br>
+                <button class='btn'>Create Job</button>
+            </form>
         </div>
 
-        <form method='post' style='margin-top:18px;'>
-            <input type="hidden" name="csrf_token" value="{create_job_csrf}">
-            <div class='grid'>
-                <div class='customer-search-wrap'>
-                    <label>Customer</label>
-                    <input type='text'
-                           id='customer_search'
-                           placeholder='Search customer name, company, or email...'
-                           autocomplete='off'
-                           required>
-                    <input type='hidden' name='customer_id' id='customer_id' required>
-                    <div id='customer_results' class='customer-results'></div>
-                </div>
+        <div class='card'>
+            <h2>Job List</h2>
 
-                <div>
-                    <label>Title</label>
-                    <input name='title' required>
-                </div>
-
-                <div>
-                    <label>Scheduled Date</label>
-                    <input type='date' name='scheduled_date'>
-                </div>
-
-                <div>
-                    <label>Start Time</label>
-                    <input type='time' name='scheduled_start_time'>
-                </div>
-
-                <div>
-                    <label>End Time</label>
-                    <input type='time' name='scheduled_end_time'>
-                </div>
-
-                <div>
-                    <label>Assigned To</label>
-                    <input name='assigned_to' placeholder='Crew / Employee'>
-                </div>
-
-                <div>
-                    <label>Status</label>
-                    <select name='status'>
-                        <option>Scheduled</option>
-                        <option>In Progress</option>
-                        <option>Completed</option>
-                    </select>
-                </div>
-
-                <div>
-                    <label>Address</label>
-                    <input name='address'>
-                </div>
+            <div class='static-table-wrap desktop-only'>
+                <table class='static-table'>
+                    <colgroup>
+                        <col style='width:6%;'>
+                        <col style='width:14%;'>
+                        <col style='width:14%;'>
+                        <col style='width:9%;'>
+                        <col style='width:7%;'>
+                        <col style='width:7%;'>
+                        <col style='width:10%;'>
+                        <col style='width:10%;'>
+                        <col style='width:7%;'>
+                        <col style='width:7%;'>
+                        <col style='width:9%;'>
+                        <col style='width:20%;'>
+                    </colgroup>
+                    <tr>
+                        <th>ID</th>
+                        <th class='wrap'>Title</th>
+                        <th class='wrap'>Customer</th>
+                        <th>Date</th>
+                        <th>Start</th>
+                        <th>End</th>
+                        <th class='wrap'>Assigned To</th>
+                        <th>Status</th>
+                        <th class='money'>Revenue</th>
+                        <th class='money'>Costs</th>
+                        <th class='money'>Profit/Loss</th>
+                        <th class='wrap'>Actions</th>
+                    </tr>
+                    {job_rows or '<tr><td colspan="12" class="muted">No jobs yet.</td></tr>'}
+                </table>
             </div>
 
-            <br>
-            <label>Notes</label>
-            <textarea name='notes'></textarea>
-            <br>
-            <button class='btn'>Create Job</button>
-        </form>
-    </div>
-
-    <div class='card'>
-        <h2>Job List</h2>
-        <div class='static-table-wrap'>
-            <table class='static-table'>
-                <colgroup>
-                    <col style='width:6%;'>
-                    <col style='width:14%;'>
-                    <col style='width:14%;'>
-                    <col style='width:9%;'>
-                    <col style='width:7%;'>
-                    <col style='width:7%;'>
-                    <col style='width:10%;'>
-                    <col style='width:10%;'>
-                    <col style='width:7%;'>
-                    <col style='width:7%;'>
-                    <col style='width:9%;'>
-                    <col style='width:20%;'>
-                </colgroup>
-                <tr>
-                    <th>ID</th>
-                    <th class='wrap'>Title</th>
-                    <th class='wrap'>Customer</th>
-                    <th>Date</th>
-                    <th>Start</th>
-                    <th>End</th>
-                    <th class='wrap'>Assigned To</th>
-                    <th>Status</th>
-                    <th class='money'>Revenue</th>
-                    <th class='money'>Costs</th>
-                    <th class='money'>Profit/Loss</th>
-                    <th class='wrap'>Actions</th>
-                </tr>
-                {job_rows or '<tr><td colspan="12" class="muted">No jobs yet.</td></tr>'}
-            </table>
+            <div class='mobile-only'>
+                <div class='mobile-list'>
+                    {job_mobile_cards or "<div class='mobile-list-card'>No jobs yet.</div>"}
+                </div>
+            </div>
         </div>
     </div>
 
@@ -902,8 +1068,14 @@ def view_job(job_id):
     conn.close()
 
     item_row_list = []
+    item_mobile_card_list = []
     for i in items:
         delete_item_csrf = generate_csrf()
+
+        unit_cost_display = "-"
+        if clean_text_input(i["item_type"]).lower() not in ["dump_fee", "labor"]:
+            unit_cost_display = f"${((safe_float(i['cost_amount']) / safe_float(i['quantity'])) if safe_float(i['quantity']) else 0):.2f}"
+
         item_row_list.append(
             f"""
             <tr>
@@ -912,7 +1084,7 @@ def view_job(job_id):
                 <td class='money'>{safe_float(i['quantity']):g}</td>
                 <td>{escape(clean_text_display(i['unit']))}</td>
                 <td class='money'>${safe_float(i['sale_price']):.2f}</td>
-                <td class='money'>{"-" if clean_text_input(i['item_type']).lower() in ['dump_fee', 'labor'] else f"${((safe_float(i['cost_amount']) / safe_float(i['quantity'])) if safe_float(i['quantity']) else 0):.2f}"}</td>
+                <td class='money'>{unit_cost_display}</td>
                 <td class='money'>${safe_float(i['cost_amount']):.2f}</td>
                 <td class='center'>{'Yes' if i['billable'] else 'No'}</td>
                 <td class='money job-items-revenue'>${safe_float(i['line_total']):.2f}</td>
@@ -931,7 +1103,40 @@ def view_job(job_id):
             </tr>
             """
         )
+
+        item_mobile_card_list.append(
+            f"""
+            <div class='mobile-list-card'>
+                <div class='mobile-list-top'>
+                    <div class='mobile-list-title'>{escape(display_item_type(i['item_type']))} - {escape(clean_text_display(i['description']))}</div>
+                    <div class='mobile-badge'>{'Billable' if i['billable'] else 'Non-Billable'}</div>
+                </div>
+
+                <div class='mobile-list-grid'>
+                    <div><span>Qty</span><strong>{safe_float(i['quantity']):g}</strong></div>
+                    <div><span>Unit</span><strong>{escape(clean_text_display(i['unit']))}</strong></div>
+                    <div><span>Sale Price</span><strong>${safe_float(i['sale_price']):.2f}</strong></div>
+                    <div><span>Unit Cost</span><strong>{unit_cost_display}</strong></div>
+                    <div><span>Total Cost</span><strong>${safe_float(i['cost_amount']):.2f}</strong></div>
+                    <div><span>Revenue</span><strong>${safe_float(i['line_total']):.2f}</strong></div>
+                </div>
+
+                <div class='mobile-list-actions'>
+                    <a class='btn secondary small' href='{url_for("jobs.edit_job_item", job_id=job_id, item_id=i["id"])}'>Edit</a>
+                    <form method='post'
+                          action='{url_for("jobs.delete_job_item", job_id=job_id, item_id=i["id"])}'
+                          style='margin:0;'
+                          onsubmit="return confirm('Delete this job item?');">
+                        <input type="hidden" name="csrf_token" value="{delete_item_csrf}">
+                        <button class='btn danger small' type='submit'>Delete</button>
+                    </form>
+                </div>
+            </div>
+            """
+        )
+
     item_rows = "".join(item_row_list)
+    item_mobile_cards = "".join(item_mobile_card_list)
 
     schedule_bits = []
     if clean_text_input(job["scheduled_date"]):
@@ -1190,229 +1395,430 @@ Thank you,
             .job-items-revenue {{
                 font-weight: 700;
             }}
+
+            .job-view-page {{
+                display:grid;
+                gap:18px;
+            }}
+
+            .job-summary-grid {{
+                display:grid;
+                grid-template-columns:repeat(4, minmax(0, 1fr));
+                gap:12px;
+                margin-top:16px;
+            }}
+
+            .job-summary-card {{
+                border:1px solid rgba(15, 23, 42, 0.08);
+                border-radius:12px;
+                padding:12px;
+                background:#fff;
+            }}
+
+            .job-summary-card span {{
+                display:block;
+                font-size:.8rem;
+                color:#64748b;
+                margin-bottom:4px;
+            }}
+
+            .job-summary-card strong {{
+                display:block;
+                color:#0f172a;
+                line-height:1.3;
+                word-break:break-word;
+            }}
+
+            .job-financials-grid {{
+                display:grid;
+                grid-template-columns:repeat(3, minmax(0, 1fr));
+                gap:12px;
+                margin-top:14px;
+            }}
+
+            .job-financial-card {{
+                border:1px solid rgba(15, 23, 42, 0.08);
+                border-radius:12px;
+                padding:12px;
+                background:#fff;
+            }}
+
+            .job-financial-card span {{
+                display:block;
+                font-size:.8rem;
+                color:#64748b;
+                margin-bottom:4px;
+            }}
+
+            .job-financial-card strong {{
+                font-size:1.05rem;
+            }}
+
+            .mobile-only {{
+                display:none;
+            }}
+
+            .desktop-only {{
+                display:block;
+            }}
+
+            .mobile-list {{
+                display:grid;
+                gap:12px;
+            }}
+
+            .mobile-list-card {{
+                border:1px solid rgba(15, 23, 42, 0.08);
+                border-radius:14px;
+                padding:14px;
+                background:#fff;
+                box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
+            }}
+
+            .mobile-list-top {{
+                display:flex;
+                justify-content:space-between;
+                align-items:flex-start;
+                gap:10px;
+                margin-bottom:10px;
+            }}
+
+            .mobile-list-title {{
+                font-weight:700;
+                color:#0f172a;
+                line-height:1.25;
+                word-break:break-word;
+            }}
+
+            .mobile-badge {{
+                font-size:.85rem;
+                font-weight:700;
+                color:#334155;
+                background:#f1f5f9;
+                padding:6px 10px;
+                border-radius:999px;
+                white-space:nowrap;
+            }}
+
+            .mobile-list-grid {{
+                display:grid;
+                grid-template-columns:1fr 1fr;
+                gap:10px 12px;
+                margin-bottom:12px;
+            }}
+
+            .mobile-list-grid span {{
+                display:block;
+                font-size:.78rem;
+                color:#64748b;
+                margin-bottom:3px;
+            }}
+
+            .mobile-list-grid strong {{
+                display:block;
+                color:#0f172a;
+                font-size:.95rem;
+                line-height:1.25;
+                word-break:break-word;
+            }}
+
+            .mobile-list-actions {{
+                display:flex;
+                gap:8px;
+                flex-wrap:wrap;
+                align-items:center;
+            }}
+
+            @media (max-width: 900px) {{
+                .job-summary-grid {{
+                    grid-template-columns:repeat(2, minmax(0, 1fr));
+                }}
+
+                .job-financials-grid {{
+                    grid-template-columns:1fr;
+                }}
+            }}
+
+            @media (max-width: 640px) {{
+                .desktop-only {{
+                    display:none !important;
+                }}
+
+                .mobile-only {{
+                    display:block !important;
+                }}
+
+                .job-summary-grid {{
+                    grid-template-columns:1fr;
+                }}
+
+                .mobile-list-grid {{
+                    grid-template-columns:1fr;
+                }}
+
+                .static-actions .btn,
+                .mobile-list-actions .btn,
+                .btn.small {{
+                    padding:8px 10px !important;
+                    font-size:0.84rem !important;
+                    line-height:1.2 !important;
+                }}
+            }}
         </style>
 
-        <div class='card'>
-            <h1>Job #{job['id']} - {escape(clean_text_display(job['title']))}</h1>
-            <p>
-                <strong>Customer:</strong> {escape(clean_text_display(job['customer_name']))}<br>
-                <strong>Email:</strong> {escape(clean_text_display(job['customer_email']))}<br>
-                {schedule_html}<br>
-                <strong>Status:</strong> {escape(clean_text_display(job['status']))}<br>
-                <strong>Revenue:</strong> ${safe_float(job['revenue']):.2f}
-                |
-                <strong>Costs:</strong> ${safe_float(job['cost_total']):.2f}
-                |
-                <strong>Profit/Loss:</strong> ${safe_float(job['profit']):.2f}
-            </p>
+        <div class='job-view-page'>
+            <div class='card'>
+                <h1>Job #{job['id']} - {escape(clean_text_display(job['title']))}</h1>
 
-            <div class="row-actions">
-                <a class='btn secondary' href='{url_for("jobs.jobs")}'>Done Editing</a>
-                <a class='btn warning' href='{url_for("jobs.edit_job", job_id=job_id)}'>Edit Job</a>
-                <a class='btn success' href='{url_for("jobs.convert_job_to_invoice", job_id=job_id)}'>Convert to Invoice</a>
-            </div>
-
-            <div class="row-actions" style="margin-top:12px;">
-                {email_buttons}
-            </div>
-        </div>
-
-        <div class='card'>
-            <h2>Add Job Item</h2>
-            <p class='muted'>Any cost you enter here is automatically pushed into bookkeeping as an expense.</p>
-
-            <form method='post'>
-                <input type="hidden" name="csrf_token" value="{add_item_csrf}">
-                <div class='grid'>
-
-                    <div>
-                        <label>Type</label>
-                        <select name='item_type' id='item_type' onchange='toggleJobItemMode()'>
-                            <option value='mulch'>Mulch</option>
-                            <option value='stone'>Stone</option>
-                            <option value='dump_fee'>Dump Fee</option>
-                            <option value='plants'>Plants</option>
-                            <option value='trees'>Trees</option>
-                            <option value='soil'>Soil</option>
-                            <option value='fertilizer'>Fertilizer</option>
-                            <option value='hardscape_material'>Hardscape Material</option>
-                            <option value='labor'>Labor</option>
-                            <option value='equipment'>Equipment</option>
-                            <option value='delivery'>Delivery</option>
-                            <option value='fuel'>Fuel</option>
-                            <option value='misc'>Misc</option>
-                        </select>
+                <div class='job-summary-grid'>
+                    <div class='job-summary-card'>
+                        <span>Customer</span>
+                        <strong>{escape(clean_text_display(job['customer_name']))}</strong>
                     </div>
-
-                    <div>
-                        <label>Description</label>
-                        <input name='description' required>
+                    <div class='job-summary-card'>
+                        <span>Email</span>
+                        <strong>{escape(clean_text_display(job['customer_email']))}</strong>
                     </div>
-
-                    <div>
-                        <label id='quantity_label'>Quantity</label>
-                        <input type='number' step='0.01' name='quantity' id='quantity' required>
+                    <div class='job-summary-card'>
+                        <span>Status</span>
+                        <strong>{escape(clean_text_display(job['status']))}</strong>
                     </div>
-
-                    <div>
-                        <label>Unit</label>
-                        <input name='unit' id='unit' placeholder='Unit'>
+                    <div class='job-summary-card'>
+                        <span>Schedule</span>
+                        <strong>{schedule_html.replace("<br>", " | ")}</strong>
                     </div>
-
-                    <div id='sale_price_wrap'>
-                        <label id='sale_price_label'>Sale Price</label>
-                        <input type='number' step='0.01' name='sale_price' id='sale_price' value='0' required>
-                    </div>
-
-                    <div id='unit_cost_wrap'>
-                        <label id='cost_label'>Unit Cost</label>
-                        <input type='number' step='0.01' name='unit_cost' id='unit_cost' value='0'>
-                    </div>
-
-                    <div>
-                        <label>Billable?</label>
-                        <select name='billable'>
-                            <option value='1'>Yes</option>
-                            <option value='0'>No</option>
-                        </select>
-                    </div>
-
                 </div>
 
-                <br>
-                <button class='btn' type='submit'>Add Job Item</button>
-            </form>
-        </div>
+                <div class='job-financials-grid'>
+                    <div class='job-financial-card'>
+                        <span>Revenue</span>
+                        <strong>${safe_float(job['revenue']):.2f}</strong>
+                    </div>
+                    <div class='job-financial-card'>
+                        <span>Costs</span>
+                        <strong>${safe_float(job['cost_total']):.2f}</strong>
+                    </div>
+                    <div class='job-financial-card'>
+                        <span>Profit/Loss</span>
+                        <strong>${safe_float(job['profit']):.2f}</strong>
+                    </div>
+                </div>
 
-        <script>
-        function toggleJobItemMode() {{
-            const type = document.getElementById('item_type').value;
+                <div class="row-actions" style="margin-top:14px;">
+                    <a class='btn secondary' href='{url_for("jobs.jobs")}'>Done Editing</a>
+                    <a class='btn warning' href='{url_for("jobs.edit_job", job_id=job_id)}'>Edit Job</a>
+                    <a class='btn success' href='{url_for("jobs.convert_job_to_invoice", job_id=job_id)}'>Convert to Invoice</a>
+                </div>
 
-            const quantityLabel = document.getElementById('quantity_label');
-            const costLabel = document.getElementById('cost_label');
-            const salePriceLabel = document.getElementById('sale_price_label');
-            const salePriceWrap = document.getElementById('sale_price_wrap');
-            const unitCostWrap = document.getElementById('unit_cost_wrap');
-            const unitInput = document.getElementById('unit');
-            const quantityInput = document.getElementById('quantity');
-            const unitCostInput = document.getElementById('unit_cost');
+                <div class="row-actions" style="margin-top:12px;">
+                    {email_buttons}
+                </div>
+            </div>
 
-            quantityLabel.innerText = 'Quantity';
-            salePriceLabel.innerText = 'Sale Price';
-            costLabel.innerText = 'Unit Cost';
-            if (salePriceWrap) salePriceWrap.style.display = 'block';
-            if (unitCostWrap) unitCostWrap.style.display = 'block';
+            <div class='card'>
+                <h2>Add Job Item</h2>
+                <p class='muted'>Any cost you enter here is automatically pushed into bookkeeping as an expense.</p>
 
-            if (quantityInput) {{
-                quantityInput.readOnly = false;
-                quantityInput.step = '0.01';
-            }}
+                <form method='post'>
+                    <input type="hidden" name="csrf_token" value="{add_item_csrf}">
+                    <div class='grid'>
 
-            if (unitInput) unitInput.value = '';
+                        <div>
+                            <label>Type</label>
+                            <select name='item_type' id='item_type' onchange='toggleJobItemMode()'>
+                                <option value='mulch'>Mulch</option>
+                                <option value='stone'>Stone</option>
+                                <option value='dump_fee'>Dump Fee</option>
+                                <option value='plants'>Plants</option>
+                                <option value='trees'>Trees</option>
+                                <option value='soil'>Soil</option>
+                                <option value='fertilizer'>Fertilizer</option>
+                                <option value='hardscape_material'>Hardscape Material</option>
+                                <option value='labor'>Labor</option>
+                                <option value='equipment'>Equipment</option>
+                                <option value='delivery'>Delivery</option>
+                                <option value='fuel'>Fuel</option>
+                                <option value='misc'>Misc</option>
+                            </select>
+                        </div>
 
-            if (type === 'mulch') {{
-                quantityLabel.innerText = 'Yards';
-                unitInput.value = 'Yards';
-            }} else if (type === 'stone') {{
-                quantityLabel.innerText = 'Tons';
-                unitInput.value = 'Tons';
-            }} else if (type === 'soil') {{
-                quantityLabel.innerText = 'Yards';
-                unitInput.value = 'Yards';
-            }} else if (type === 'hardscape_material') {{
-                quantityLabel.innerText = 'Tons';
-                unitInput.value = 'Tons';
-            }} else if (type === 'fuel') {{
-                quantityLabel.innerText = 'Gallons';
-                unitInput.value = 'Gallons';
-            }} else if (type === 'delivery') {{
-                quantityLabel.innerText = 'Miles';
-                unitInput.value = 'Miles';
-            }} else if (type === 'labor') {{
-                quantityLabel.innerText = 'Billable Hours';
-                salePriceLabel.innerText = 'Hourly Rate';
-                unitInput.value = 'Hours';
-                if (unitCostWrap) unitCostWrap.style.display = 'none';
-                if (unitCostInput) unitCostInput.value = '0';
-            }} else if (type === 'equipment') {{
-                quantityLabel.innerText = 'Rentals';
-                unitInput.value = 'Rentals';
-            }} else if (type === 'plants' || type === 'trees' || type === 'misc') {{
+                        <div>
+                            <label>Description</label>
+                            <input name='description' required>
+                        </div>
+
+                        <div>
+                            <label id='quantity_label'>Quantity</label>
+                            <input type='number' step='0.01' name='quantity' id='quantity' required>
+                        </div>
+
+                        <div>
+                            <label>Unit</label>
+                            <input name='unit' id='unit' placeholder='Unit'>
+                        </div>
+
+                        <div id='sale_price_wrap'>
+                            <label id='sale_price_label'>Sale Price</label>
+                            <input type='number' step='0.01' name='sale_price' id='sale_price' value='0' required>
+                        </div>
+
+                        <div id='unit_cost_wrap'>
+                            <label id='cost_label'>Unit Cost</label>
+                            <input type='number' step='0.01' name='unit_cost' id='unit_cost' value='0'>
+                        </div>
+
+                        <div>
+                            <label>Billable?</label>
+                            <select name='billable'>
+                                <option value='1'>Yes</option>
+                                <option value='0'>No</option>
+                            </select>
+                        </div>
+
+                    </div>
+
+                    <br>
+                    <button class='btn' type='submit'>Add Job Item</button>
+                </form>
+            </div>
+
+            <script>
+            function toggleJobItemMode() {{
+                const type = document.getElementById('item_type').value;
+
+                const quantityLabel = document.getElementById('quantity_label');
+                const costLabel = document.getElementById('cost_label');
+                const salePriceLabel = document.getElementById('sale_price_label');
+                const salePriceWrap = document.getElementById('sale_price_wrap');
+                const unitCostWrap = document.getElementById('unit_cost_wrap');
+                const unitInput = document.getElementById('unit');
+                const quantityInput = document.getElementById('quantity');
+                const unitCostInput = document.getElementById('unit_cost');
+
                 quantityLabel.innerText = 'Quantity';
-                unitInput.value = '';
-            }} else if (type === 'dump_fee') {{
-                quantityLabel.innerText = 'Fee';
-                salePriceLabel.innerText = 'Fee Amount';
-                unitInput.value = '';
-                if (unitCostWrap) unitCostWrap.style.display = 'none';
-                if (unitCostInput) unitCostInput.value = '0';
+                salePriceLabel.innerText = 'Sale Price';
+                costLabel.innerText = 'Unit Cost';
+                if (salePriceWrap) salePriceWrap.style.display = 'block';
+                if (unitCostWrap) unitCostWrap.style.display = 'block';
+
                 if (quantityInput) {{
-                    quantityInput.value = '1';
-                    quantityInput.readOnly = true;
+                    quantityInput.readOnly = false;
+                    quantityInput.step = '0.01';
                 }}
-            }} else if (type === 'fertilizer') {{
-                quantityLabel.innerText = 'Quantity';
-                unitInput.value = '';
+
+                if (unitInput) unitInput.value = '';
+
+                if (type === 'mulch') {{
+                    quantityLabel.innerText = 'Yards';
+                    unitInput.value = 'Yards';
+                }} else if (type === 'stone') {{
+                    quantityLabel.innerText = 'Tons';
+                    unitInput.value = 'Tons';
+                }} else if (type === 'soil') {{
+                    quantityLabel.innerText = 'Yards';
+                    unitInput.value = 'Yards';
+                }} else if (type === 'hardscape_material') {{
+                    quantityLabel.innerText = 'Tons';
+                    unitInput.value = 'Tons';
+                }} else if (type === 'fuel') {{
+                    quantityLabel.innerText = 'Gallons';
+                    unitInput.value = 'Gallons';
+                }} else if (type === 'delivery') {{
+                    quantityLabel.innerText = 'Miles';
+                    unitInput.value = 'Miles';
+                }} else if (type === 'labor') {{
+                    quantityLabel.innerText = 'Billable Hours';
+                    salePriceLabel.innerText = 'Hourly Rate';
+                    unitInput.value = 'Hours';
+                    if (unitCostWrap) unitCostWrap.style.display = 'none';
+                    if (unitCostInput) unitCostInput.value = '0';
+                }} else if (type === 'equipment') {{
+                    quantityLabel.innerText = 'Rentals';
+                    unitInput.value = 'Rentals';
+                }} else if (type === 'plants' || type === 'trees' || type === 'misc') {{
+                    quantityLabel.innerText = 'Quantity';
+                    unitInput.value = '';
+                }} else if (type === 'dump_fee') {{
+                    quantityLabel.innerText = 'Fee';
+                    salePriceLabel.innerText = 'Fee Amount';
+                    unitInput.value = '';
+                    if (unitCostWrap) unitCostWrap.style.display = 'none';
+                    if (unitCostInput) unitCostInput.value = '0';
+                    if (quantityInput) {{
+                        quantityInput.value = '1';
+                        quantityInput.readOnly = true;
+                    }}
+                }} else if (type === 'fertilizer') {{
+                    quantityLabel.innerText = 'Quantity';
+                    unitInput.value = '';
+                }}
             }}
-        }}
 
-        function toggleUpdatesMenu(event) {{
-            event.stopPropagation();
-            const menu = document.getElementById('updatesMenu');
-            if (!menu) return;
-            menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
-        }}
-
-        function toggleCustomUpdateCard() {{
-            const card = document.getElementById('customUpdateCard');
-            const menu = document.getElementById('updatesMenu');
-            if (menu) menu.style.display = 'none';
-            if (!card) return;
-            card.style.display = card.style.display === 'block' ? 'none' : 'block';
-        }}
-
-        document.addEventListener('DOMContentLoaded', function() {{
-            toggleJobItemMode();
-        }});
-
-        document.addEventListener('click', function() {{
-            const menu = document.getElementById('updatesMenu');
-            if (menu) {{
-                menu.style.display = 'none';
+            function toggleUpdatesMenu(event) {{
+                event.stopPropagation();
+                const menu = document.getElementById('updatesMenu');
+                if (!menu) return;
+                menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
             }}
-        }});
-        </script>
 
-        <div class='card'>
-            <h2>Job Items</h2>
-            <div class='static-table-wrap'>
-                <table class='static-table'>
-                    <colgroup>
-                        <col style='width:10%;'>
-                        <col style='width:22%;'>
-                        <col style='width:7%;'>
-                        <col style='width:8%;'>
-                        <col style='width:10%;'>
-                        <col style='width:10%;'>
-                        <col style='width:10%;'>
-                        <col style='width:8%;'>
-                        <col style='width:10%;'>
-                        <col style='width:15%;'>
-                    </colgroup>
-                    <tr>
-                        <th>Type</th>
-                        <th class='wrap'>Description</th>
-                        <th class='money'>Qty</th>
-                        <th>Unit</th>
-                        <th class='money'>Sale Price</th>
-                        <th class='money'>Unit Cost</th>
-                        <th class='money'>Total Cost</th>
-                        <th class='center'>Billable</th>
-                        <th class='money'>Revenue</th>
-                        <th class='wrap'>Actions</th>
-                    </tr>
-                    {item_rows or '<tr><td colspan="10" class="muted">No job items yet.</td></tr>'}
-                </table>
+            function toggleCustomUpdateCard() {{
+                const card = document.getElementById('customUpdateCard');
+                const menu = document.getElementById('updatesMenu');
+                if (menu) menu.style.display = 'none';
+                if (!card) return;
+                card.style.display = card.style.display === 'block' ? 'none' : 'block';
+            }}
+
+            document.addEventListener('DOMContentLoaded', function() {{
+                toggleJobItemMode();
+            }});
+
+            document.addEventListener('click', function() {{
+                const menu = document.getElementById('updatesMenu');
+                if (menu) {{
+                    menu.style.display = 'none';
+                }}
+            }});
+            </script>
+
+            <div class='card'>
+                <h2>Job Items</h2>
+
+                <div class='static-table-wrap desktop-only'>
+                    <table class='static-table'>
+                        <colgroup>
+                            <col style='width:10%;'>
+                            <col style='width:22%;'>
+                            <col style='width:7%;'>
+                            <col style='width:8%;'>
+                            <col style='width:10%;'>
+                            <col style='width:10%;'>
+                            <col style='width:10%;'>
+                            <col style='width:8%;'>
+                            <col style='width:10%;'>
+                            <col style='width:15%;'>
+                        </colgroup>
+                        <tr>
+                            <th>Type</th>
+                            <th class='wrap'>Description</th>
+                            <th class='money'>Qty</th>
+                            <th>Unit</th>
+                            <th class='money'>Sale Price</th>
+                            <th class='money'>Unit Cost</th>
+                            <th class='money'>Total Cost</th>
+                            <th class='center'>Billable</th>
+                            <th class='money'>Revenue</th>
+                            <th class='wrap'>Actions</th>
+                        </tr>
+                        {item_rows or '<tr><td colspan="10" class="muted">No job items yet.</td></tr>'}
+                    </table>
+                </div>
+
+                <div class='mobile-only'>
+                    <div class='mobile-list'>
+                        {item_mobile_cards or "<div class='mobile-list-card'>No job items yet.</div>"}
+                    </div>
+                </div>
             </div>
         </div>
         """
@@ -2217,30 +2623,63 @@ def finished_jobs():
 
     conn.close()
 
-    job_rows = "".join(
-        f"""
-        <tr>
-            <td>#{r['id']}</td>
-            <td class='wrap'>{escape(clean_text_display(r['title']))}</td>
-            <td class='wrap'>{escape(clean_text_display(r['customer_name']))}</td>
-            <td>{escape(clean_text_display(r['scheduled_date']))}</td>
-            <td>{escape(clean_text_display(r['scheduled_start_time']))}</td>
-            <td>{escape(clean_text_display(r['scheduled_end_time']))}</td>
-            <td class='wrap'>{escape(clean_text_display(r['assigned_to']))}</td>
-            <td>{escape(clean_text_display(r['status']))}</td>
-            <td class='money'>${safe_float(r['revenue']):.2f}</td>
-            <td class='money'>${safe_float(r['cost_total']):.2f}</td>
-            <td class='money jobs-profit'>${safe_float(r['profit']):.2f}</td>
-            <td class='wrap'>
-                <div class='static-actions'>
+    table_rows = []
+    mobile_cards = []
+
+    for r in rows:
+        table_rows.append(
+            f"""
+            <tr>
+                <td>#{r['id']}</td>
+                <td class='wrap'>{escape(clean_text_display(r['title']))}</td>
+                <td class='wrap'>{escape(clean_text_display(r['customer_name']))}</td>
+                <td>{escape(clean_text_display(r['scheduled_date']))}</td>
+                <td>{escape(clean_text_display(r['scheduled_start_time']))}</td>
+                <td>{escape(clean_text_display(r['scheduled_end_time']))}</td>
+                <td class='wrap'>{escape(clean_text_display(r['assigned_to']))}</td>
+                <td>{escape(clean_text_display(r['status']))}</td>
+                <td class='money'>${safe_float(r['revenue']):.2f}</td>
+                <td class='money'>${safe_float(r['cost_total']):.2f}</td>
+                <td class='money jobs-profit'>${safe_float(r['profit']):.2f}</td>
+                <td class='wrap'>
+                    <div class='static-actions'>
+                        <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
+                        <a class='btn warning small' href='{url_for("jobs.reopen_job", job_id=r["id"])}'>Reopen</a>
+                    </div>
+                </td>
+            </tr>
+            """
+        )
+
+        mobile_cards.append(
+            f"""
+            <div class='mobile-list-card'>
+                <div class='mobile-list-top'>
+                    <div class='mobile-list-title'>#{r['id']} - {escape(clean_text_display(r['title']))}</div>
+                    <div class='mobile-badge'>{escape(clean_text_display(r['status']))}</div>
+                </div>
+
+                <div class='mobile-list-grid'>
+                    <div><span>Customer</span><strong>{escape(clean_text_display(r['customer_name']))}</strong></div>
+                    <div><span>Date</span><strong>{escape(clean_text_display(r['scheduled_date']))}</strong></div>
+                    <div><span>Start</span><strong>{escape(clean_text_display(r['scheduled_start_time']))}</strong></div>
+                    <div><span>End</span><strong>{escape(clean_text_display(r['scheduled_end_time']))}</strong></div>
+                    <div><span>Assigned To</span><strong>{escape(clean_text_display(r['assigned_to']))}</strong></div>
+                    <div><span>Revenue</span><strong>${safe_float(r['revenue']):.2f}</strong></div>
+                    <div><span>Costs</span><strong>${safe_float(r['cost_total']):.2f}</strong></div>
+                    <div><span>Profit/Loss</span><strong>${safe_float(r['profit']):.2f}</strong></div>
+                </div>
+
+                <div class='mobile-list-actions'>
                     <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
                     <a class='btn warning small' href='{url_for("jobs.reopen_job", job_id=r["id"])}'>Reopen</a>
                 </div>
-            </td>
-        </tr>
-        """
-        for r in rows
-    )
+            </div>
+            """
+        )
+
+    job_rows = "".join(table_rows)
+    mobile_cards_html = "".join(mobile_cards)
 
     content = f"""
     <style>
@@ -2299,6 +2738,94 @@ def finished_jobs():
         .jobs-profit {{
             font-weight: 700;
         }}
+
+        .mobile-only {{
+            display:none;
+        }}
+
+        .desktop-only {{
+            display:block;
+        }}
+
+        .mobile-list {{
+            display:grid;
+            gap:12px;
+        }}
+
+        .mobile-list-card {{
+            border:1px solid rgba(15, 23, 42, 0.08);
+            border-radius:14px;
+            padding:14px;
+            background:#fff;
+            box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
+        }}
+
+        .mobile-list-top {{
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:10px;
+            margin-bottom:10px;
+        }}
+
+        .mobile-list-title {{
+            font-weight:700;
+            color:#0f172a;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-badge {{
+            font-size:.85rem;
+            font-weight:700;
+            color:#334155;
+            background:#f1f5f9;
+            padding:6px 10px;
+            border-radius:999px;
+            white-space:nowrap;
+        }}
+
+        .mobile-list-grid {{
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:10px 12px;
+            margin-bottom:12px;
+        }}
+
+        .mobile-list-grid span {{
+            display:block;
+            font-size:.78rem;
+            color:#64748b;
+            margin-bottom:3px;
+        }}
+
+        .mobile-list-grid strong {{
+            display:block;
+            color:#0f172a;
+            font-size:.95rem;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+
+        .mobile-list-actions {{
+            display:flex;
+            gap:8px;
+            flex-wrap:wrap;
+        }}
+
+        @media (max-width: 640px) {{
+            .desktop-only {{
+                display:none !important;
+            }}
+
+            .mobile-only {{
+                display:block !important;
+            }}
+
+            .mobile-list-grid {{
+                grid-template-columns:1fr;
+            }}
+        }}
     </style>
 
     <div class='card'>
@@ -2314,7 +2841,7 @@ def finished_jobs():
     </div>
 
     <div class='card'>
-        <div class='static-table-wrap'>
+        <div class='static-table-wrap desktop-only'>
             <table class='static-table'>
                 <colgroup>
                     <col style='width:6%;'>
@@ -2346,6 +2873,12 @@ def finished_jobs():
                 </tr>
                 {job_rows or '<tr><td colspan="12" class="muted">No finished jobs yet.</td></tr>'}
             </table>
+        </div>
+
+        <div class='mobile-only'>
+            <div class='mobile-list'>
+                {mobile_cards_html or "<div class='mobile-list-card'>No finished jobs yet.</div>"}
+            </div>
         </div>
     </div>
     """
