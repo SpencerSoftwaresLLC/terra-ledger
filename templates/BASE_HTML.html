@@ -41,7 +41,6 @@
     --shadow: 0 4px 16px rgba(47, 79, 31, 0.08);
     --topbar-height: 64px;
     --sidebar-width: 250px;
-    --mobile-nav-height: 64px;
     --safe-top: env(safe-area-inset-top, 0px);
     --safe-right: env(safe-area-inset-right, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -218,6 +217,7 @@ video {
     justify-content: flex-end;
     gap: 10px;
     flex-wrap: wrap;
+    min-width: 0;
 }
 
 .topbar-actions {
@@ -245,6 +245,10 @@ video {
 .nav-link:hover {
     background: var(--bg-soft);
     color: var(--green);
+}
+
+.desktop-only-link {
+    display: inline-flex;
 }
 
 .company-menu-wrap {
@@ -714,32 +718,53 @@ label {
             10px
             calc(12px + var(--safe-left));
         gap: 8px;
+        flex-wrap: nowrap !important;
     }
 
     .mobile-menu-btn {
         display: inline-flex;
     }
 
-    .topbar-left,
-    .topbar-right {
-        width: auto;
-        min-width: 0;
+    .desktop-only-link {
+        display: none !important;
     }
 
     .topbar-left {
-        flex: 1 1 auto;
+        flex: 0 0 auto !important;
+        width: auto !important;
+        min-width: 0;
     }
 
     .topbar-right {
-        flex: 0 1 auto;
-        justify-content: flex-end;
+        flex: 1 1 auto !important;
+        width: auto !important;
+        justify-content: flex-end !important;
         gap: 8px;
         margin-left: 0;
+        overflow: hidden;
+    }
+
+    .topbar-right .btn,
+    .topbar-right a.btn,
+    .topbar-right button.btn {
+        max-width: 140px;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .nav-link {
         padding: 8px 10px;
         font-size: 0.86rem;
+    }
+
+    #companyMenuButtonTop {
+        max-width: 135px !important;
+    }
+
+    #companyMenuTop {
+        top: calc(100% + 6px);
+        right: 0;
+        left: auto;
     }
 
     .grid,
@@ -880,13 +905,23 @@ label {
 
     .topbar-left {
         min-width: 0;
-        flex: 1 1 auto;
+        flex: 0 0 auto !important;
     }
 
     .topbar-right {
-        flex: 0 1 auto;
+        flex: 1 1 auto !important;
         justify-content: flex-end;
         min-width: 0;
+        gap: 6px !important;
+    }
+
+    .topbar-right .btn,
+    .topbar-right a.btn,
+    .topbar-right button.btn {
+        height: 32px !important;
+        padding: 0 9px !important;
+        font-size: 0.74rem !important;
+        max-width: 120px;
     }
 
     .company-menu-wrap {
@@ -894,7 +929,7 @@ label {
     }
 
     #companyMenuButtonTop {
-        max-width: 160px;
+        max-width: 120px !important;
         overflow: hidden;
         text-overflow: ellipsis;
     }
@@ -956,7 +991,7 @@ label {
     }
 
     #companyMenuButtonTop {
-        max-width: 130px;
+        max-width: 110px !important;
     }
 }
 </style>
@@ -1007,7 +1042,7 @@ label {
         <div class="topbar">
             <div class="topbar-left">
                 <button class="btn secondary mobile-menu-btn" id="mobileMenuButton" type="button">Menu</button>
-                <a class="nav-link" href="{{ url_for('dashboard.dashboard') }}">Dashboard</a>
+                <a class="nav-link desktop-only-link" href="{{ url_for('dashboard.dashboard') }}">Dashboard</a>
             </div>
 
             <div class="topbar-right">
@@ -1098,6 +1133,8 @@ label {
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     const body = document.body;
+    body.classList.remove("sidebar-open");
+
     const topButton = document.getElementById("companyMenuButtonTop");
     const topMenu = document.getElementById("companyMenuTop");
     const mobileMenuButton = document.getElementById("mobileMenuButton");
@@ -1150,7 +1187,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
     if (appSidebar) {
         appSidebar.addEventListener("click", function (e) {
-            if (window.innerWidth <= 820 && e.target.closest("a")) {
+            const clickedLink = e.target.closest("a");
+            if (window.innerWidth <= 820 && clickedLink) {
                 closeSidebar();
             }
         });

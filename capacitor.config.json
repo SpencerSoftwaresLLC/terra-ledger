@@ -1,0 +1,9 @@
+{
+  "appId": "com.spencersoftwaresllc.terraledger",
+  "appName": "TerraLedger",
+  "webDir": "www",
+  "server": {
+    "url": "https://terraledger.net",
+    "cleartext": false
+  }
+}
