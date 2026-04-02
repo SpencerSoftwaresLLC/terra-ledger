@@ -518,16 +518,24 @@ def jobs():
             position: relative;
         }}
 
+        .customer-search-wrap label {{
+            display: block;
+            margin-bottom: 6px;
+        }}
+
+        .customer-search-input-wrap {{
+            position: relative;
+        }}
+
         .customer-results {{
             display: none;
             position: absolute;
-            top: 100%;
+            top: calc(100% + 4px);
             left: 0;
             right: 0;
             background: #fff;
             border: 1px solid #dbe2ea;
             border-radius: 10px;
-            margin-top: 6px;
             box-shadow: 0 8px 20px rgba(0,0,0,.08);
             z-index: 1000;
             max-height: 260px;
@@ -815,14 +823,17 @@ def jobs():
                 <div class='grid'>
                     <div class='customer-search-wrap'>
                         <label>Customer</label>
-                        <input type='text'
-                               id='customer_search'
-                               placeholder='Search customer name, company, or email...'
-                               autocomplete='off'
-                               required>
-                        <input type='hidden' name='customer_id' id='customer_id' required>
+
+                        <div class='customer-search-input-wrap'>
+                            <input type='text'
+                                id='customer_search'
+                                placeholder='Search customer name, company, or email...'
+                                autocomplete='off'
+                                required>
+                            <input type='hidden' name='customer_id' id='customer_id' required>
                         <div id='customer_results' class='customer-results'></div>
                     </div>
+                </div>
 
                     <div>
                         <label>Title</label>
@@ -834,6 +845,8 @@ def jobs():
                         <select name='service_type' id='service_type'>
                             {service_type_select_options("mowing")}
                         </select>
+                        <div class='service-help'>Use this to identify mowing customers later, build better reports, and keep recurring work organized.</div>
+                    </div>
 
                     <div>
                         <label>Scheduled Date</label>
