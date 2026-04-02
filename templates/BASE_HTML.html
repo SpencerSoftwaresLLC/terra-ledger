@@ -309,12 +309,14 @@ video {
 .notification-menu-wrap {
     position: relative;
     max-width: 100%;
+    flex: 0 0 auto;
 }
 
 .notification-bell-btn {
     position: relative;
-    min-width: 56px !important;
-    padding-right: 14px !important;
+    min-width: 44px !important;
+    width: 44px !important;
+    padding: 0 !important;
 }
 
 .notification-count {
@@ -340,9 +342,10 @@ video {
     display: none;
     position: absolute;
     right: 0;
+    left: auto;
     top: calc(100% + 8px);
-    min-width: 320px;
-    max-width: min(380px, calc(100vw - 20px));
+    width: 340px;
+    max-width: min(340px, calc(100vw - 16px - var(--safe-left) - var(--safe-right)));
     background: #fff;
     color: var(--text);
     border-radius: 12px;
@@ -362,15 +365,23 @@ video {
     gap: 8px;
 }
 
+.notification-menu-header strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .notification-menu-body {
     max-height: 420px;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 8px;
 }
 
 .notification-menu-item {
     display: block;
-    padding: 10px 10px;
+    padding: 10px;
     border-radius: 10px;
     text-decoration: none;
     color: inherit;
@@ -391,6 +402,7 @@ video {
     font-weight: 700;
     color: #0f172a;
     line-height: 1.25;
+    word-break: break-word;
 }
 
 .notification-menu-item-message {
@@ -405,6 +417,34 @@ video {
     margin-top: 6px;
     font-size: .78rem;
     color: #64748b;
+}
+
+@media (max-width: 640px) {
+    .notification-menu {
+        right: 0;
+        left: auto;
+        top: calc(100% + 6px);
+        width: min(300px, calc(100vw - 12px - var(--safe-left) - var(--safe-right)));
+        max-width: min(300px, calc(100vw - 12px - var(--safe-left) - var(--safe-right)));
+        min-width: 0;
+        border-radius: 12px;
+    }
+
+    .notification-menu-header {
+        padding: 10px 12px;
+    }
+
+    .notification-menu-body {
+        max-height: 320px;
+        padding: 8px;
+    }
+}
+
+@media (max-width: 420px) {
+    .notification-menu {
+        width: min(280px, calc(100vw - 10px - var(--safe-left) - var(--safe-right)));
+        max-width: min(280px, calc(100vw - 10px - var(--safe-left) - var(--safe-right)));
+    }
 }
 
 /* PAGE CONTAINER */
@@ -1205,22 +1245,22 @@ label {
 
             <div class="topbar-right">
                 <div class="notification-menu-wrap">
-                    <button id="notificationBellButton" class="btn secondary notification-bell-btn" type="button" title="Notifications">
-                        🔔
-                        <span id="notificationBellCount" class="notification-count" style="display:none;">0</span>
-                    </button>
+                <button id="notificationBellButton" class="btn secondary notification-bell-btn" type="button" title="Notifications">
+                    🔔
+                    <span id="notificationBellCount" class="notification-count" style="display:none;">0</span>
+                </button>
 
-                    <div id="notificationMenu" class="notification-menu">
-                        <div class="notification-menu-header">
-                            <strong>Notifications</strong>
-                            <a href="{{ url_for('notifications.notifications_page') }}" class="small" style="text-decoration:none;">View All</a>
-                        </div>
+                <div id="notificationMenu" class="notification-menu">
+                    <div class="notification-menu-header">
+                        <strong>Notifications</strong>
+                        <a href="/notifications" class="small" style="text-decoration:none;">View All</a>
+                    </div>
 
-                        <div id="notificationMenuBody" class="notification-menu-body">
-                            <div class="muted">Loading...</div>
-                        </div>
+                    <div id="notificationMenuBody" class="notification-menu-body">
+                        <div class="muted">Loading...</div>
                     </div>
                 </div>
+            </div>
 
                 <button class="btn secondary" type="button" onclick="openHelpAssistant()">Help</button>
 
