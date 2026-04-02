@@ -834,8 +834,6 @@ def jobs():
                         <select name='service_type' id='service_type'>
                             {service_type_select_options("mowing")}
                         </select>
-                        <div class='service-help'>Use this to identify mowing customers later, build better reports, and keep recurring work organized.</div>
-                    </div>
 
                     <div>
                         <label>Scheduled Date</label>
