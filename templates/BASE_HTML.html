@@ -1397,53 +1397,53 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     async function loadNotificationsIntoMenu() {
-        if (!notificationMenuBody) return;
+    if (!notificationMenuBody) return;
 
-        try {
-            const response = await fetch("{{ url_for('notifications.notifications_dropdown') }}", {
-                method: "GET",
-                headers: {
-                    "X-Requested-With": "XMLHttpRequest"
-                }
-            });
-
-            const data = await response.json();
-
-            if (!data.ok) {
-                notificationMenuBody.innerHTML = "<div class='muted' style='padding:8px;'>Unable to load notifications.</div>";
-                return;
+    try {
+        const response = await fetch("/notifications/dropdown", {
+            method: "GET",
+            headers: {
+                "X-Requested-With": "XMLHttpRequest"
             }
+        });
 
-            if (notificationBellCount) {
-                if (data.unread_count > 0) {
-                    notificationBellCount.style.display = "inline-flex";
-                    notificationBellCount.textContent = data.unread_count > 99 ? "99+" : String(data.unread_count);
-                } else {
-                    notificationBellCount.style.display = "none";
-                    notificationBellCount.textContent = "0";
-                }
-            }
+        const data = await response.json();
 
-            if (!data.items || !data.items.length) {
-                notificationMenuBody.innerHTML = "<div class='muted' style='padding:8px;'>No notifications yet.</div>";
-                return;
-            }
-
-            notificationMenuBody.innerHTML = data.items.map(item => {
-                const href = item.link && item.link.trim() ? item.link : "{{ url_for('notifications.notifications_page') }}";
-                const unreadClass = item.is_read ? "" : "unread";
-                return `
-                    <a href="${href}" class="notification-menu-item ${unreadClass}">
-                        <div class="notification-menu-item-title">${item.title || ""}</div>
-                        <div class="notification-menu-item-message">${item.message || ""}</div>
-                        <div class="notification-menu-item-meta">${item.created_at || ""}</div>
-                    </a>
-                `;
-            }).join("");
-        } catch (err) {
+        if (!data.ok) {
             notificationMenuBody.innerHTML = "<div class='muted' style='padding:8px;'>Unable to load notifications.</div>";
+            return;
         }
+
+        if (notificationBellCount) {
+            if (data.unread_count > 0) {
+                notificationBellCount.style.display = "inline-flex";
+                notificationBellCount.textContent = data.unread_count > 99 ? "99+" : String(data.unread_count);
+            } else {
+                notificationBellCount.style.display = "none";
+                notificationBellCount.textContent = "0";
+            }
+        }
+
+        if (!data.items || !data.items.length) {
+            notificationMenuBody.innerHTML = "<div class='muted' style='padding:8px;'>No notifications yet.</div>";
+            return;
+        }
+
+        notificationMenuBody.innerHTML = data.items.map(item => {
+            const href = item.link && item.link.trim() ? item.link : "/notifications";
+            const unreadClass = item.is_read ? "" : "unread";
+            return `
+                <a href="${href}" class="notification-menu-item ${unreadClass}">
+                    <div class="notification-menu-item-title">${item.title || ""}</div>
+                    <div class="notification-menu-item-message">${item.message || ""}</div>
+                    <div class="notification-menu-item-meta">${item.created_at || ""}</div>
+                </a>
+            `;
+        }).join("");
+    } catch (err) {
+        notificationMenuBody.innerHTML = "<div class='muted' style='padding:8px;'>Unable to load notifications.</div>";
     }
+}
 
     async function toggleNotificationMenu(e) {
         e.stopPropagation();
