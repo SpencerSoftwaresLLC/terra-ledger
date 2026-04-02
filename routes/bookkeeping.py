@@ -1340,7 +1340,7 @@ def _render_bookkeeping_page(conn, cid):
         yoy_html = f"""
         <div class='card'>
             <h2>Year over Year Comparison</h2>
-            <div class='static-table-wrap'>
+            <div class='static-table-wrap desktop-only'>
                 <table class='static-table summary-table'>
                     <colgroup>
                         <col style='width:25%;'>
@@ -1371,6 +1371,32 @@ def _render_bookkeeping_page(conn, cid):
                         </td>
                     </tr>
                 </table>
+            </div>
+
+            <div class='mobile-only'>
+                <div class='mobile-list'>
+                    <div class='mobile-list-card'>
+                        <div class='mobile-list-top'>
+                            <div class='mobile-list-title'>{prior_year}</div>
+                        </div>
+                        <div class='mobile-list-grid'>
+                            <div><span>Income</span><strong class='positive'>+${prior_income:.2f}</strong></div>
+                            <div><span>Expenses</span><strong class='negative'>-${prior_expense:.2f}</strong></div>
+                            <div><span>Net</span><strong class='{"positive" if prior_net >= 0 else "negative"}'>{'+' if prior_net >= 0 else '-'}${abs(prior_net):.2f}</strong></div>
+                        </div>
+                    </div>
+
+                    <div class='mobile-list-card'>
+                        <div class='mobile-list-top'>
+                            <div class='mobile-list-title'>{current_year}</div>
+                        </div>
+                        <div class='mobile-list-grid'>
+                            <div><span>Income</span><strong class='positive'>+${current_income:.2f}</strong></div>
+                            <div><span>Expenses</span><strong class='negative'>-${current_expense:.2f}</strong></div>
+                            <div><span>Net</span><strong class='{"positive" if current_net >= 0 else "negative"}'>{'+' if current_net >= 0 else '-'}${abs(current_net):.2f}</strong></div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
         """
@@ -1408,10 +1434,27 @@ def _render_bookkeeping_page(conn, cid):
         for cat, vals in sorted(category_totals.items())
     )
 
+    mobile_category_cards = "".join(
+        f"""
+        <div class='mobile-list-card'>
+            <div class='mobile-list-top'>
+                <div class='mobile-list-title'>{escape(cat)}</div>
+            </div>
+            <div class='mobile-list-grid'>
+                <div><span>Income</span><strong class='positive'>+${vals['Income']:.2f}</strong></div>
+                <div><span>Expenses</span><strong class='negative'>-${vals['Expense']:.2f}</strong></div>
+                <div><span>Net</span><strong class='{"positive" if (vals["Income"] - vals["Expense"]) >= 0 else "negative"}'>{'+' if (vals['Income'] - vals['Expense']) >= 0 else '-'}${abs(vals['Income'] - vals['Expense']):.2f}</strong></div>
+            </div>
+        </div>
+        """
+        for cat, vals in sorted(category_totals.items())
+    )
+
     category_html = f"""
     <div class='card'>
         <h2>P&amp;L by Category</h2>
-        <div class='static-table-wrap'>
+
+        <div class='static-table-wrap desktop-only'>
             <table class='static-table summary-table'>
                 <colgroup>
                     <col style='width:40%;'>
@@ -1428,22 +1471,35 @@ def _render_bookkeeping_page(conn, cid):
                 {category_rows or '<tr><td colspan="4" class="muted">No category data for this period.</td></tr>'}
             </table>
         </div>
+
+        <div class='mobile-only'>
+            <div class='mobile-list'>
+                {mobile_category_cards or "<div class='mobile-list-card muted'>No category data for this period.</div>"}
+            </div>
+        </div>
     </div>
     """
 
     ledger_row_html = []
+    mobile_ledger_cards = []
+
     for r in rows:
         source_html = escape(str(r.get("source_type") or "-"))
+        source_text = escape(str(r.get("source_type") or "-"))
 
         if r.get("invoice_id"):
             source_html = f"<a class='btn secondary small' href='{url_for('invoices.view_invoice', invoice_id=r.get('invoice_id'))}'>Open Invoice</a>"
+            source_text = "Invoice"
         elif r.get("job_id"):
             source_html = f"<a class='btn secondary small' href='{url_for('jobs.view_job', job_id=r.get('job_id'))}'>Open Job</a>"
+            source_text = "Job"
         elif r.get("source_type") == "payroll" and r.get("employee_id"):
             try:
                 source_html = f"<a class='btn secondary small' href='{url_for('employees.view_employee', employee_id=r.get('employee_id'))}'>Open Employee</a>"
+                source_text = "Payroll"
             except Exception:
                 source_html = "Payroll"
+                source_text = "Payroll"
 
         actions = [
             f"<a class='btn secondary small' href='{url_for('bookkeeping.view_bookkeeping_entry', entry_id=r.get('id'))}'>View</a>"
@@ -1464,6 +1520,8 @@ def _render_bookkeeping_page(conn, cid):
             )
 
         actions_html = "".join(actions)
+        amount_class = "positive" if r.get("entry_type") == "Income" else "negative"
+        amount_text = f"{'+' if r.get('entry_type') == 'Income' else '-'}${abs(_safe_float(r.get('amount'))):.2f}"
 
         ledger_row_html.append(
             f"""
@@ -1472,9 +1530,7 @@ def _render_bookkeeping_page(conn, cid):
                 <td>{escape(str(r.get('entry_type') or '-'))}</td>
                 <td class='wrap'>{escape(str(r.get('category') or '-'))}</td>
                 <td class='wrap'>{escape(str(r.get('description') or '-'))}</td>
-                <td class='money {"positive" if r.get("entry_type") == "Income" else "negative"}'>
-                    {'+' if r.get('entry_type') == 'Income' else '-'}${abs(_safe_float(r.get('amount'))):.2f}
-                </td>
+                <td class='money {amount_class}'>{amount_text}</td>
                 <td class='center'>{source_html}</td>
                 <td class='wrap'>
                     <div class='static-actions'>{actions_html}</div>
@@ -1483,7 +1539,42 @@ def _render_bookkeeping_page(conn, cid):
             """
         )
 
+        mobile_ledger_cards.append(
+            f"""
+            <div class='mobile-list-card'>
+                <div class='mobile-list-top'>
+                    <div>
+                        <div class='mobile-list-title'>{escape(str(r.get('description') or '-'))}</div>
+                        <div class='mobile-list-subtitle'>{escape(str(r.get('entry_date') or '-'))}</div>
+                    </div>
+                    <div class='mobile-badge'>{escape(str(r.get('entry_type') or '-'))}</div>
+                </div>
+
+                <div class='mobile-list-grid'>
+                    <div>
+                        <span>Category</span>
+                        <strong>{escape(str(r.get('category') or '-'))}</strong>
+                    </div>
+                    <div>
+                        <span>Amount</span>
+                        <strong class='{amount_class}'>{amount_text}</strong>
+                    </div>
+                    <div>
+                        <span>Source</span>
+                        <strong>{source_text}</strong>
+                    </div>
+                </div>
+
+                <div class='mobile-list-actions'>
+                    {source_html if "<a " in source_html else ""}
+                    {actions_html}
+                </div>
+            </div>
+            """
+        )
+
     ledger_rows = "".join(ledger_row_html)
+    mobile_ledger_html = "".join(mobile_ledger_cards)
 
     filter_bar = f"""
     <div class='card'>
@@ -1594,6 +1685,14 @@ def _render_bookkeeping_page(conn, cid):
 
     content = f"""
     <style>
+        .desktop-only {{
+            display: block;
+        }}
+
+        .mobile-only {{
+            display: none;
+        }}
+
         .static-table-wrap {{
             width: 100%;
         }}
@@ -1680,11 +1779,113 @@ def _render_bookkeeping_page(conn, cid):
             color: #dc2626;
             font-weight: 700;
         }}
+
+        .mobile-list {{
+            display: grid;
+            gap: 12px;
+        }}
+
+        .mobile-list-card {{
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 14px;
+            padding: 14px;
+            background: #fff;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }}
+
+        .mobile-list-top {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 10px;
+        }}
+
+        .mobile-list-title {{
+            font-weight: 700;
+            color: #0f172a;
+            line-height: 1.25;
+            word-break: break-word;
+        }}
+
+        .mobile-list-subtitle {{
+            margin-top: 4px;
+            font-size: .9rem;
+            color: #64748b;
+            line-height: 1.25;
+            word-break: break-word;
+        }}
+
+        .mobile-badge {{
+            font-size: .85rem;
+            font-weight: 700;
+            color: #334155;
+            background: #f1f5f9;
+            padding: 6px 10px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }}
+
+        .mobile-list-grid {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px 12px;
+            margin-bottom: 12px;
+        }}
+
+        .mobile-list-grid span {{
+            display: block;
+            font-size: .78rem;
+            color: #64748b;
+            margin-bottom: 3px;
+        }}
+
+        .mobile-list-grid strong {{
+            display: block;
+            color: #0f172a;
+            font-size: .95rem;
+            line-height: 1.25;
+            word-break: break-word;
+        }}
+
+        .mobile-list-actions {{
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }}
+
+        @media (max-width: 900px) {{
+            .summary-cards {{
+                grid-template-columns: 1fr !important;
+            }}
+        }}
+
+        @media (max-width: 640px) {{
+            .desktop-only {{
+                display: none !important;
+            }}
+
+            .mobile-only {{
+                display: block !important;
+            }}
+
+            .mobile-list-grid {{
+                grid-template-columns: 1fr;
+            }}
+
+            .mobile-list-actions .btn,
+            .mobile-list-actions a,
+            .mobile-list-actions button {{
+                width: 100%;
+                text-align: center;
+            }}
+        }}
     </style>
 
     {filter_bar}
 
-    <div style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:16px; margin-bottom:20px;">
+    <div class="summary-cards" style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:16px; margin-bottom:20px;">
         <div class='card'>
             <h3>Total Income</h3>
             <div style="color:#16a34a; font-weight:700; font-size:1.4rem;">+${income:.2f}</div>
@@ -1707,7 +1908,8 @@ def _render_bookkeeping_page(conn, cid):
 
     <div class='card'>
         <h2>Ledger Entries</h2>
-        <div class='static-table-wrap'>
+
+        <div class='static-table-wrap desktop-only'>
             <table class='static-table'>
                 <colgroup>
                     <col style='width:10%;'>
@@ -1733,6 +1935,12 @@ def _render_bookkeeping_page(conn, cid):
                     {ledger_rows or '<tr><td colspan="7" class="muted">No bookkeeping entries for this period.</td></tr>'}
                 </tbody>
             </table>
+        </div>
+
+        <div class='mobile-only'>
+            <div class='mobile-list'>
+                {mobile_ledger_html or "<div class='mobile-list-card muted'>No bookkeeping entries for this period.</div>"}
+            </div>
         </div>
     </div>
 

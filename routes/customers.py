@@ -57,9 +57,6 @@ def customers():
         company = escape((r["company"] or "").strip()) if "company" in r.keys() and r["company"] else "-"
         phone = escape((r["phone"] or "").strip()) if "phone" in r.keys() and r["phone"] else "-"
         email = escape((r["email"] or "").strip()) if "email" in r.keys() and r["email"] else "-"
-        billing_address = escape((r["billing_address"] or "").strip()) if "billing_address" in r.keys() and r["billing_address"] else "-"
-        service_address = escape((r["service_address"] or "").strip()) if "service_address" in r.keys() and r["service_address"] else "-"
-
         delete_csrf = generate_csrf()
 
         customer_rows += f"""
@@ -88,16 +85,11 @@ def customers():
         mobile_cards += f"""
         <div class="mobile-list-card">
             <div class="mobile-list-top">
-                <div class="mobile-list-title">{escape(display_name)}</div>
+                <div>
+                    <div class="mobile-list-title">{escape(display_name)}</div>
+                    <div class="mobile-list-subtitle">{phone}</div>
+                </div>
                 <div class="mobile-badge">#{customer_id}</div>
-            </div>
-
-            <div class="mobile-list-grid">
-                <div><span>Company</span><strong>{company}</strong></div>
-                <div><span>Phone</span><strong>{phone}</strong></div>
-                <div><span>Email</span><strong>{email}</strong></div>
-                <div><span>Billing Address</span><strong>{billing_address}</strong></div>
-                <div><span>Service Address</span><strong>{service_address}</strong></div>
             </div>
 
             <div class="mobile-list-actions">
@@ -170,6 +162,14 @@ def customers():
             word-break: break-word;
         }}
 
+        .mobile-list-subtitle {{
+            margin-top: 4px;
+            font-size: .92rem;
+            color: #64748b;
+            line-height: 1.25;
+            word-break: break-word;
+        }}
+
         .mobile-badge {{
             font-size: .85rem;
             font-weight: 700;
@@ -178,28 +178,6 @@ def customers():
             padding: 6px 10px;
             border-radius: 999px;
             white-space: nowrap;
-        }}
-
-        .mobile-list-grid {{
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px 12px;
-            margin-bottom: 12px;
-        }}
-
-        .mobile-list-grid span {{
-            display: block;
-            font-size: .78rem;
-            color: #64748b;
-            margin-bottom: 3px;
-        }}
-
-        .mobile-list-grid strong {{
-            display: block;
-            color: #0f172a;
-            font-size: .95rem;
-            line-height: 1.25;
-            word-break: break-word;
         }}
 
         .mobile-list-actions {{
@@ -217,8 +195,11 @@ def customers():
                 display: block !important;
             }}
 
-            .mobile-list-grid {{
-                grid-template-columns: 1fr;
+            .mobile-list-actions .btn,
+            .mobile-list-actions a,
+            .mobile-list-actions button {{
+                width: 100%;
+                text-align: center;
             }}
         }}
     </style>

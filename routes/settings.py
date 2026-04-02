@@ -781,6 +781,8 @@ def settings_1099():
 
     cid = session["company_id"]
     year = (request.args.get("year") or str(datetime.utcnow().year)).strip()
+    if not year.isdigit():
+        year = str(datetime.utcnow().year)
 
     conn = get_db_connection()
 
@@ -796,10 +798,13 @@ def settings_1099():
 
     for c in contractors:
         total = conn.execute("""
-            SELECT COALESCE(SUM(amount), 0) as total
-            FROM invoice_payments
-            WHERE company_id = %s AND customer_id = %s
-        """, (cid, c["id"])).fetchone()
+            SELECT COALESCE(SUM(ip.amount), 0) AS total
+            FROM invoice_payments ip
+            JOIN invoices i ON ip.invoice_id = i.id
+            WHERE ip.company_id = %s
+              AND i.company_id = %s
+              AND i.customer_id = %s
+        """, (cid, cid, c["id"])).fetchone()
 
         total_amt = float(total["total"] or 0)
         contractor_name = escape(c["name"] or "Unnamed Contractor")
@@ -1005,11 +1010,19 @@ def print_1099(contractor_id):
         WHERE id = %s AND company_id = %s
     """, (contractor_id, cid)).fetchone()
 
+    if not contractor:
+        conn.close()
+        flash("Contractor not found.")
+        return redirect(url_for("settings.settings_1099"))
+
     total = conn.execute("""
-        SELECT COALESCE(SUM(amount), 0) as total
-        FROM invoice_payments
-        WHERE company_id = %s AND customer_id = %s
-    """, (cid, contractor_id)).fetchone()
+        SELECT COALESCE(SUM(ip.amount), 0) AS total
+        FROM invoice_payments ip
+        JOIN invoices i ON ip.invoice_id = i.id
+        WHERE ip.company_id = %s
+          AND i.company_id = %s
+          AND i.customer_id = %s
+    """, (cid, cid, contractor_id)).fetchone()
 
     conn.close()
 

@@ -21,6 +21,7 @@ from db import get_db_connection, table_columns
 from decorators import login_required, require_permission, subscription_required
 from page_helpers import render_page
 from extensions import csrf
+from routes.notifications import create_notification
 
 
 messages_bp = Blueprint("messages", __name__)
@@ -911,6 +912,15 @@ def process_job_reminders():
                 provider_message_id=provider_message_id,
                 automation_key=automation_key,
             )
+
+            create_notification(
+                company_id=row["company_id"],
+                user_id=None,
+                notif_type="message",
+                title="Job reminder sent",
+                message=f"Reminder sent to {phone_number} for {row.get('job_title') or 'scheduled job'}.",
+                link=url_for("messages.messages_page"),
+            )
         else:
             failed_count += 1
             insert_message_log(
@@ -924,6 +934,15 @@ def process_job_reminders():
                 provider="twilio",
                 automation_key=automation_key,
                 error_message=error_message,
+            )
+
+            create_notification(
+                company_id=row["company_id"],
+                user_id=None,
+                notif_type="message",
+                title="Job reminder failed",
+                message=f"Reminder to {phone_number} failed: {error_message}",
+                link=url_for("messages.messages_page"),
             )
 
     return {"sent": sent_count, "failed": failed_count, "checked": checked}
@@ -1042,6 +1061,15 @@ def process_late_invoice_reminders():
                 provider_message_id=provider_message_id,
                 automation_key=automation_key,
             )
+
+            create_notification(
+                company_id=row["company_id"],
+                user_id=None,
+                notif_type="message",
+                title="Late invoice reminder sent",
+                message=f"Reminder sent to {phone_number} for invoice {row.get('invoice_number') or ''}.",
+                link=url_for("messages.messages_page"),
+            )
         else:
             failed_count += 1
             insert_message_log(
@@ -1055,6 +1083,15 @@ def process_late_invoice_reminders():
                 provider="twilio",
                 automation_key=automation_key,
                 error_message=error_message,
+            )
+
+            create_notification(
+                company_id=row["company_id"],
+                user_id=None,
+                notif_type="message",
+                title="Late invoice reminder failed",
+                message=f"Reminder to {phone_number} failed: {error_message}",
+                link=url_for("messages.messages_page"),
             )
 
     return {"sent": sent_count, "failed": failed_count, "checked": checked}
@@ -1652,6 +1689,16 @@ def send_message():
             provider_message_id=provider_message_id,
             sent_by_user_id=user_id,
         )
+
+        create_notification(
+            company_id=company_id,
+            user_id=None,
+            notif_type="message",
+            title="Message sent",
+            message=f"Message sent to {phone_number}.",
+            link=url_for("messages.messages_page"),
+        )
+
         flash("Message sent successfully.")
     else:
         insert_message_log(
@@ -1665,6 +1712,16 @@ def send_message():
             sent_by_user_id=user_id,
             error_message=error_message,
         )
+
+        create_notification(
+            company_id=company_id,
+            user_id=None,
+            notif_type="message",
+            title="Message failed",
+            message=f"Message to {phone_number} failed: {error_message}",
+            link=url_for("messages.messages_page"),
+        )
+
         flash(f"Message failed: {error_message}")
 
     return redirect(url_for("messages.messages_page"))
@@ -1754,6 +1811,21 @@ def incoming_message_webhook():
             status="received",
             provider="twilio",
             provider_message_id=provider_message_id,
+        )
+
+        customer_name = ""
+        if matched_customer_id:
+            customer = find_customer_by_phone(matched_company_id, from_number)
+            if customer:
+                customer_name = _safe_text(customer.get("name"))
+
+        create_notification(
+            company_id=matched_company_id,
+            user_id=None,
+            notif_type="message",
+            title="New inbound message",
+            message=f"{customer_name or from_number}: {body[:120]}",
+            link=url_for("messages.messages_page"),
         )
 
     resp = MessagingResponse()

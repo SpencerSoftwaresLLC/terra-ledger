@@ -305,6 +305,108 @@ video {
     background: var(--bg-soft);
 }
 
+/* NOTIFICATIONS */
+.notification-menu-wrap {
+    position: relative;
+    max-width: 100%;
+}
+
+.notification-bell-btn {
+    position: relative;
+    min-width: 56px !important;
+    padding-right: 14px !important;
+}
+
+.notification-count {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    min-width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 800;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 6px;
+    line-height: 1;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+}
+
+.notification-menu {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    min-width: 320px;
+    max-width: min(380px, calc(100vw - 20px));
+    background: #fff;
+    color: var(--text);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(47, 79, 31, 0.18);
+    overflow: hidden;
+    z-index: 9999;
+    border: 1px solid var(--border);
+}
+
+.notification-menu-header {
+    padding: 12px 14px;
+    border-bottom: 1px solid #e4eadf;
+    background: #f8fbf5;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.notification-menu-body {
+    max-height: 420px;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+.notification-menu-item {
+    display: block;
+    padding: 10px 10px;
+    border-radius: 10px;
+    text-decoration: none;
+    color: inherit;
+    border: 1px solid transparent;
+    margin-bottom: 8px;
+}
+
+.notification-menu-item:hover {
+    background: var(--bg-soft);
+}
+
+.notification-menu-item.unread {
+    border-color: #d2e4c6;
+    background: #f8fcf6;
+}
+
+.notification-menu-item-title {
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.25;
+}
+
+.notification-menu-item-message {
+    margin-top: 4px;
+    font-size: .9rem;
+    color: #475569;
+    line-height: 1.35;
+    word-break: break-word;
+}
+
+.notification-menu-item-meta {
+    margin-top: 6px;
+    font-size: .78rem;
+    color: #64748b;
+}
+
 /* PAGE CONTAINER */
 .container {
     width: 100%;
@@ -807,6 +909,12 @@ label {
         max-width: calc(100vw - 16px - var(--safe-left) - var(--safe-right));
     }
 
+    .notification-menu {
+        top: calc(100% + 6px);
+        min-width: 290px;
+        max-width: calc(100vw - 16px - var(--safe-left) - var(--safe-right));
+    }
+
     .grid,
     .stats-grid,
     .dashboard-grid,
@@ -976,6 +1084,13 @@ label {
         max-width: calc(100vw - 20px - var(--safe-left) - var(--safe-right));
     }
 
+    .notification-menu {
+        right: 0;
+        left: auto;
+        min-width: 260px;
+        max-width: calc(100vw - 20px - var(--safe-left) - var(--safe-right));
+    }
+
     .page-content-inner table,
     .page-content-inner .static-table,
     .page-content-inner .table {
@@ -1033,6 +1148,10 @@ label {
     #companyMenuTop {
         min-width: 240px;
     }
+
+    .notification-menu {
+        min-width: 240px;
+    }
 }
 </style>
 </head>
@@ -1085,6 +1204,24 @@ label {
             </div>
 
             <div class="topbar-right">
+                <div class="notification-menu-wrap">
+                    <button id="notificationBellButton" class="btn secondary notification-bell-btn" type="button" title="Notifications">
+                        🔔
+                        <span id="notificationBellCount" class="notification-count" style="display:none;">0</span>
+                    </button>
+
+                    <div id="notificationMenu" class="notification-menu">
+                        <div class="notification-menu-header">
+                            <strong>Notifications</strong>
+                            <a href="{{ url_for('notifications.notifications_page') }}" class="small" style="text-decoration:none;">View All</a>
+                        </div>
+
+                        <div id="notificationMenuBody" class="notification-menu-body">
+                            <div class="muted">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+
                 <button class="btn secondary" type="button" onclick="openHelpAssistant()">Help</button>
 
                 <div class="company-menu-wrap">
@@ -1182,6 +1319,11 @@ document.addEventListener("DOMContentLoaded", function () {
     const mobileSidebarOverlay = document.getElementById("mobileSidebarOverlay");
     const helpOverlay = document.getElementById("helpAssistantOverlay");
 
+    const notificationBellButton = document.getElementById("notificationBellButton");
+    const notificationMenu = document.getElementById("notificationMenu");
+    const notificationMenuBody = document.getElementById("notificationMenuBody");
+    const notificationBellCount = document.getElementById("notificationBellCount");
+
     function blurActiveElement() {
         const active = document.activeElement;
         if (!active) return;
@@ -1202,16 +1344,90 @@ document.addEventListener("DOMContentLoaded", function () {
         if (topMenu) topMenu.style.display = "none";
     }
 
+    function closeNotificationMenu() {
+        if (notificationMenu) notificationMenu.style.display = "none";
+    }
+
     function toggleCompanyMenu(e) {
         e.stopPropagation();
         blurActiveElement();
+        closeNotificationMenu();
         if (!topMenu) return;
         topMenu.style.display = topMenu.style.display === "block" ? "none" : "block";
+    }
+
+    async function loadNotificationsIntoMenu() {
+        if (!notificationMenuBody) return;
+
+        try {
+            const response = await fetch("{{ url_for('notifications.notifications_dropdown') }}", {
+                method: "GET",
+                headers: {
+                    "X-Requested-With": "XMLHttpRequest"
+                }
+            });
+
+            const data = await response.json();
+
+            if (!data.ok) {
+                notificationMenuBody.innerHTML = "<div class='muted' style='padding:8px;'>Unable to load notifications.</div>";
+                return;
+            }
+
+            if (notificationBellCount) {
+                if (data.unread_count > 0) {
+                    notificationBellCount.style.display = "inline-flex";
+                    notificationBellCount.textContent = data.unread_count > 99 ? "99+" : String(data.unread_count);
+                } else {
+                    notificationBellCount.style.display = "none";
+                    notificationBellCount.textContent = "0";
+                }
+            }
+
+            if (!data.items || !data.items.length) {
+                notificationMenuBody.innerHTML = "<div class='muted' style='padding:8px;'>No notifications yet.</div>";
+                return;
+            }
+
+            notificationMenuBody.innerHTML = data.items.map(item => {
+                const href = item.link && item.link.trim() ? item.link : "{{ url_for('notifications.notifications_page') }}";
+                const unreadClass = item.is_read ? "" : "unread";
+                return `
+                    <a href="${href}" class="notification-menu-item ${unreadClass}">
+                        <div class="notification-menu-item-title">${item.title || ""}</div>
+                        <div class="notification-menu-item-message">${item.message || ""}</div>
+                        <div class="notification-menu-item-meta">${item.created_at || ""}</div>
+                    </a>
+                `;
+            }).join("");
+        } catch (err) {
+            notificationMenuBody.innerHTML = "<div class='muted' style='padding:8px;'>Unable to load notifications.</div>";
+        }
+    }
+
+    async function toggleNotificationMenu(e) {
+        e.stopPropagation();
+        blurActiveElement();
+        closeCompanyMenu();
+
+        if (!notificationMenu) return;
+
+        const isOpen = notificationMenu.style.display === "block";
+
+        if (isOpen) {
+            closeNotificationMenu();
+            return;
+        }
+
+        notificationMenu.style.display = "block";
+        notificationMenuBody.innerHTML = "<div class='muted' style='padding:8px;'>Loading...</div>";
+        await loadNotificationsIntoMenu();
     }
 
     function openSidebar() {
         blurActiveElement();
         closeCompanyMenu();
+        closeNotificationMenu();
         body.classList.add("sidebar-open");
     }
 
@@ -1232,6 +1448,16 @@ document.addEventListener("DOMContentLoaded", function () {
         topButton.addEventListener("click", toggleCompanyMenu);
 
         topMenu.addEventListener("click", function (e) {
+            e.stopPropagation();
+        });
+    }
+
+    if (notificationBellButton) {
+        notificationBellButton.addEventListener("click", toggleNotificationMenu);
+    }
+
+    if (notificationMenu) {
+        notificationMenu.addEventListener("click", function (e) {
             e.stopPropagation();
         });
     }
@@ -1271,11 +1497,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
     document.addEventListener("click", function () {
         closeCompanyMenu();
+        closeNotificationMenu();
     });
 
     document.addEventListener("keydown", function (e) {
         if (e.key === "Escape") {
             closeCompanyMenu();
+            closeNotificationMenu();
             closeSidebar();
             if (typeof closeHelpAssistant === "function") {
                 closeHelpAssistant();
@@ -1296,6 +1524,9 @@ document.addEventListener("DOMContentLoaded", function () {
             closeSidebar();
         }
     });
+
+    loadNotificationsIntoMenu();
+    setInterval(loadNotificationsIntoMenu, 30000);
 });
 </script>
 
