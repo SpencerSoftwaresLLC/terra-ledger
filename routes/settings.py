@@ -114,10 +114,12 @@ def get_company_profile_values(profile):
         "website": website,
         "address_line_1": address_line_1,
         "address_line_2": address_line_2,
+        "address": address_line_1,
         "city": city,
         "state": state,
         "county": county,
         "zip_code": zip_code,
+        "state_tax_id": state_employer_id,
         "invoice_header_name": invoice_header_name,
         "quote_header_name": quote_header_name,
         "invoice_footer_note": invoice_footer_note,
@@ -1077,7 +1079,7 @@ def settings_1099():
 
             <div class='mobile-list-grid'>
                 <div>
-                    <span>Total Paid</span>
+                    <span>Nonemployee Comp</span>
                     <strong>${total_amt:,.2f}</strong>
                 </div>
             </div>
@@ -1194,7 +1196,7 @@ def settings_1099():
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
             <div>
                 <h1>1099 Center</h1>
-                <p class='muted' style='margin:0;'>Generate 1099 forms for contractors.</p>
+                <p class='muted' style='margin:0;'>Generate 1099-NEC forms for contractors paid through invoices.</p>
             </div>
             <div class='row-actions'>
                 <a class='btn secondary' href='{url_for("settings.settings")}'>Back to Settings</a>
@@ -1209,19 +1211,19 @@ def settings_1099():
                     <tr>
                         <th>Contractor</th>
                         <th>Email</th>
-                        <th>Total Paid</th>
+                        <th>Nonemployee Comp</th>
                         <th>Form</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {rows_html or "<tr><td colspan='4' class='muted'>No contractors found</td></tr>"}
+                    {rows_html or "<tr><td colspan='4' class='muted'>No contractors paid through invoices were found</td></tr>"}
                 </tbody>
             </table>
         </div>
 
         <div class='mobile-only'>
             <div class='mobile-list'>
-                {mobile_cards or "<div class='mobile-list-card muted'>No contractors found</div>"}
+                {mobile_cards or "<div class='mobile-list-card muted'>No contractors paid through invoices were found</div>"}
             </div>
         </div>
     </div>
@@ -1401,12 +1403,12 @@ def settings():
 
             <div class="card settings-card">
                 <div class="settings-card-head">
-                    <h3>Year-End / W-2</h3>
+                    <h3>Year-End / W-2 / 1099</h3>
                     <span class="settings-badge">Payroll</span>
                 </div>
-                <p class="muted">Review yearly payroll totals, manage W-2 company filing settings, and generate printable year-end summaries.</p>
+                <p class="muted">Review yearly payroll totals, manage W-2 company filing settings, generate W-3 and SSA exports, and open the 1099 center.</p>
                 <div class="settings-actions">
-                    <a class="btn success" href="{url_for('settings.settings_w2')}">Open W-2 Center</a>
+                    <a class="btn success" href="{url_for('settings.settings_w2')}">Open Year-End Center</a>
                 </div>
             </div>
 
@@ -2157,8 +2159,8 @@ def settings_w2():
     </style>
 
     <div class='card'>
-        <h1>W-2 Center</h1>
-        <p class='muted'>Manage W-2s, filings, and year-end payroll reports.</p>
+        <h1>Year-End Center</h1>
+        <p class='muted'>Manage W-2s, W-3, SSA export files, 1099s, and year-end payroll reports.</p>
     </div>
 
     {readiness_card}
@@ -2202,6 +2204,9 @@ def settings_w2():
 
                         <a href='{url_for("settings.settings_w2_company")}'
                            style='display:block; padding:10px;'>Company Profile</a>
+
+                        <a href='{url_for("settings.settings_1099", year=year)}'
+                           style='display:block; padding:10px;'>Open 1099 Center</a>
 
                     </div>
                 </div>
