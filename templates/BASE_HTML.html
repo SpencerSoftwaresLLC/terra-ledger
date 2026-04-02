@@ -308,7 +308,6 @@ video {
 /* NOTIFICATIONS */
 .notification-menu-wrap {
     position: relative;
-    max-width: 100%;
     flex: 0 0 auto;
 }
 
@@ -316,6 +315,7 @@ video {
     position: relative;
     min-width: 44px !important;
     width: 44px !important;
+    height: 38px !important;
     padding: 0 !important;
 }
 
@@ -345,7 +345,7 @@ video {
     left: auto;
     top: calc(100% + 8px);
     width: 340px;
-    max-width: min(340px, calc(100vw - 16px - var(--safe-left) - var(--safe-right)));
+    max-width: 340px;
     background: #fff;
     color: var(--text);
     border-radius: 12px;
@@ -421,12 +421,13 @@ video {
 
 @media (max-width: 640px) {
     .notification-menu {
-        right: 0;
-        left: auto;
-        top: calc(100% + 6px);
-        width: min(300px, calc(100vw - 12px - var(--safe-left) - var(--safe-right)));
-        max-width: min(300px, calc(100vw - 12px - var(--safe-left) - var(--safe-right)));
-        min-width: 0;
+        position: fixed !important;
+        top: calc(56px + var(--safe-top)) !important;
+        right: 8px !important;
+        left: 8px !important;
+        width: auto !important;
+        max-width: none !important;
+        min-width: 0 !important;
         border-radius: 12px;
     }
 
@@ -437,13 +438,6 @@ video {
     .notification-menu-body {
         max-height: 320px;
         padding: 8px;
-    }
-}
-
-@media (max-width: 420px) {
-    .notification-menu {
-        width: min(280px, calc(100vw - 10px - var(--safe-left) - var(--safe-right)));
-        max-width: min(280px, calc(100vw - 10px - var(--safe-left) - var(--safe-right)));
     }
 }
 
@@ -949,12 +943,6 @@ label {
         max-width: calc(100vw - 16px - var(--safe-left) - var(--safe-right));
     }
 
-    .notification-menu {
-        top: calc(100% + 6px);
-        min-width: 290px;
-        max-width: calc(100vw - 16px - var(--safe-left) - var(--safe-right));
-    }
-
     .grid,
     .stats-grid,
     .dashboard-grid,
@@ -1124,13 +1112,6 @@ label {
         max-width: calc(100vw - 20px - var(--safe-left) - var(--safe-right));
     }
 
-    .notification-menu {
-        right: 0;
-        left: auto;
-        min-width: 260px;
-        max-width: calc(100vw - 20px - var(--safe-left) - var(--safe-right));
-    }
-
     .page-content-inner table,
     .page-content-inner .static-table,
     .page-content-inner .table {
@@ -1188,10 +1169,6 @@ label {
     #companyMenuTop {
         min-width: 240px;
     }
-
-    .notification-menu {
-        min-width: 240px;
-    }
 }
 </style>
 </head>
@@ -1245,22 +1222,22 @@ label {
 
             <div class="topbar-right">
                 <div class="notification-menu-wrap">
-                <button id="notificationBellButton" class="btn secondary notification-bell-btn" type="button" title="Notifications">
-                    🔔
-                    <span id="notificationBellCount" class="notification-count" style="display:none;">0</span>
-                </button>
+                    <button id="notificationBellButton" class="btn secondary notification-bell-btn" type="button" title="Notifications">
+                        🔔
+                        <span id="notificationBellCount" class="notification-count" style="display:none;">0</span>
+                    </button>
 
-                <div id="notificationMenu" class="notification-menu">
-                    <div class="notification-menu-header">
-                        <strong>Notifications</strong>
-                        <a href="/notifications" class="small" style="text-decoration:none;">View All</a>
-                    </div>
+                    <div id="notificationMenu" class="notification-menu">
+                        <div class="notification-menu-header">
+                            <strong>Notifications</strong>
+                            <a href="/notifications" class="small" style="text-decoration:none;">View All</a>
+                        </div>
 
-                    <div id="notificationMenuBody" class="notification-menu-body">
-                        <div class="muted">Loading...</div>
+                        <div id="notificationMenuBody" class="notification-menu-body">
+                            <div class="muted">Loading...</div>
+                        </div>
                     </div>
                 </div>
-            </div>
 
                 <button class="btn secondary" type="button" onclick="openHelpAssistant()">Help</button>
 
@@ -1397,53 +1374,53 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     async function loadNotificationsIntoMenu() {
-    if (!notificationMenuBody) return;
+        if (!notificationMenuBody) return;
 
-    try {
-        const response = await fetch("/notifications/dropdown", {
-            method: "GET",
-            headers: {
-                "X-Requested-With": "XMLHttpRequest"
+        try {
+            const response = await fetch("/notifications/dropdown", {
+                method: "GET",
+                headers: {
+                    "X-Requested-With": "XMLHttpRequest"
+                }
+            });
+
+            const data = await response.json();
+
+            if (!data.ok) {
+                notificationMenuBody.innerHTML = "<div class='muted' style='padding:8px;'>Unable to load notifications.</div>";
+                return;
             }
-        });
 
-        const data = await response.json();
+            if (notificationBellCount) {
+                if (data.unread_count > 0) {
+                    notificationBellCount.style.display = "inline-flex";
+                    notificationBellCount.textContent = data.unread_count > 99 ? "99+" : String(data.unread_count);
+                } else {
+                    notificationBellCount.style.display = "none";
+                    notificationBellCount.textContent = "0";
+                }
+            }
 
-        if (!data.ok) {
+            if (!data.items || !data.items.length) {
+                notificationMenuBody.innerHTML = "<div class='muted' style='padding:8px;'>No notifications yet.</div>";
+                return;
+            }
+
+            notificationMenuBody.innerHTML = data.items.map(item => {
+                const href = item.link && item.link.trim() ? item.link : "/notifications";
+                const unreadClass = item.is_read ? "" : "unread";
+                return `
+                    <a href="${href}" class="notification-menu-item ${unreadClass}">
+                        <div class="notification-menu-item-title">${item.title || ""}</div>
+                        <div class="notification-menu-item-message">${item.message || ""}</div>
+                        <div class="notification-menu-item-meta">${item.created_at || ""}</div>
+                    </a>
+                `;
+            }).join("");
+        } catch (err) {
             notificationMenuBody.innerHTML = "<div class='muted' style='padding:8px;'>Unable to load notifications.</div>";
-            return;
         }
-
-        if (notificationBellCount) {
-            if (data.unread_count > 0) {
-                notificationBellCount.style.display = "inline-flex";
-                notificationBellCount.textContent = data.unread_count > 99 ? "99+" : String(data.unread_count);
-            } else {
-                notificationBellCount.style.display = "none";
-                notificationBellCount.textContent = "0";
-            }
-        }
-
-        if (!data.items || !data.items.length) {
-            notificationMenuBody.innerHTML = "<div class='muted' style='padding:8px;'>No notifications yet.</div>";
-            return;
-        }
-
-        notificationMenuBody.innerHTML = data.items.map(item => {
-            const href = item.link && item.link.trim() ? item.link : "/notifications";
-            const unreadClass = item.is_read ? "" : "unread";
-            return `
-                <a href="${href}" class="notification-menu-item ${unreadClass}">
-                    <div class="notification-menu-item-title">${item.title || ""}</div>
-                    <div class="notification-menu-item-message">${item.message || ""}</div>
-                    <div class="notification-menu-item-meta">${item.created_at || ""}</div>
-                </a>
-            `;
-        }).join("");
-    } catch (err) {
-        notificationMenuBody.innerHTML = "<div class='muted' style='padding:8px;'>Unable to load notifications.</div>";
     }
-}
 
     async function toggleNotificationMenu(e) {
         e.stopPropagation();
@@ -1562,6 +1539,7 @@ document.addEventListener("DOMContentLoaded", function () {
     window.addEventListener("resize", function () {
         if (window.innerWidth > 820) {
             closeSidebar();
+            closeNotificationMenu();
         }
     });
 
