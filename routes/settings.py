@@ -1261,11 +1261,11 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
 
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=landscape(letter))
-    width, height = landscape(letter)
+    page_w, page_h = landscape(letter)
 
-    # Scale so the whole form fits well in browser viewers
-    scale = 0.86
-    pdf.translate((width * (1 - scale)) / 2, (height * (1 - scale)) / 2)
+    # Slight scale-down so the whole form fits comfortably in browser viewers
+    scale = 0.83
+    pdf.translate((page_w * (1 - scale)) / 2, (page_h * (1 - scale)) / 2)
     pdf.scale(scale, scale)
 
     company_values = get_company_profile_values(company_profile or {})
@@ -1370,10 +1370,14 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
     recipient_state = contractor.get("state") or ""
     recipient_zip = contractor.get("zip_code") or ""
 
+    account_number = contractor.get("account_number") or contractor.get("vendor_number") or ""
+    direct_sales_checked = bool(contractor.get("direct_sales"))
+
     nonemployee_comp = float(summary.get("nonemployee_comp", 0) or 0)
     federal_withholding = float(summary.get("federal_withholding", 0) or 0)
     state_tax_withheld = float(summary.get("state_tax_withheld", 0) or 0)
     state_income = float(summary.get("state_income", nonemployee_comp) or 0)
+
     payer_state_no = clean(summary.get("payer_state_no") or company_values.get("state_tax_id") or "")
     state_code = clean(contractor.get("state") or company_values.get("state") or "")
     state2_tax = float(summary.get("state2_tax_withheld", 0) or 0)
@@ -1381,58 +1385,46 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
     state2_code = clean(summary.get("state2_code") or "")
     state2_payer_no = clean(summary.get("state2_payer_state_no") or "")
 
-    account_number = contractor.get("account_number") or contractor.get("vendor_number") or ""
-    direct_sales_checked = bool(contractor.get("direct_sales"))
-
     pdf.setTitle(f"1099-NEC_{tax_year}_{recipient_name}".replace("/", "-"))
     pdf.setStrokeColor(black)
     pdf.setFillColor(black)
     pdf.setLineWidth(1)
 
-    # Outer form box
-    outer_x = 58
-    outer_y = 78
-    outer_w = width - 116
-    outer_h = height - 146
-    outer_top = outer_y + outer_h
+    # Main form bounds
+    form_x = 70
+    form_y = 88
+    form_w = page_w - 140
+    form_h = page_h - 160
+    form_top = form_y + form_h
 
-    rect(outer_x, outer_y, outer_w, outer_h, fill_color=None, stroke=1, lw=1.2)
+    rect(form_x, form_y, form_w, form_h, fill_color=None, stroke=1, lw=1.2)
 
-    # Corrected checkbox row
-    corrected_y = outer_top + 10
-    text(outer_x + outer_w / 2 + 18, corrected_y, "CORRECTED (if checked)", size=15, align="center")
-    rect(outer_x + outer_w / 2 - 122, corrected_y - 6, 18, 18, fill_color=fill_blue, stroke=1)
+    # Corrected checkbox centered above form
+    corrected_y = form_top + 8
+    cb_x = form_x + (form_w / 2) - 120
+    rect(cb_x, corrected_y - 6, 18, 18, fill_color=fill_blue, stroke=1)
+    text(cb_x + 26, corrected_y + 1, "CORRECTED (if checked)", size=15)
 
-    # Main grid widths
-    left_info_w = 450
-    center_tax_w = 228
-    right_copy_w = outer_w - left_info_w - center_tax_w
+    # Column widths
+    left_w = 430
+    gray_mid_w = 170
+    year_w = 120
+    title_w = form_w - left_w - gray_mid_w - year_w
 
-    x_info = outer_x
-    x_tax = x_info + left_info_w
-    x_copy = x_tax + center_tax_w
-    x_right = outer_x + outer_w
+    top_h = 146
+    top_bottom = form_top - top_h
 
-    # Top header heights
-    top_h = 150
-    y_top_bottom = outer_top - top_h
+    x1 = form_x
+    x2 = x1 + left_w
+    x3 = x2 + gray_mid_w
+    x4 = x3 + year_w
+    x5 = form_x + form_w
 
-    # Top row widths
-    top_left_w = left_info_w
-    top_mid_blank_w = 170
-    top_year_w = 120
-    top_title_w = outer_w - top_left_w - top_mid_blank_w - top_year_w
-
-    x_top_left = outer_x
-    x_top_mid = x_top_left + top_left_w
-    x_top_year = x_top_mid + top_mid_blank_w
-    x_top_title = x_top_year + top_year_w
-
-    # Top left payer block
-    rect(x_top_left, y_top_bottom, top_left_w, top_h, fill_color=fill_gray)
-    rect(x_top_left + 1, y_top_bottom + 1, top_left_w - 2, top_h - 48, fill_color=fill_blue, stroke=0)
-    text(x_top_left + 10, outer_top - 18, "PAYER'S name, street address, city or town, state or province, country, ZIP", size=10)
-    text(x_top_left + 10, outer_top - 38, "or foreign postal code, and telephone no.", size=10)
+    # Header left block
+    rect(x1, top_bottom, left_w, top_h, fill_color=fill_gray)
+    rect(x1 + 1, top_bottom + 1, left_w - 2, top_h - 48, fill_color=fill_blue, stroke=0)
+    text(x1 + 10, form_top - 18, "PAYER'S name, street address, city or town, state or province, country, ZIP", size=10)
+    text(x1 + 10, form_top - 38, "or foreign postal code, and telephone no.", size=10)
 
     payer_lines = []
     for v in [
@@ -1450,31 +1442,40 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
         if clean(v):
             payer_lines.append(v)
 
-    payer_start_y = y_top_bottom + 30
+    payer_start_y = top_bottom + 28
     for i, line_text in enumerate(payer_lines[:4]):
-        text(x_top_left + 10, payer_start_y + (i * 14), line_text, size=10, bold=(i == 0), max_width=top_left_w - 20)
+        text(x1 + 10, payer_start_y + (i * 14), line_text, size=10, bold=(i == 0), max_width=left_w - 20)
 
-    # Top middle gray block
-    rect(x_top_mid, y_top_bottom, top_mid_blank_w, top_h, fill_color=fill_dark)
+    # Gray middle block
+    rect(x2, top_bottom, gray_mid_w, top_h, fill_color=fill_dark)
 
-    # Top form/year block
-    rect(x_top_year, y_top_bottom, top_year_w, top_h, fill_color=fill_gray)
-    hline(x_top_year, y_top_bottom + 56, x_top_year + top_year_w)
-    hline(x_top_year, y_top_bottom + 101, x_top_year + top_year_w)
+    # Form/year block
+    rect(x3, top_bottom, year_w, top_h, fill_color=fill_gray)
+    hline(x3, top_bottom + 55, x3 + year_w)
+    hline(x3, top_bottom + 100, x3 + year_w)
 
-    text(x_top_year + 8, outer_top - 18, "OMB No. 1545-0116", size=10)
-    text(x_top_year + 8, outer_top - 55, "Form", size=11)
-    text(x_top_year + 46, outer_top - 55, "1099-NEC", size=15, bold=True)
-    text(x_top_year + 8, outer_top - 93, "(Rev. January 2022)", size=8.5)
-    text(x_top_year + 12, y_top_bottom + 37, "For calendar year", size=10)
-    text(x_top_year + top_year_w / 2, y_top_bottom + 10, str(tax_year), size=15, bold=False, align="center")
+    text(x3 + 8, form_top - 18, "OMB No. 1545-0116", size=10)
+    text(x3 + 8, form_top - 55, "Form", size=11)
+    text(x3 + 44, form_top - 55, "1099-NEC", size=15, bold=True)
+    text(x3 + 8, form_top - 92, "(Rev. January 2022)", size=8.5)
+    text(x3 + 12, top_bottom + 35, "For calendar year", size=10)
+    text(x3 + year_w / 2, top_bottom + 10, str(tax_year), size=15, align="center")
 
     # Top far-right title block
-    rect(x_top_title, y_top_bottom, top_title_w, top_h, fill_color=None, stroke=0)
-    text(x_top_title + top_title_w / 2, outer_top - 72, "Nonemployee", size=18, bold=True, align="center")
-    text(x_top_title + top_title_w / 2, outer_top - 104, "Compensation", size=18, bold=True, align="center")
+    rect(x4, top_bottom, title_w, top_h, fill_color=None, stroke=0)
+    text(x4 + title_w / 2, form_top - 66, "Nonemployee", size=18, bold=True, align="center")
+    text(x4 + title_w / 2, form_top - 98, "Compensation", size=18, bold=True, align="center")
 
-    # Lower section sizing
+    # Lower body layout
+    copy_w = 150
+    tax_w = 240
+    info_w = form_w - copy_w - tax_w
+
+    bx1 = form_x
+    bx2 = bx1 + info_w
+    bx3 = bx2 + tax_w
+    bx4 = form_x + form_w
+
     tin_h = 42
     name_h = 63
     street_h = 57
@@ -1486,88 +1487,88 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
     state_h = 76
     footer_h = 28
 
-    y_tin_top = y_top_bottom
+    y_tin_top = top_bottom
     y_tin_bottom = y_tin_top - tin_h
 
-    # Right copy column starts at TIN row
-    rect(x_copy, outer_y + footer_h, right_copy_w, y_tin_top - (outer_y + footer_h), fill_color=None, stroke=1)
-    text(x_copy + right_copy_w - 10, y_tin_top - 18, "Copy B", size=16, bold=True, align="right")
-    text(x_copy + right_copy_w / 2, y_tin_top - 50, "For Recipient", size=16, bold=True, align="center")
-    text(x_copy + right_copy_w / 2, y_tin_top - 78, "This is important tax", size=10, align="center")
-    text(x_copy + right_copy_w / 2, y_tin_top - 95, "information and is being", size=10, align="center")
-    text(x_copy + right_copy_w / 2, y_tin_top - 112, "furnished to the IRS. If you are", size=10, align="center")
-    text(x_copy + right_copy_w / 2, y_tin_top - 129, "required to file a return,", size=10, align="center")
-    text(x_copy + right_copy_w / 2, y_tin_top - 146, "a negligence penalty or other", size=10, align="center")
-    text(x_copy + right_copy_w / 2, y_tin_top - 163, "sanction may be imposed on", size=10, align="center")
-    text(x_copy + right_copy_w / 2, y_tin_top - 180, "you if this income is taxable", size=10, align="center")
-    text(x_copy + right_copy_w / 2, y_tin_top - 197, "and the IRS determines that it", size=10, align="center")
-    text(x_copy + right_copy_w / 2, y_tin_top - 214, "has not been reported.", size=10, align="center")
+    # Copy B column
+    rect(bx3, form_y + footer_h, copy_w, y_tin_top - (form_y + footer_h), fill_color=None, stroke=1)
+    text(bx3 + copy_w - 10, y_tin_top - 18, "Copy B", size=16, bold=True, align="right")
+    text(bx3 + copy_w / 2, y_tin_top - 52, "For Recipient", size=16, bold=True, align="center")
+    text(bx3 + copy_w / 2, y_tin_top - 80, "This is important tax", size=9.5, align="center")
+    text(bx3 + copy_w / 2, y_tin_top - 97, "information and is being", size=9.5, align="center")
+    text(bx3 + copy_w / 2, y_tin_top - 114, "furnished to the IRS. If you are", size=9.5, align="center")
+    text(bx3 + copy_w / 2, y_tin_top - 131, "required to file a return,", size=9.5, align="center")
+    text(bx3 + copy_w / 2, y_tin_top - 148, "a negligence penalty or other", size=9.5, align="center")
+    text(bx3 + copy_w / 2, y_tin_top - 165, "sanction may be imposed on", size=9.5, align="center")
+    text(bx3 + copy_w / 2, y_tin_top - 182, "you if this income is taxable", size=9.5, align="center")
+    text(bx3 + copy_w / 2, y_tin_top - 199, "and the IRS determines that it", size=9.5, align="center")
+    text(bx3 + copy_w / 2, y_tin_top - 216, "has not been reported.", size=9.5, align="center")
 
     # TIN row left
-    payer_tin_w = left_info_w * 0.5
-    recipient_tin_w = left_info_w - payer_tin_w
+    payer_tin_w = info_w * 0.5
+    recipient_tin_w = info_w - payer_tin_w
 
-    rect(x_info, y_tin_bottom, payer_tin_w, tin_h, fill_color=fill_gray)
-    rect(x_info + 1, y_tin_bottom + 1, payer_tin_w - 2, 20, fill_color=fill_blue, stroke=0)
-    text(x_info + 8, y_tin_bottom + 27, "PAYER'S TIN", size=10)
-    text(x_info + 8, y_tin_bottom + 8, payer_ein, size=14, bold=True)
+    rect(bx1, y_tin_bottom, payer_tin_w, tin_h, fill_color=fill_gray)
+    rect(bx1 + 1, y_tin_bottom + 1, payer_tin_w - 2, 20, fill_color=fill_blue, stroke=0)
+    text(bx1 + 8, y_tin_bottom + 27, "PAYER'S TIN", size=10)
+    text(bx1 + 8, y_tin_bottom + 8, payer_ein, size=14, bold=True)
 
-    rect(x_info + payer_tin_w, y_tin_bottom, recipient_tin_w, tin_h, fill_color=fill_gray)
-    rect(x_info + payer_tin_w + 1, y_tin_bottom + 1, recipient_tin_w - 2, 20, fill_color=fill_blue, stroke=0)
-    text(x_info + payer_tin_w + 8, y_tin_bottom + 27, "RECIPIENT'S TIN", size=10)
-    text(x_info + payer_tin_w + 8, y_tin_bottom + 8, recipient_tin, size=14, bold=True)
+    rect(bx1 + payer_tin_w, y_tin_bottom, recipient_tin_w, tin_h, fill_color=fill_gray)
+    rect(bx1 + payer_tin_w + 1, y_tin_bottom + 1, recipient_tin_w - 2, 20, fill_color=fill_blue, stroke=0)
+    text(bx1 + payer_tin_w + 8, y_tin_bottom + 27, "RECIPIENT'S TIN", size=10)
+    text(bx1 + payer_tin_w + 8, y_tin_bottom + 8, recipient_tin, size=14, bold=True)
 
     # Box 1
-    rect(x_tax, y_tin_bottom, center_tax_w, tin_h, fill_color=fill_gray)
-    rect(x_tax + 1, y_tin_bottom + 1, center_tax_w - 2, 20, fill_color=fill_blue, stroke=0)
-    text(x_tax + 10, y_tin_bottom + 28, "1 Nonemployee compensation", size=10)
-    text(x_tax + 7, y_tin_bottom + 5, "$", size=16, bold=True)
-    text(x_tax + center_tax_w - 10, y_tin_bottom + 7, money(nonemployee_comp), size=16, bold=True, align="right")
+    rect(bx2, y_tin_bottom, tax_w, tin_h, fill_color=fill_gray)
+    rect(bx2 + 1, y_tin_bottom + 1, tax_w - 2, 20, fill_color=fill_blue, stroke=0)
+    text(bx2 + 10, y_tin_bottom + 27, "1 Nonemployee compensation", size=10)
+    text(bx2 + 8, y_tin_bottom + 5, "$", size=16, bold=True)
+    text(bx2 + tax_w - 10, y_tin_bottom + 7, money(nonemployee_comp), size=16, bold=True, align="right")
 
     # Recipient name
     y_name_bottom = y_tin_bottom - name_h
-    rect(x_info, y_name_bottom, left_info_w, name_h, fill_color=fill_gray)
-    rect(x_info + 1, y_name_bottom + 1, left_info_w - 2, name_h - 23, fill_color=fill_blue, stroke=0)
-    text(x_info + 8, y_tin_bottom - 18, "RECIPIENT'S name", size=10)
-    multiline(x_info + 10, y_name_bottom + 36, recipient_name, size=11, bold=True, max_width=left_info_w - 20, max_lines=2)
+    rect(bx1, y_name_bottom, info_w, name_h, fill_color=fill_gray)
+    rect(bx1 + 1, y_name_bottom + 1, info_w - 2, name_h - 23, fill_color=fill_blue, stroke=0)
+    text(bx1 + 8, y_tin_bottom - 18, "RECIPIENT'S name", size=10)
+    multiline(bx1 + 10, y_name_bottom + 36, recipient_name, size=11, bold=True, max_width=info_w - 20, max_lines=2)
 
     # Box 2
-    rect(x_tax, y_name_bottom, center_tax_w, box2_h, fill_color=fill_gray)
-    text(x_tax + 10, y_name_bottom + 37, "2 Payer made direct sales totaling $5,000 or more of", size=9.2)
-    text(x_tax + 10, y_name_bottom + 18, "consumer products to recipient for resale", size=9.2)
-    cb_size = 18
-    cb_x = x_tax + center_tax_w - 30
-    cb_y = y_name_bottom + 14
-    rect(cb_x, cb_y, cb_size, cb_size, fill_color=fill_blue, stroke=1)
+    rect(bx2, y_name_bottom, tax_w, box2_h, fill_color=fill_gray)
+    text(bx2 + 10, y_name_bottom + 36, "2 Payer made direct sales totaling $5,000 or more of", size=9.1)
+    text(bx2 + 10, y_name_bottom + 17, "consumer products to recipient for resale", size=9.1)
+    box_cb_size = 18
+    box_cb_x = bx2 + tax_w - 28
+    box_cb_y = y_name_bottom + 14
+    rect(box_cb_x, box_cb_y, box_cb_size, box_cb_size, fill_color=fill_blue, stroke=1)
     if direct_sales_checked:
-        text(cb_x + cb_size / 2, cb_y + 4, "X", size=13, bold=True, align="center")
+        text(box_cb_x + box_cb_size / 2, box_cb_y + 4, "X", size=12, bold=True, align="center")
 
     # Street row
     y_street_bottom = y_name_bottom - street_h
-    rect(x_info, y_street_bottom, left_info_w, street_h, fill_color=fill_gray)
-    rect(x_info + 1, y_street_bottom + 1, left_info_w - 2, street_h - 23, fill_color=fill_blue, stroke=0)
-    text(x_info + 8, y_name_bottom - 18, "Street address (including apt. no.)", size=10)
+    rect(bx1, y_street_bottom, info_w, street_h, fill_color=fill_gray)
+    rect(bx1 + 1, y_street_bottom + 1, info_w - 2, street_h - 23, fill_color=fill_blue, stroke=0)
+    text(bx1 + 8, y_name_bottom - 18, "Street address (including apt. no.)", size=10)
     multiline(
-        x_info + 10,
+        bx1 + 10,
         y_street_bottom + 28,
         " ".join([p for p in [recipient_addr_1, recipient_addr_2] if clean(p)]).strip(),
         size=10.5,
-        max_width=left_info_w - 20,
+        max_width=info_w - 20,
         max_lines=2,
     )
 
     # Box 3
     y_box3_bottom = y_street_bottom - box3_h
-    rect(x_tax, y_box3_bottom, center_tax_w, box3_h, fill_color=fill_dark)
-    text(x_tax + 12, y_box3_bottom + 30, "3", size=13, bold=True)
+    rect(bx2, y_box3_bottom, tax_w, box3_h, fill_color=fill_dark)
+    text(bx2 + 12, y_box3_bottom + 30, "3", size=13, bold=True)
 
     # City/state row
     y_city_bottom = y_box3_bottom - city_h
-    rect(x_info, y_city_bottom, left_info_w, city_h, fill_color=fill_gray)
-    rect(x_info + 1, y_city_bottom + 1, left_info_w - 2, city_h - 23, fill_color=fill_blue, stroke=0)
-    text(x_info + 8, y_box3_bottom - 18, "City or town, state or province, country, and ZIP or foreign postal code", size=9)
+    rect(bx1, y_city_bottom, info_w, city_h, fill_color=fill_gray)
+    rect(bx1 + 1, y_city_bottom + 1, info_w - 2, city_h - 23, fill_color=fill_blue, stroke=0)
+    text(bx1 + 8, y_box3_bottom - 18, "City or town, state or province, country, and ZIP or foreign postal code", size=9)
     multiline(
-        x_info + 10,
+        bx1 + 10,
         y_city_bottom + 28,
         " ".join(
             p for p in [
@@ -1577,70 +1578,70 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
             ] if clean(p)
         ).strip(),
         size=10.5,
-        max_width=left_info_w - 20,
+        max_width=info_w - 20,
         max_lines=2,
     )
 
     # Box 4
     y_box4_bottom = y_city_bottom - box4_h
-    rect(x_tax, y_box4_bottom, center_tax_w, box4_h, fill_color=fill_gray, lw=2.2)
-    rect(x_tax + 1, y_box4_bottom + 1, center_tax_w - 2, 24, fill_color=fill_blue, stroke=0)
-    text(x_tax + 12, y_box4_bottom + 34, "4 Federal income tax withheld", size=11, bold=True)
-    text(x_tax + 7, y_box4_bottom + 5, "$", size=16, bold=True)
-    text(x_tax + center_tax_w - 10, y_box4_bottom + 7, money(federal_withholding), size=16, bold=True, align="right")
+    rect(bx2, y_box4_bottom, tax_w, box4_h, fill_color=fill_gray, lw=2.2)
+    rect(bx2 + 1, y_box4_bottom + 1, tax_w - 2, 24, fill_color=fill_blue, stroke=0)
+    text(bx2 + 12, y_box4_bottom + 34, "4 Federal income tax withheld", size=11, bold=True)
+    text(bx2 + 8, y_box4_bottom + 5, "$", size=16, bold=True)
+    text(bx2 + tax_w - 10, y_box4_bottom + 7, money(federal_withholding), size=16, bold=True, align="right")
 
     # Account row
     y_account_bottom = y_box4_bottom - account_h
-    rect(x_info, y_account_bottom, left_info_w, account_h, fill_color=fill_gray)
-    rect(x_info + 1, y_account_bottom + 1, left_info_w - 2, account_h - 18, fill_color=fill_blue, stroke=0)
-    text(x_info + 8, y_box4_bottom - 18, "Account number (see instructions)", size=10)
-    text(x_info + 10, y_account_bottom + 9, account_number, size=10.5)
+    rect(bx1, y_account_bottom, info_w, account_h, fill_color=fill_gray)
+    rect(bx1 + 1, y_account_bottom + 1, info_w - 2, account_h - 18, fill_color=fill_blue, stroke=0)
+    text(bx1 + 8, y_box4_bottom - 18, "Account number (see instructions)", size=10)
+    text(bx1 + 10, y_account_bottom + 9, account_number, size=10.5)
 
-    # State rows
+    # State boxes
     state_row_h = state_h / 2.0
     col5_w = 84
     col6_w = 122
-    col7_w = center_tax_w - col5_w - col6_w
+    col7_w = tax_w - col5_w - col6_w
 
     def draw_state_row(y_bottom, tax_val, code_val, income_val, dotted=False):
-        rect(x_tax, y_bottom, col5_w, state_row_h, fill_color=fill_gray)
-        rect(x_tax + col5_w, y_bottom, col6_w, state_row_h, fill_color=fill_gray)
-        rect(x_tax + col5_w + col6_w, y_bottom, col7_w, state_row_h, fill_color=fill_gray)
+        rect(bx2, y_bottom, col5_w, state_row_h, fill_color=fill_gray)
+        rect(bx2 + col5_w, y_bottom, col6_w, state_row_h, fill_color=fill_gray)
+        rect(bx2 + col5_w + col6_w, y_bottom, col7_w, state_row_h, fill_color=fill_gray)
 
         if not dotted:
-            text(x_tax + 6, y_bottom + state_row_h - 15, "5 State tax withheld", size=8)
-            text(x_tax + col5_w + 6, y_bottom + state_row_h - 15, "6 State/Payer's state no.", size=8)
-            text(x_tax + col5_w + col6_w + 6, y_bottom + state_row_h - 15, "7 State income", size=8)
+            text(bx2 + 6, y_bottom + state_row_h - 15, "5 State tax withheld", size=8)
+            text(bx2 + col5_w + 6, y_bottom + state_row_h - 15, "6 State/Payer's state no.", size=8)
+            text(bx2 + col5_w + col6_w + 6, y_bottom + state_row_h - 15, "7 State income", size=8)
 
         if dotted:
-            hline(x_tax + 14, y_bottom + 14, x_tax + col5_w - 8)
-            hline(x_tax + col5_w + 14, y_bottom + 14, x_tax + col5_w + col6_w - 8)
-            hline(x_tax + col5_w + col6_w + 14, y_bottom + 14, x_tax + center_tax_w - 8)
+            hline(bx2 + 14, y_bottom + 14, bx2 + col5_w - 8)
+            hline(bx2 + col5_w + 14, y_bottom + 14, bx2 + col5_w + col6_w - 8)
+            hline(bx2 + col5_w + col6_w + 14, y_bottom + 14, bx2 + tax_w - 8)
 
-        text(x_tax + 4, y_bottom + 2, "$", size=15)
+        text(bx2 + 4, y_bottom + 2, "$", size=15)
         if tax_val:
-            text(x_tax + col5_w - 6, y_bottom + 5, money(tax_val), size=10.5, align="right")
+            text(bx2 + col5_w - 6, y_bottom + 5, money(tax_val), size=10.5, align="right")
 
-        state_code_line = " ".join([p for p in [code_val[0], code_val[1]] if clean(p)]).strip()
-        if state_code_line:
-            text(x_tax + col5_w + 6, y_bottom + 5, state_code_line, size=9.2, max_width=col6_w - 10)
+        code_line = " ".join([p for p in [code_val[0], code_val[1]] if clean(p)]).strip()
+        if code_line:
+            text(bx2 + col5_w + 6, y_bottom + 5, code_line, size=9.2, max_width=col6_w - 10)
 
-        text(x_tax + col5_w + col6_w + 4, y_bottom + 2, "$", size=15)
+        text(bx2 + col5_w + col6_w + 4, y_bottom + 2, "$", size=15)
         if income_val:
-            text(x_tax + center_tax_w - 6, y_bottom + 5, money(income_val), size=10.5, align="right")
+            text(bx2 + tax_w - 6, y_bottom + 5, money(income_val), size=10.5, align="right")
 
     draw_state_row(y_account_bottom, state_tax_withheld, (state_code, payer_state_no), state_income, dotted=False)
     draw_state_row(y_account_bottom - state_row_h, state2_tax, (state2_code, state2_payer_no), state2_income, dotted=True)
 
     # Footer
-    footer_top = outer_y + footer_h
-    hline(outer_x, footer_top, x_right)
-    text(outer_x, outer_y + 7, "Form", size=11)
-    text(outer_x + 34, outer_y + 6, "1099-NEC", size=17, bold=True)
-    text(outer_x + 152, outer_y + 7, "(Rev. 1-2022)", size=11)
-    text(outer_x + 280, outer_y + 7, "(keep for your records)", size=11)
-    text(outer_x + 520, outer_y + 7, "www.irs.gov/Form1099NEC", size=11)
-    text(x_right - 2, outer_y + 7, "Department of the Treasury - Internal Revenue Service", size=11, align="right")
+    footer_top = form_y + footer_h
+    hline(form_x, footer_top, bx3)
+    text(form_x, form_y + 7, "Form", size=11)
+    text(form_x + 34, form_y + 6, "1099-NEC", size=17, bold=True)
+    text(form_x + 152, form_y + 7, "(Rev. 1-2022)", size=11)
+    text(form_x + 280, form_y + 7, "(keep for your records)", size=11)
+    text(form_x + 520, form_y + 7, "www.irs.gov/Form1099NEC", size=11)
+    text(bx3 - 6, form_y + 7, "Department of the Treasury - Internal Revenue Service", size=10.5, align="right")
 
     pdf.showPage()
     pdf.save()
