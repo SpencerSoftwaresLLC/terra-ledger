@@ -345,32 +345,208 @@ def _build_w3_pdf(company_profile, tax_year, totals):
             else:
                 text(x + 4, y + 6, value, size=value_size, bold=False, color=dark_text, max_width=w - 8)
 
+    def _build_w3_pdf(company_profile, tax_year, totals):
+        import io
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import landscape, letter
+        from reportlab.lib.colors import HexColor, white
+        buffer = io.BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=landscape(letter))
+        width, height = landscape(letter)
+
+        # Slight scale-down so the form fits better in browser PDF viewers
+        scale = 0.88
+        pdf.translate((width * (1 - scale)) / 2, (height * (1 - scale)) / 2)
+        pdf.scale(scale, scale)
+
+        company_values = get_company_profile_values(company_profile or {})
+
+        red = HexColor("#d62828")
+        light_red = HexColor("#f7d6dc")
+        medium_red = HexColor("#efb7c0")
+        dark_text = HexColor("#202020")
+
+    def clean(v):
+        return str(v or "").strip()
+
+    def money(v):
+        try:
+            return f"{float(v or 0):,.2f}"
+        except Exception:
+            return "0.00"
+
+    def rect(x, y, w, h, stroke=1, fill=0, fill_color=None, line_width=1):
+        old_line = pdf._lineWidth
+        old_fill = pdf._fillColorObj
+        pdf.setLineWidth(line_width)
+        if fill_color is not None:
+            pdf.setFillColor(fill_color)
+            pdf.rect(x, y, w, h, stroke=stroke, fill=1)
+            pdf.setFillColor(red)
+        else:
+            pdf.rect(x, y, w, h, stroke=stroke, fill=fill)
+        pdf.setLineWidth(old_line)
+        pdf.setFillColor(old_fill)
+
+    def line(x1, y1, x2, y2, lw=1):
+        old_line = pdf._lineWidth
+        pdf.setLineWidth(lw)
+        pdf.line(x1, y1, x2, y2)
+        pdf.setLineWidth(old_line)
+
+    def text(x, y, value, size=8, bold=False, color=red, align="left", max_width=None):
+        value = clean(value)
+        if not value:
+            return
+        font_name = "Helvetica-Bold" if bold else "Helvetica"
+        pdf.setFont(font_name, size)
+        pdf.setFillColor(color)
+
+        if max_width:
+            while value and pdf.stringWidth(value, font_name, size) > max_width:
+                value = value[:-1].rstrip()
+
+        if align == "center":
+            pdf.drawCentredString(x, y, value)
+        elif align == "right":
+            pdf.drawRightString(x, y, value)
+        else:
+            pdf.drawString(x, y, value)
+
+        pdf.setFillColor(red)
+
+    def wrap_lines(value, font_name, size, max_width, max_lines=2):
+        value = clean(value)
+        if not value:
+            return []
+        words = value.split()
+        lines = []
+        current = ""
+        for word in words:
+            test = f"{current} {word}".strip()
+            if pdf.stringWidth(test, font_name, size) <= max_width:
+                current = test
+            else:
+                if current:
+                    lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+        return lines[:max_lines]
+
+    def multiline(x, y_top, value, size=8, bold=False, color=dark_text, max_width=120, line_gap=10, max_lines=2):
+        font_name = "Helvetica-Bold" if bold else "Helvetica"
+        lines = wrap_lines(value, font_name, size, max_width, max_lines=max_lines)
+        pdf.setFont(font_name, size)
+        pdf.setFillColor(color)
+        for i, ln in enumerate(lines):
+            pdf.drawString(x, y_top - (i * line_gap), ln)
+        pdf.setFillColor(red)
+
+    def box_label_value(
+        x,
+        y_top,
+        w,
+        h,
+        label,
+        value="",
+        label_size=7,
+        value_size=11,
+        fill_color=None,
+        value_align="left",
+    ):
+        y = y_top - h
+        rect(x, y, w, h, stroke=1, fill_color=fill_color)
+
+        if label:
+            text(x + 4, y_top - 11, label, size=label_size, color=red, max_width=w - 8)
+
+        if clean(value):
+            if value_align == "center":
+                text(
+                    x + w / 2,
+                    y + 6,
+                    value,
+                    size=value_size,
+                    color=dark_text,
+                    align="center",
+                    max_width=w - 8,
+                )
+            elif value_align == "right":
+                text(
+                    x + w - 4,
+                    y + 6,
+                    value,
+                    size=value_size,
+                    color=dark_text,
+                    align="right",
+                    max_width=w - 8,
+                )
+            else:
+                text(
+                    x + 4,
+                    y + 6,
+                    value,
+                    size=value_size,
+                    color=dark_text,
+                    max_width=w - 8,
+                )
+
     def checkbox_cell(x, y_top, w, h, title, options, checked_index=None):
         y = y_top - h
         rect(x, y, w, h, stroke=1)
-        text(x + 4, y_top - 12, title, size=7, bold=True)
-        text(x + 4, y_top - 24, "(Check one)", size=6)
+
+        title_lines = str(title or "").split("\n")
+        for i, line_text in enumerate(title_lines[:3]):
+            text(x + 4, y_top - 10 - (i * 8), line_text, size=6.8, bold=True)
+
+        text(x + 4, y_top - 32, "(Check one)", size=5.5)
 
         if not options:
             return
 
         seg_w = w / len(options)
+
         for idx, (code, label) in enumerate(options):
             ox = x + (idx * seg_w)
+
             if idx > 0:
                 line(ox, y, ox, y_top, lw=1)
 
-            cb_x = ox + 8
-            cb_y = y + h - 34
-            rect(cb_x, cb_y, 10, 10, stroke=1)
+            cb_size = 11
+            cb_x = ox + 10
+            cb_y = y + h - 44
+            rect(cb_x, cb_y, cb_size, cb_size, stroke=1)
 
             if checked_index == idx:
-                text(cb_x + 5, cb_y + 2, "X", size=9, bold=True, color=dark_text, align="center")
+                text(
+                    cb_x + cb_size / 2,
+                    cb_y + 2,
+                    "X",
+                    size=9,
+                    bold=True,
+                    color=dark_text,
+                    align="center",
+                )
 
-            text(ox + seg_w / 2, y + h - 12, code, size=6, color=red, align="center")
-            multiline(ox + 22, y + h - 18, label, size=6.5, bold=False, color=red, max_width=seg_w - 26, line_gap=7, max_lines=3)
+            if code:
+                text(ox + (seg_w / 2), y + h - 12, code, size=5.6, align="center")
 
-    employer_name = company_values.get("legal_name") or company_values.get("display_name") or ""
+            label_lines = str(label or "").split("\n")
+            for i, line_txt in enumerate(label_lines[:4]):
+                text(
+                    cb_x + cb_size + 5,
+                    y + h - 18 - (i * 7),
+                    line_txt,
+                    size=5.8,
+                    max_width=seg_w - (cb_x + cb_size + 10 - ox),
+                )
+
+    employer_name = (
+        company_values.get("legal_name")
+        or company_values.get("display_name")
+        or ""
+    )
     employer_ein = _format_ein(company_values.get("ein"))
     employer_address = " ".join(
         part for part in [
@@ -455,35 +631,35 @@ def _build_w3_pdf(company_profile, tax_year, totals):
     x2 = left + left_col_w
     x3 = x2 + mid_col_w
 
-    row_b_h = 74
+    row_b_h = 88
     checkbox_cell(
-    x1,
-    current_y,
-    left_col_w,
-    row_b_h,
-    "b   Kind\nof\nPayer",
-    [
-        ("941", "CT-1"),
-        ("Military", "Hshld.\nemp."),
-        ("943", "Medicare\ngovt. emp."),
-        ("944", ""),
-    ],
-    checked_index=kind_of_payer_index,
+        x1,
+        current_y,
+        left_col_w,
+        row_b_h,
+        "b   Kind\nof\nPayer",
+        [
+            ("941", "CT-1"),
+            ("Military", "Hshld.\nemp."),
+            ("943", "Medicare\ngovt. emp."),
+            ("944", ""),
+        ],
+        checked_index=kind_of_payer_index,
     )
 
     checkbox_cell(
-    x2,
-    current_y,
-    mid_col_w + right_col_w,
-    row_b_h,
-    "Kind\nof\nEmployer",
-    [
-        ("None appl.", "State/local\nnon-501c"),
-        ("501c non-govt.", "State/local 501c"),
-        ("", "Federal govt."),
-        ("", "Third-party\nsick pay\n(Check if\napplicable)"),
-    ],
-    checked_index=kind_of_employer_index,
+        x2,
+        current_y,
+        mid_col_w + right_col_w,
+        row_b_h,
+        "Kind\nof\nEmployer",
+        [
+            ("None appl.", "State/local\nnon-501c"),
+            ("501c non-govt.", "State/local 501c"),
+            ("", "Federal govt."),
+            ("", "Third-party\nsick pay\n(Check if\napplicable)"),
+        ],
+        checked_index=kind_of_employer_index,
     )
 
     current_y -= row_b_h
@@ -491,43 +667,53 @@ def _build_w3_pdf(company_profile, tax_year, totals):
     row_cd_h = 40
     box_label_value(x1, current_y, left_col_w / 2, row_cd_h, "c Total number of Forms W-2", str(total_forms or 0), value_size=11)
     box_label_value(x1 + left_col_w / 2, current_y, left_col_w / 2, row_cd_h, "d Establishment number", establishment_number, value_size=11)
-    box_label_value(x2, current_y, mid_col_w, row_cd_h, "1 Wages, tips, other compensation", wages, value_align="right")
-    box_label_value(x3, current_y, right_col_w, row_cd_h, "2 Federal income tax withheld", federal, value_align="right")
+    box_label_value(x2, current_y, mid_col_w, row_cd_h, "1 Wages, tips, other compensation", wages, value_align="right", value_size=10.5)
+    box_label_value(x3, current_y, right_col_w, row_cd_h, "2 Federal income tax withheld", federal, value_align="right", value_size=10.5)
     current_y -= row_cd_h
 
     row_e_h = 40
     box_label_value(x1, current_y, left_col_w, row_e_h, "e Employer identification number (EIN)", employer_ein, value_size=11)
-    box_label_value(x2, current_y, mid_col_w, row_e_h, "3 Social security wages", ss_wages, value_align="right")
-    box_label_value(x3, current_y, right_col_w, row_e_h, "4 Social security tax withheld", ss_tax, value_align="right")
+    box_label_value(x2, current_y, mid_col_w, row_e_h, "3 Social security wages", ss_wages, value_align="right", value_size=10.5)
+    box_label_value(x3, current_y, right_col_w, row_e_h, "4 Social security tax withheld", ss_tax, value_align="right", value_size=10.5)
     current_y -= row_e_h
 
     row_f_h = 40
     box_label_value(x1, current_y, left_col_w, row_f_h, "f Employer's name", employer_name, value_size=10)
-    box_label_value(x2, current_y, mid_col_w, row_f_h, "5 Medicare wages and tips", medicare_wages, value_align="right")
-    box_label_value(x3, current_y, right_col_w, row_f_h, "6 Medicare tax withheld", medicare_tax, value_align="right")
+    box_label_value(x2, current_y, mid_col_w, row_f_h, "5 Medicare wages and tips", medicare_wages, value_align="right", value_size=10.5)
+    box_label_value(x3, current_y, right_col_w, row_f_h, "6 Medicare tax withheld", medicare_tax, value_align="right", value_size=10.5)
     current_y -= row_f_h
 
     row_g1_h = 58
     box_label_value(x1, current_y, left_col_w, row_g1_h, "", "", value_size=10)
-    multiline(x1 + 4, current_y - 20, employer_address, size=9, color=dark_text, max_width=left_col_w - 8, max_lines=2)
+    multiline(x1 + 4, current_y - 16, employer_address, size=9.5, color=dark_text, max_width=left_col_w - 8, max_lines=2)
     try:
         ss_tips_zero = float(str(ss_tips).replace(",", "") or 0) == 0
     except Exception:
         ss_tips_zero = True
-    box_label_value(x2, current_y, mid_col_w, row_g1_h, "7 Social security tips", ss_tips, fill_color=white if ss_tips_zero else light_red, value_align="right")
-    box_label_value(x3, current_y, right_col_w, row_g1_h, "8 Allocated tips", allocated_tips, value_align="right")
+    box_label_value(
+        x2,
+        current_y,
+        mid_col_w,
+        row_g1_h,
+        "7 Social security tips",
+        ss_tips,
+        fill_color=white if ss_tips_zero else light_red,
+        value_align="right",
+        value_size=10.5,
+    )
+    box_label_value(x3, current_y, right_col_w, row_g1_h, "8 Allocated tips", allocated_tips, value_align="right", value_size=10.5)
     current_y -= row_g1_h
 
     row_g2_h = 46
     box_label_value(x1, current_y, left_col_w, row_g2_h, "g Employer's address and ZIP code", employer_city_state_zip, value_size=9)
     box_label_value(x2, current_y, mid_col_w, row_g2_h, "9", "", fill_color=medium_red)
-    box_label_value(x3, current_y, right_col_w, row_g2_h, "10 Dependent care benefits", dependent_care, value_align="right")
+    box_label_value(x3, current_y, right_col_w, row_g2_h, "10 Dependent care benefits", dependent_care, value_align="right", value_size=10.5)
     current_y -= row_g2_h
 
     row_h_h = 40
     box_label_value(x1, current_y, left_col_w, row_h_h, "h Other EIN used this year", other_ein_used, value_size=10)
-    box_label_value(x2, current_y, mid_col_w, row_h_h, "11 Nonqualified plans", nonqualified, value_align="right")
-    box_label_value(x3, current_y, right_col_w, row_h_h, "12a Deferred compensation", deferred_comp, value_align="right")
+    box_label_value(x2, current_y, mid_col_w, row_h_h, "11 Nonqualified plans", nonqualified, value_align="right", value_size=10.5)
+    box_label_value(x3, current_y, right_col_w, row_h_h, "12a Deferred compensation", deferred_comp, value_align="right", value_size=10.5)
     current_y -= row_h_h
 
     row_i_h = 40
@@ -544,17 +730,17 @@ def _build_w3_pdf(company_profile, tax_year, totals):
 
     box_label_value(x1, current_y, state_left_w, row_state_h, "15 State", state, value_size=10)
     box_label_value(x1 + state_left_w, current_y, state_id_w, row_state_h, "Employer's state ID number", state_id, value_size=9)
-    box_label_value(x1 + state_left_w + state_id_w, current_y, state_wages_w, row_state_h, "16 State wages, tips, etc.", state_wages, value_align="right")
-    box_label_value(x1 + state_left_w + state_id_w + state_wages_w, current_y, state_tax_w, row_state_h, "17 State income tax", state_tax, value_align="right")
-    box_label_value(x2, current_y, mid_col_w, row_state_h, "18 Local wages, tips, etc.", local_wages, value_align="right")
-    box_label_value(x3, current_y, right_col_w, row_state_h, "19 Local income tax", local_tax, value_align="right")
+    box_label_value(x1 + state_left_w + state_id_w, current_y, state_wages_w, row_state_h, "16 State wages, tips, etc.", state_wages, value_align="right", value_size=10.5)
+    box_label_value(x1 + state_left_w + state_id_w + state_wages_w, current_y, state_tax_w, row_state_h, "17 State income tax", state_tax, value_align="right", value_size=10.5)
+    box_label_value(x2, current_y, mid_col_w, row_state_h, "18 Local wages, tips, etc.", local_wages, value_align="right", value_size=10.5)
+    box_label_value(x3, current_y, right_col_w, row_state_h, "19 Local income tax", local_tax, value_align="right", value_size=10.5)
     current_y -= row_state_h
 
     row_contact1_h = 38
     row_contact2_h = 38
     bottom_block_h = row_contact1_h + row_contact2_h
 
-    rect(x1, current_y - bottom_block_h, form_w, bottom_block_h, stroke=1, line_width=2)
+    rect(x1, current_y - bottom_block_h, form_w, bottom_block_h, stroke=1, line_width=1.2)
     box_label_value(x1, current_y, left_col_w, row_contact1_h, "Employer's contact person", contact_name, value_size=9)
     box_label_value(x2, current_y, mid_col_w, row_contact1_h, "Employer's telephone number", contact_phone, value_size=9)
     box_label_value(x3, current_y, right_col_w, row_contact1_h, "For Official Use Only", "", value_size=9)
@@ -565,7 +751,12 @@ def _build_w3_pdf(company_profile, tax_year, totals):
     box_label_value(x3, current_y, right_col_w, row_contact2_h, "", "", value_size=9)
     current_y -= row_contact2_h
 
-    text(left + 2, current_y - 16, "Under penalties of perjury, I declare that I have examined this return and accompanying documents, and, to the best of my knowledge and belief, they are true, correct, and", size=7)
+    text(
+        left + 2,
+        current_y - 16,
+        "Under penalties of perjury, I declare that I have examined this return and accompanying documents, and, to the best of my knowledge and belief, they are true, correct, and",
+        size=7,
+    )
     text(left + 2, current_y - 28, "complete.", size=7)
 
     sig_y = current_y - 54
@@ -1062,24 +1253,45 @@ def _w2_company_readiness(values):
 def _build_1099_pdf(company_profile, tax_year, contractor, summary):
     import io
     from reportlab.pdfgen import canvas
-    from reportlab.lib.pagesizes import letter
-    from reportlab.lib.colors import black
+    from reportlab.lib.pagesizes import landscape, letter
+    from reportlab.lib.colors import black, HexColor
 
     buffer = io.BytesIO()
-    pdf = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
+    pdf = canvas.Canvas(buffer, pagesize=landscape(letter))
+    width, height = landscape(letter)
+
+    scale = 0.80
+    pdf.translate((width * (1 - scale)) / 2, (height * (1 - scale)) / 2)
+    pdf.scale(scale, scale)
 
     company_values = get_company_profile_values(company_profile or {})
 
-    payer_name = company_values.get("legal_name") or company_values.get("display_name") or ""
+    def clean(v):
+        return str(v or "").strip()
+
+    def money(v):
+        try:
+            return f"{float(v or 0):,.2f}"
+        except Exception:
+            return "0.00"
+
+    payer_name = (
+        company_values.get("legal_name")
+        or company_values.get("display_name")
+        or ""
+    )
     payer_ein = _format_ein(company_values.get("ein"))
-    payer_address_1 = company_values.get("address") or ""
-    payer_address_2_parts = [
-        company_values.get("city") or "",
-        company_values.get("state") or "",
-        company_values.get("zip_code") or "",
-    ]
-    payer_address_2 = " ".join([p for p in payer_address_2_parts if p]).strip()
+
+    payer_addr_1 = (
+        company_values.get("address")
+        or company_values.get("address_line_1")
+        or ""
+    )
+    payer_addr_2 = company_values.get("address_line_2") or ""
+    payer_city = company_values.get("city") or ""
+    payer_state = company_values.get("state") or ""
+    payer_zip = company_values.get("zip_code") or ""
+    payer_phone = company_values.get("phone") or ""
 
     recipient_name = (
         contractor.get("name")
@@ -1087,66 +1299,92 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
         or contractor.get("legal_name")
         or "Contractor"
     )
-    recipient_tin = contractor.get("tin") or contractor.get("ssn") or contractor.get("ein") or ""
-    recipient_address_1 = contractor.get("address") or ""
-    recipient_address_2_parts = [
-        contractor.get("city") or "",
-        contractor.get("state") or "",
-        contractor.get("zip_code") or "",
-    ]
-    recipient_address_2 = " ".join([p for p in recipient_address_2_parts if p]).strip()
+    recipient_tin = clean(contractor.get("tin") or contractor.get("ssn") or contractor.get("ein") or "")
+    recipient_addr_1 = (
+        contractor.get("address")
+        or contractor.get("address_line_1")
+        or ""
+    )
+    recipient_addr_2 = contractor.get("address_line_2") or ""
+    recipient_city = contractor.get("city") or ""
+    recipient_state = contractor.get("state") or ""
+    recipient_zip = contractor.get("zip_code") or ""
+
+    account_number = contractor.get("account_number") or contractor.get("vendor_number") or ""
+    direct_sales_checked = bool(contractor.get("direct_sales"))
+    second_tin_notice = "X" if contractor.get("second_tin_notice") else ""
+    fatca = "X" if contractor.get("fatca_required") else ""
 
     nonemployee_comp = float(summary.get("nonemployee_comp", 0) or 0)
     federal_withholding = float(summary.get("federal_withholding", 0) or 0)
     state_tax_withheld = float(summary.get("state_tax_withheld", 0) or 0)
     state_income = float(summary.get("state_income", nonemployee_comp) or 0)
-    payer_state_no = summary.get("payer_state_no") or company_values.get("state_tax_id") or ""
-    state_code = (
-        contractor.get("state")
-        or company_values.get("state")
-        or ""
-    )
+    payer_state_no = clean(summary.get("payer_state_no") or company_values.get("state_tax_id") or "")
+    state_code = clean(contractor.get("state") or company_values.get("state") or "")
 
-    def money(val):
-        try:
-            return f"{float(val or 0):,.2f}"
-        except Exception:
-            return "0.00"
+    state2_tax = float(summary.get("state2_tax_withheld", 0) or 0)
+    state2_income = float(summary.get("state2_income", 0) or 0)
+    state2_code = clean(summary.get("state2_code") or "")
+    state2_payer_no = clean(summary.get("state2_payer_state_no") or "")
 
-    def draw_text(x, y, text, size=9, bold=False):
-        pdf.setFillColor(black)
-        pdf.setFont("Helvetica-Bold" if bold else "Helvetica", size)
-        pdf.drawString(x, y, str(text or ""))
+    fill_gray = HexColor("#efefef")
+    fill_blue = HexColor("#eef0fb")
+    fill_dark = HexColor("#b8b8b8")
 
-    def draw_right(x, y, text, size=9, bold=False):
-        pdf.setFillColor(black)
-        pdf.setFont("Helvetica-Bold" if bold else "Helvetica", size)
-        pdf.drawRightString(x, y, str(text or ""))
+    pdf.setTitle(f"1099-NEC_{tax_year}_{recipient_name}".replace("/", "-"))
+    pdf.setStrokeColor(black)
+    pdf.setFillColor(black)
+    pdf.setLineWidth(1)
 
-    def draw_center(x, y, text, size=9, bold=False):
-        pdf.setFillColor(black)
-        pdf.setFont("Helvetica-Bold" if bold else "Helvetica", size)
-        pdf.drawCentredString(x, y, str(text or ""))
+    def rect(x, y, w, h, fill_color=None, stroke=1, lw=1):
+        old_lw = pdf._lineWidth
+        pdf.setLineWidth(lw)
+        if fill_color is not None:
+            pdf.setFillColor(fill_color)
+            pdf.rect(x, y, w, h, stroke=stroke, fill=1)
+            pdf.setFillColor(black)
+        else:
+            pdf.rect(x, y, w, h, stroke=stroke, fill=0)
+        pdf.setLineWidth(old_lw)
 
-    def rect(x, y, w, h, stroke=1, fill=0):
-        pdf.rect(x, y, w, h, stroke=stroke, fill=fill)
-
-    def hline(x1, y, x2):
+    def hline(x1, y, x2, lw=1):
+        old_lw = pdf._lineWidth
+        pdf.setLineWidth(lw)
         pdf.line(x1, y, x2, y)
+        pdf.setLineWidth(old_lw)
 
-    def vline(x, y1, y2):
+    def vline(x, y1, y2, lw=1):
+        old_lw = pdf._lineWidth
+        pdf.setLineWidth(lw)
         pdf.line(x, y1, x, y2)
+        pdf.setLineWidth(old_lw)
 
-    def wrap_text(text, max_chars):
-        text = str(text or "").strip()
-        if not text:
-            return [""]
-        words = text.split()
+    def text(x, y, value, size=9, bold=False, align="left", max_width=None):
+        value = clean(value)
+        if not value:
+            return
+        font_name = "Helvetica-Bold" if bold else "Helvetica"
+        pdf.setFont(font_name, size)
+        if max_width:
+            while value and pdf.stringWidth(value, font_name, size) > max_width:
+                value = value[:-1].rstrip()
+        if align == "center":
+            pdf.drawCentredString(x, y, value)
+        elif align == "right":
+            pdf.drawRightString(x, y, value)
+        else:
+            pdf.drawString(x, y, value)
+
+    def wrap_lines(value, font_name, size, max_width, max_lines=2):
+        value = clean(value)
+        if not value:
+            return []
+        words = value.split()
         lines = []
         current = ""
         for word in words:
             test = f"{current} {word}".strip()
-            if len(test) <= max_chars:
+            if pdf.stringWidth(test, font_name, size) <= max_width:
                 current = test
             else:
                 if current:
@@ -1154,185 +1392,263 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
                 current = word
         if current:
             lines.append(current)
-        return lines
+        return lines[:max_lines]
 
-    def draw_wrapped_block(x, y_top, text, max_chars=38, line_height=11, max_lines=3, size=9, bold=False):
-        lines = wrap_text(text, max_chars)[:max_lines]
-        for i, line in enumerate(lines):
-            draw_text(x, y_top - (i * line_height), line, size=size, bold=bold)
+    def multiline(x, y_top, value, size=9, bold=False, max_width=100, line_gap=11, max_lines=2):
+        font_name = "Helvetica-Bold" if bold else "Helvetica"
+        lines = wrap_lines(value, font_name, size, max_width, max_lines=max_lines)
+        pdf.setFont(font_name, size)
+        for idx, line_text in enumerate(lines):
+            pdf.drawString(x, y_top - (idx * line_gap), line_text)
 
-    # Page margins / form frame
-    left = 36
-    right = width - 36
-    top = height - 36
-    bottom = 36
+    margin = 55
+    form_x = margin
+    form_y = 88
+    form_w = width - (margin * 2)
+    form_h = height - 150
 
-    pdf.setTitle(f"1099-NEC_{tax_year}_{recipient_name}".replace("/", "-"))
-    pdf.setLineWidth(1)
+    outer_pad = 12
+    shell_x = form_x - outer_pad
+    shell_y = form_y - outer_pad
+    shell_w = form_w + (outer_pad * 2)
+    shell_h = form_h + (outer_pad * 2)
 
-    # Outer border
-    rect(left, bottom, right - left, top - bottom)
+    rect(shell_x, shell_y, shell_w, shell_h, fill_color=HexColor("#f5f5f5"), stroke=0)
+    rect(form_x, form_y, form_w, form_h, fill_color=None, stroke=1, lw=1.2)
 
-    # Top header band
-    header_y = top - 70
-    hline(left, header_y, right)
+    left_w = 425
+    center_w = 175
+    year_w = 125
+    copy_w = form_w - left_w - center_w - year_w
 
-    # Vertical header splits
-    vline(left + 105, header_y, top)
-    vline(right - 140, header_y, top)
+    top_h = 138
+    tin_h = 42
+    recipient_name_h = 63
+    recipient_street_h = 57
+    recipient_city_h = 57
+    account_h = 38
+    box2_h = 57
+    box3_h = 47
+    box4_h = 56
+    state_h = 70
+    footer_h = 28
 
-    # Left top: Copy label
-    draw_text(left + 10, top - 18, "Copy B", 12, True)
-    draw_text(left + 10, top - 34, "For Recipient", 9, False)
-    draw_text(left + 10, top - 50, "This information is being furnished to the IRS.", 7, False)
+    y_top = form_y + form_h
+    y_footer_top = form_y + footer_h
 
-    # Center top: form name
-    draw_center((left + right) / 2, top - 24, "Form", 10, False)
-    draw_center((left + right) / 2, top - 44, "1099-NEC", 20, True)
-    draw_center((left + right) / 2, top - 60, "Nonemployee Compensation", 10, False)
+    x_left = form_x
+    x_center = x_left + left_w
+    x_year = x_center + center_w
+    x_copy = x_year + year_w
+    x_right = form_x + form_w
 
-    # Right top: year
-    draw_center(right - 70, top - 28, str(tax_year), 20, True)
-    draw_center(right - 70, top - 48, "OMB No. 1545-0116", 7, False)
+    top_y_bottom = y_top - top_h
 
-    # Main body coordinates
-    main_top = header_y
-    main_bottom = bottom + 80
+    rect(x_left, top_y_bottom, left_w, top_h, fill_color=fill_gray)
+    rect(x_left + 1, top_y_bottom + 1, left_w - 2, top_h - 48, fill_color=fill_blue, stroke=0)
+    text(x_left + 8, y_top - 18, "PAYER'S name, street address, city or town, state or province, country, ZIP", size=10)
+    text(x_left + 8, y_top - 38, "or foreign postal code, and telephone no.", size=10)
 
-    # Left info column and right box column
-    left_col_x = left
-    left_col_w = 360
-    right_col_x = left_col_x + left_col_w
-    right_col_w = right - right_col_x
+    payer_lines = []
+    for value in [
+        payer_name,
+        " ".join([p for p in [payer_addr_1, payer_addr_2] if clean(p)]).strip(),
+        " ".join(
+            p for p in [
+                f"{payer_city}," if clean(payer_city) else "",
+                payer_state,
+                payer_zip,
+            ] if clean(p)
+        ).strip(),
+        payer_phone,
+    ]:
+        if clean(value):
+            payer_lines.append(value)
 
-    vline(right_col_x, main_bottom, main_top)
+    start_y = top_y_bottom + 28
+    for idx, line_text in enumerate(payer_lines[:4]):
+        text(x_left + 10, start_y + (idx * 14), line_text, size=10, bold=(idx == 0), max_width=left_w - 20)
 
-    # Left-side stacked information blocks
-    block1_top = main_top
-    block1_h = 84
-    block2_h = 84
-    block3_h = 84
+    rect(x_center, top_y_bottom, center_w, top_h, fill_color=fill_dark)
 
-    block1_bottom = block1_top - block1_h
-    block2_bottom = block1_bottom - block2_h
-    block3_bottom = block2_bottom - block3_h
+    rect(x_year, top_y_bottom + 55, year_w, top_h - 55, fill_color=fill_gray)
+    hline(x_year, top_y_bottom + 55, x_year + year_w)
+    hline(x_year, top_y_bottom + 100, x_year + year_w)
 
-    hline(left_col_x, block1_bottom, right_col_x)
-    hline(left_col_x, block2_bottom, right_col_x)
-    hline(left_col_x, block3_bottom, right_col_x)
+    text(x_year + 10, y_top - 18, "OMB No. 1545-0116", size=10)
+    text(x_year + 10, y_top - 54, "Form", size=11)
+    text(x_year + 52, y_top - 54, "1099-NEC", size=16, bold=True)
+    text(x_year + 10, y_top - 92, "(Rev. January 2022)", size=9)
+    text(x_year + 14, top_y_bottom + 36, "For calendar year", size=10)
+    text(x_year + 58, top_y_bottom + 12, str(tax_year), size=16, bold=True)
 
-    # PAYER block
-    draw_text(left_col_x + 8, block1_top - 14, "PAYER'S name, street address, city or town, state or province, country, ZIP or foreign postal code", 7, False)
-    draw_wrapped_block(left_col_x + 10, block1_top - 30, payer_name, max_chars=55, max_lines=1, size=10, bold=True)
-    draw_wrapped_block(left_col_x + 10, block1_top - 45, payer_address_1, max_chars=55, max_lines=1, size=9)
-    draw_wrapped_block(left_col_x + 10, block1_top - 60, payer_address_2, max_chars=55, max_lines=1, size=9)
+    rect(x_copy, top_y_bottom, copy_w, top_h, fill_color=None, stroke=0)
+    text(x_copy + (copy_w / 2), y_top - 48, "Nonemployee", size=18, bold=True, align="center")
+    text(x_copy + (copy_w / 2), y_top - 80, "Compensation", size=18, bold=True, align="center")
 
-    # PAYER TIN + RECIPIENT TIN split block
-    middle_split_x = left_col_x + (left_col_w / 2)
-    vline(middle_split_x, block2_bottom, block1_bottom)
+    tin_y_bottom = top_y_bottom - tin_h
+    payer_tin_w = 214
+    recipient_tin_w = left_w - payer_tin_w
 
-    draw_text(left_col_x + 8, block1_bottom - 14, "PAYER'S TIN", 7, False)
-    draw_text(middle_split_x + 8, block1_bottom - 14, "RECIPIENT'S TIN", 7, False)
+    rect(x_left, tin_y_bottom, payer_tin_w, tin_h, fill_color=fill_gray)
+    rect(x_left + 1, tin_y_bottom + 1, payer_tin_w - 2, 20, fill_color=fill_blue, stroke=0)
+    text(x_left + 8, tin_y_bottom + 27, "PAYER'S TIN", size=10)
+    text(x_left + 8, tin_y_bottom + 8, payer_ein, size=14, bold=True)
 
-    draw_text(left_col_x + 12, block1_bottom - 38, payer_ein, 14, True)
-    draw_text(middle_split_x + 12, block1_bottom - 38, recipient_tin, 14, True)
+    rect(x_left + payer_tin_w, tin_y_bottom, recipient_tin_w, tin_h, fill_color=fill_gray)
+    rect(x_left + payer_tin_w + 1, tin_y_bottom + 1, recipient_tin_w - 2, 20, fill_color=fill_blue, stroke=0)
+    text(x_left + payer_tin_w + 8, tin_y_bottom + 27, "RECIPIENT'S TIN", size=10)
+    text(x_left + payer_tin_w + 8, tin_y_bottom + 8, recipient_tin, size=14, bold=True)
 
-    # RECIPIENT block
-    draw_text(left_col_x + 8, block2_bottom - 14, "RECIPIENT'S name, street address, city or town, state or province, country, ZIP or foreign postal code", 7, False)
-    draw_wrapped_block(left_col_x + 10, block2_bottom - 30, recipient_name, max_chars=55, max_lines=1, size=10, bold=True)
-    draw_wrapped_block(left_col_x + 10, block2_bottom - 45, recipient_address_1, max_chars=55, max_lines=1, size=9)
-    draw_wrapped_block(left_col_x + 10, block2_bottom - 60, recipient_address_2, max_chars=55, max_lines=1, size=9)
+    box_area_w = x_copy - x_center
+    rect(x_center, tin_y_bottom, box_area_w, tin_h, fill_color=fill_gray)
+    rect(x_center + 1, tin_y_bottom + 1, box_area_w - 2, 20, fill_color=fill_blue, stroke=0)
+    text(x_center + 12, tin_y_bottom + 28, "1 Nonemployee compensation", size=10)
+    text(x_center + 6, tin_y_bottom + 5, "$", size=18, bold=True)
+    text(x_center + box_area_w - 10, tin_y_bottom + 7, money(nonemployee_comp), size=16, bold=True, align="right")
 
-    # Account / 2nd TIN notice / FATCA block
-    split_a = left_col_x + 130
-    split_b = left_col_x + 255
-    vline(split_a, main_bottom, block3_bottom)
-    vline(split_b, main_bottom, block3_bottom)
+    copy_block_top = tin_y_bottom + tin_h
+    copy_block_bottom = y_footer_top
+    rect(x_copy, copy_block_bottom, copy_w, copy_block_top - copy_block_bottom, fill_color=None, stroke=1)
+    text(x_copy + copy_w - 10, copy_block_top - 18, "Copy B", size=16, bold=True, align="right")
+    text(x_copy + (copy_w / 2), copy_block_top - 50, "For Recipient", size=16, bold=True, align="center")
+    text(x_copy + (copy_w / 2), copy_block_top - 78, "This is important tax", size=10, align="center")
+    text(x_copy + (copy_w / 2), copy_block_top - 95, "information and is being", size=10, align="center")
+    text(x_copy + (copy_w / 2), copy_block_top - 112, "furnished to the IRS. If you are", size=10, align="center")
+    text(x_copy + (copy_w / 2), copy_block_top - 129, "required to file a return,", size=10, align="center")
+    text(x_copy + (copy_w / 2), copy_block_top - 146, "a negligence penalty or other", size=10, align="center")
+    text(x_copy + (copy_w / 2), copy_block_top - 163, "sanction may be imposed on", size=10, align="center")
+    text(x_copy + (copy_w / 2), copy_block_top - 180, "you if this income is taxable", size=10, align="center")
+    text(x_copy + (copy_w / 2), copy_block_top - 197, "and the IRS determines that it", size=10, align="center")
+    text(x_copy + (copy_w / 2), copy_block_top - 214, "has not been reported.", size=10, align="center")
 
-    draw_text(left_col_x + 8, block3_bottom - 14, "Account number (see instructions)", 7, False)
-    draw_text(split_a + 8, block3_bottom - 14, "2nd TIN not.", 7, False)
-    draw_text(split_b + 8, block3_bottom - 14, "FATCA filing requirement", 7, False)
+    r1_bottom = tin_y_bottom - recipient_name_h
+    rect(x_left, r1_bottom, left_w, recipient_name_h, fill_color=fill_gray)
+    rect(x_left + 1, r1_bottom + 1, left_w - 2, recipient_name_h - 23, fill_color=fill_blue, stroke=0)
+    text(x_left + 8, tin_y_bottom - 14, "RECIPIENT'S name", size=8.5)
+    multiline(x_left + 10, r1_bottom + 36, recipient_name, size=11, bold=True, max_width=left_w - 20, max_lines=2)
 
-    account_number = contractor.get("account_number") or contractor.get("vendor_number") or ""
-    second_tin_notice = "X" if contractor.get("second_tin_notice") else ""
-    fatca = "X" if contractor.get("fatca_required") else ""
+    rect(x_center, r1_bottom, box_area_w, box2_h, fill_color=fill_gray)
+    text(x_center + 12, r1_bottom + 37, "2 Payer made direct sales totaling $5,000 or more of", size=10)
+    text(x_center + 12, r1_bottom + 16, "  consumer products to recipient for resale", size=10)
+    cb_size = 18
+    cb_x = x_center + box_area_w - 26
+    cb_y = r1_bottom + 15
+    rect(cb_x, cb_y, cb_size, cb_size, fill_color=fill_blue, stroke=1)
+    if direct_sales_checked:
+        text(cb_x + (cb_size / 2), cb_y + 4, "X", size=13, bold=True, align="center")
 
-    draw_text(left_col_x + 10, block3_bottom - 36, account_number, 10, True)
-    draw_center(split_a + 35, block3_bottom - 36, second_tin_notice, 12, True)
-    draw_center(split_b + 58, block3_bottom - 36, fatca, 12, True)
+    r2_bottom = r1_bottom - recipient_street_h
+    rect(x_left, r2_bottom, left_w, recipient_street_h, fill_color=fill_gray)
+    rect(x_left + 1, r2_bottom + 1, left_w - 2, recipient_street_h - 23, fill_color=fill_blue, stroke=0)
+    text(x_left + 8, r1_bottom - 14, "Street address (including apt. no.)", size=8.5)
+    multiline(
+        x_left + 10,
+        r2_bottom + 28,
+        " ".join([p for p in [recipient_addr_1, recipient_addr_2] if clean(p)]).strip(),
+        size=10.5,
+        max_width=left_w - 20,
+        max_lines=2,
+    )
 
-    # Right-side tax boxes
-    box_top = main_top
-    small_h = 70
+    rect(x_center, r2_bottom, box_area_w, box3_h, fill_color=fill_dark)
+    text(x_center + 12, r2_bottom + 32, "3", size=13, bold=True)
 
-    # Box 1
-    rect(right_col_x, box_top - small_h, right_col_w, small_h)
-    draw_text(right_col_x + 8, box_top - 16, "1  Nonemployee compensation", 8, False)
-    draw_right(right - 10, box_top - 46, money(nonemployee_comp), 16, True)
+    r3_bottom = r2_bottom - recipient_city_h
+    rect(x_left, r3_bottom, left_w, recipient_city_h, fill_color=fill_gray)
+    rect(x_left + 1, r3_bottom + 1, left_w - 2, recipient_city_h - 23, fill_color=fill_blue, stroke=0)
+    text(x_left + 8, r2_bottom - 14, "City or town, state or province, country, and ZIP or foreign postal code", size=7.8)
+    multiline(
+        x_left + 10,
+        r3_bottom + 28,
+        " ".join(
+            p for p in [
+                f"{recipient_city}," if clean(recipient_city) else "",
+                recipient_state,
+                recipient_zip,
+            ] if clean(p)
+        ).strip(),
+        size=10.5,
+        max_width=left_w - 20,
+        max_lines=2,
+    )
 
-    # Box 2
-    box2_top = box_top - small_h
-    rect(right_col_x, box2_top - small_h, right_col_w, small_h)
-    draw_text(right_col_x + 8, box2_top - 16, "2  Payer made direct sales totaling $5,000 or more", 7, False)
-    draw_text(right_col_x + 8, box2_top - 28, "of consumer products to recipient for resale", 7, False)
-    draw_text(right_col_x + 8, box2_top - 40, "(checkbox)", 7, False)
-    direct_sales = "X" if contractor.get("direct_sales") else ""
-    draw_center(right - 22, box2_top - 48, direct_sales, 14, True)
+    rect(x_center, r3_bottom, box_area_w, box4_h, fill_color=fill_gray, lw=2.2)
+    rect(x_center + 1, r3_bottom + 1, box_area_w - 2, 25, fill_color=fill_blue, stroke=0)
+    text(x_center + 12, r3_bottom + 34, "4 Federal income tax withheld", size=11, bold=True)
+    text(x_center + 6, r3_bottom + 5, "$", size=18, bold=True)
+    text(x_center + box_area_w - 10, r3_bottom + 7, money(federal_withholding), size=16, bold=True, align="right")
 
-    # Box 3
-    box3_top = box2_top - small_h
-    rect(right_col_x, box3_top - small_h, right_col_w, small_h)
-    draw_text(right_col_x + 8, box3_top - 16, "3", 8, False)
+    r4_bottom = r3_bottom - account_h
+    rect(x_left, r4_bottom, left_w, account_h, fill_color=fill_gray)
+    rect(x_left + 1, r4_bottom + 1, left_w - 2, account_h - 18, fill_color=fill_blue, stroke=0)
+    text(x_left + 8, r3_bottom - 18, "Account number (see instructions)", size=10)
+    text(x_left + 10, r4_bottom + 9, account_number, size=10.5)
+    split_a = x_left + 130
+    split_b = x_left + 255
+    vline(split_a, form_y + footer_h, r4_bottom + account_h)
+    vline(split_b, form_y + footer_h, r4_bottom + account_h)
+    text(split_a + 8, r3_bottom - 18, "2nd TIN not.", size=10)
+    text(split_b + 8, r3_bottom - 18, "FATCA filing requirement", size=10)
+    text(split_a + 35, r4_bottom + 9, second_tin_notice, size=12, bold=True, align="center")
+    text(split_b + 58, r4_bottom + 9, fatca, size=12, bold=True, align="center")
 
-    # Box 4
-    box4_top = box3_top - small_h
-    rect(right_col_x, box4_top - small_h, right_col_w, small_h)
-    draw_text(right_col_x + 8, box4_top - 16, "4  Federal income tax withheld", 8, False)
-    draw_right(right - 10, box4_top - 46, money(federal_withholding), 16, True)
+    state_y = r4_bottom
+    state_row_h = state_h / 2.0
 
-    # State section: boxes 5-7
-    state_top = box4_top - small_h
-    state_h = 115
-    rect(right_col_x, state_top - state_h, right_col_w, state_h)
+    col5_w = 110
+    col6_w = 120
+    col7_w = box_area_w - col5_w - col6_w
 
-    inner_x1 = right_col_x + 55
-    inner_x2 = right_col_x + 125
-    vline(inner_x1, state_top - state_h, state_top)
-    vline(inner_x2, state_top - state_h, state_top)
+    def draw_state_row(y_bottom, tax_val, code_val, income_val, dotted=False):
+        rect(x_center, y_bottom, col5_w, state_row_h, fill_color=fill_gray)
+        rect(x_center + col5_w, y_bottom, col6_w, state_row_h, fill_color=fill_gray)
+        rect(x_center + col5_w + col6_w, y_bottom, col7_w, state_row_h, fill_color=fill_gray)
 
-    h_mid = state_top - 57
-    hline(right_col_x, h_mid, right)
-    draw_text(right_col_x + 8, state_top - 16, "5  State tax withheld", 7, False)
-    draw_text(inner_x1 + 8, state_top - 16, "6  State/Payer's state no.", 7, False)
-    draw_text(inner_x2 + 8, state_top - 16, "7  State income", 7, False)
+        if not dotted:
+            text(x_center + 6, y_bottom + state_row_h - 14, "5 State tax withheld", size=7.5)
+            text(x_center + col5_w + 6, y_bottom + state_row_h - 14, "6 State/Payer's state no.", size=7.2)
+            text(x_center + col5_w + col6_w + 6, y_bottom + state_row_h - 14, "7 State income", size=7.5)
 
-    draw_right(inner_x1 - 8, state_top - 40, money(state_tax_withheld), 12, True)
-    draw_text(inner_x1 + 8, state_top - 40, f"{state_code} {payer_state_no}".strip(), 10, True)
-    draw_right(right - 10, state_top - 40, money(state_income), 12, True)
+        if dotted:
+            hline(x_center + 14, y_bottom + 14, x_center + col5_w - 8, lw=1)
+            hline(x_center + col5_w + 14, y_bottom + 14, x_center + col5_w + col6_w - 8, lw=1)
+            hline(x_center + col5_w + col6_w + 14, y_bottom + 14, x_center + box_area_w - 8, lw=1)
 
-    # Optional second state row
-    draw_text(right_col_x + 8, h_mid - 16, "5  State tax withheld", 7, False)
-    draw_text(inner_x1 + 8, h_mid - 16, "6  State/Payer's state no.", 7, False)
-    draw_text(inner_x2 + 8, h_mid - 16, "7  State income", 7, False)
+        if tax_val:
+            text(x_center + 4, y_bottom + 3, "$", size=14)
+            text(x_center + col5_w - 6, y_bottom + 5, money(tax_val), size=10.5, bold=True, align="right")
 
-    state2_tax = float(summary.get("state2_tax_withheld", 0) or 0)
-    state2_income = float(summary.get("state2_income", 0) or 0)
-    state2_code = summary.get("state2_code") or ""
-    state2_payer_no = summary.get("state2_payer_state_no") or ""
+        state_code_line = " ".join([p for p in [code_val[0], code_val[1]] if clean(p)]).strip()
+        if state_code_line:
+            text(x_center + col5_w + 6, y_bottom + 5, state_code_line, size=9.2, max_width=col6_w - 12)
 
-    draw_right(inner_x1 - 8, h_mid - 40, money(state2_tax) if state2_tax else "", 12, True)
-    draw_text(inner_x1 + 8, h_mid - 40, f"{state2_code} {state2_payer_no}".strip(), 10, True)
-    draw_right(right - 10, h_mid - 40, money(state2_income) if state2_income else "", 12, True)
+        if income_val:
+            text(x_center + col5_w + col6_w + 4, y_bottom + 3, "$", size=14)
+            text(x_center + box_area_w - 6, y_bottom + 5, money(income_val), size=10.5, bold=True, align="right")
 
-    # Bottom instructions / footer area
-    footer_top = main_bottom
-    hline(left, footer_top, right)
+    draw_state_row(
+        state_y,
+        state_tax_withheld,
+        (state_code, payer_state_no),
+        state_income,
+        dotted=False,
+    )
+    draw_state_row(
+        state_y - state_row_h,
+        state2_tax,
+        (state2_code, state2_payer_no),
+        state2_income,
+        dotted=True,
+    )
 
-    draw_text(left + 8, footer_top - 16, "This is important tax information and is being furnished to the IRS.", 8, True)
-    draw_text(left + 8, footer_top - 30, "If you are required to file a return, a negligence penalty or other sanction may be imposed", 7, False)
-    draw_text(left + 8, footer_top - 42, "on you if this income is taxable and the IRS determines that it has not been reported.", 7, False)
-
-    draw_right(right - 8, footer_top - 30, f"Form 1099-NEC ({tax_year})", 8, False)
+    hline(form_x, y_footer_top, x_right)
+    text(form_x, form_y + 7, "Form", size=11)
+    text(form_x + 34, form_y + 6, "1099-NEC", size=17, bold=True)
+    text(form_x + 152, form_y + 7, "(Rev. 1-2022)", size=11)
+    text(form_x + 280, form_y + 7, "(keep for your records)", size=11)
+    text(form_x + 520, form_y + 7, "www.irs.gov/Form1099NEC", size=11)
+    text(x_right - 2, form_y + 7, "Department of the Treasury - Internal Revenue Service", size=11, align="right")
 
     pdf.showPage()
     pdf.save()
@@ -1340,7 +1656,6 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
     data = buffer.getvalue()
     buffer.close()
     return data
-
 
 # ===============================
 # 🔥 1099 CENTER PAGE
