@@ -3,6 +3,8 @@ from db import get_db_connection
 from decorators import login_required, subscription_required
 from page_helpers import render_page
 
+print("NOTIFICATIONS ROUTES LOADED", flush=True)
+
 notifications_bp = Blueprint("notifications", __name__)
 
 
