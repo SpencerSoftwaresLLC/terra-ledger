@@ -31,6 +31,7 @@ quotes_bp = Blueprint("quotes", __name__)
 
 
 ITEM_TYPE_LABELS = {
+    "mowing": "Mowing",
     "mulch": "Mulch",
     "stone": "Stone",
     "dump_fee": "Dump Fee",
@@ -55,11 +56,45 @@ def _safe_float(value):
         return 0.0
 
 
+def _clean_text(value):
+    text = str(value or "").strip()
+    if text.lower() in {"none", "null", "n/a"}:
+        return ""
+    return text
+
+
 def _display_item_type(value):
     key = (value or "").strip().lower()
     if key in ITEM_TYPE_LABELS:
         return ITEM_TYPE_LABELS[key]
     return key.replace("_", " ").title() if key else "Material"
+
+
+def _default_unit_for_quote_item_type(item_type):
+    key = (item_type or "").strip().lower()
+
+    if key == "mowing":
+        return "Cuts"
+    if key == "mulch":
+        return "Yards"
+    if key == "stone":
+        return "Tons"
+    if key == "soil":
+        return "Yards"
+    if key == "hardscape_material":
+        return "Tons"
+    if key == "fuel":
+        return "Gallons"
+    if key == "delivery":
+        return "Miles"
+    if key == "labor":
+        return "Hours"
+    if key == "equipment":
+        return "Rentals"
+    if key == "dump_fee":
+        return ""
+
+    return ""
 
 
 def ensure_quote_item_columns():
@@ -515,6 +550,15 @@ def quotes():
             position: relative;
         }}
 
+        .customer-search-wrap label {{
+            display:block;
+            margin-bottom:6px;
+        }}
+
+        .customer-search-input-wrap {{
+            position: relative;
+        }}
+
         .customer-results {{
             display: none;
             position: absolute;
@@ -661,9 +705,11 @@ def quotes():
                 <div class='grid'>
                     <div class='customer-search-wrap'>
                         <label>Customer</label>
-                        <input type='text' id='customer_search' placeholder='Search customer name, company, or email...' autocomplete='off' required>
-                        <input type='hidden' name='customer_id' id='customer_id' required>
-                        <div id='customer_results' class='customer-results'></div>
+                        <div class='customer-search-input-wrap'>
+                            <input type='text' id='customer_search' placeholder='Search customer name, company, or email...' autocomplete='off' required>
+                            <input type='hidden' name='customer_id' id='customer_id' required>
+                            <div id='customer_results' class='customer-results'></div>
+                        </div>
                     </div>
 
                     <div>
@@ -821,7 +867,7 @@ def view_quote(quote_id):
         abort(404)
 
     if request.method == "POST":
-        item_type = ((request.form.get("item_type") or "mulch").strip().lower() or "mulch")
+        item_type = ((request.form.get("item_type") or "mowing").strip().lower() or "mowing")
         description = (request.form.get("description") or "").strip()
         quantity = _safe_float(request.form.get("quantity"))
         unit = (request.form.get("unit") or "").strip()
@@ -833,23 +879,12 @@ def view_quote(quote_id):
             flash("Description is required.")
             return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
-        if item_type == "mulch" and not unit:
-            unit = "Yards"
-        elif item_type == "stone" and not unit:
-            unit = "Tons"
-        elif item_type == "soil" and not unit:
-            unit = "Yards"
-        elif item_type == "hardscape_material" and not unit:
-            unit = "Tons"
-        elif item_type == "fuel" and not unit:
-            unit = "Gallons"
-        elif item_type == "delivery" and not unit:
-            unit = "Miles"
-        elif item_type == "labor" and not unit:
-            unit = "Hours"
-        elif item_type == "equipment" and not unit:
-            unit = "Rentals"
-        elif item_type in ["plants", "trees", "misc", "dump_fee"]:
+        default_unit = _default_unit_for_quote_item_type(item_type)
+        if item_type == "dump_fee":
+            unit = ""
+        elif default_unit and not unit:
+            unit = default_unit
+        elif item_type in ["plants", "trees", "misc"]:
             unit = ""
 
         if item_type == "labor":
@@ -1078,6 +1113,13 @@ def view_quote(quote_id):
             flex-wrap:wrap;
         }}
 
+        .quote-item-helper {{
+            margin-top:6px;
+            font-size:.8rem;
+            color:#64748b;
+            line-height:1.35;
+        }}
+
         @media (max-width: 900px) {{
             .quote-meta-grid {{
                 grid-template-columns:1fr;
@@ -1160,6 +1202,7 @@ def view_quote(quote_id):
                     <div>
                         <label>Item Type</label>
                         <select name='item_type' id='quote_item_type' onchange='toggleQuoteItemType()'>
+                            <option value='mowing'>Mowing</option>
                             <option value='mulch'>Mulch</option>
                             <option value='stone'>Stone</option>
                             <option value='dump_fee'>Dump Fee</option>
@@ -1174,6 +1217,7 @@ def view_quote(quote_id):
                             <option value='fuel'>Fuel</option>
                             <option value='misc'>Misc</option>
                         </select>
+                        <div class='quote-item-helper'>Use mowing for recurring lawn cuts or flat per-cut pricing.</div>
                     </div>
                     <div>
                         <label>Description</label>
@@ -1246,7 +1290,12 @@ def view_quote(quote_id):
                 quantityInput.readOnly = false;
                 quantityInput.step = "0.01";
 
-                if (type === "mulch") {{
+                if (type === "mowing") {{
+                    quantityLabel.textContent = "Cuts";
+                    unitPriceLabel.textContent = "Price Per Cut";
+                    unitField.value = "Cuts";
+                }}
+                else if (type === "mulch") {{
                     quantityLabel.textContent = "Yards";
                     unitField.value = "Yards";
                 }}
@@ -1595,31 +1644,69 @@ def convert_quote_to_job(quote_id):
         quote_notes = (quote["notes"] or "").strip() if "notes" in quote.keys() and quote["notes"] else ""
         job_title = quote_title or f"Job from Quote {quote_number}"
 
+        quote_service_type = ""
+        for i in items:
+            raw_item_type = ((i["item_type"] or "").strip().lower() if "item_type" in i.keys() and i["item_type"] else "")
+            if raw_item_type == "mowing":
+                quote_service_type = "mowing"
+                break
+
         cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO jobs (
-                company_id,
-                customer_id,
-                quote_id,
-                title,
-                scheduled_date,
-                status,
-                notes
+        try:
+            cur.execute(
+                """
+                INSERT INTO jobs (
+                    company_id,
+                    customer_id,
+                    quote_id,
+                    title,
+                    scheduled_date,
+                    status,
+                    notes,
+                    service_type
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    quote["company_id"],
+                    quote["customer_id"],
+                    quote_id,
+                    job_title,
+                    date.today(),
+                    "Scheduled",
+                    quote_notes,
+                    quote_service_type or None,
+                ),
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-            """,
-            (
-                quote["company_id"],
-                quote["customer_id"],
-                quote_id,
-                job_title,
-                date.today(),
-                "Scheduled",
-                quote_notes,
-            ),
-        )
+        except Exception:
+            conn.rollback()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO jobs (
+                    company_id,
+                    customer_id,
+                    quote_id,
+                    title,
+                    scheduled_date,
+                    status,
+                    notes
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    quote["company_id"],
+                    quote["customer_id"],
+                    quote_id,
+                    job_title,
+                    date.today(),
+                    "Scheduled",
+                    quote_notes,
+                ),
+            )
+
         row = cur.fetchone()
         if not row or "id" not in row:
             raise Exception("Failed to create job record.")
@@ -1634,25 +1721,14 @@ def convert_quote_to_job(quote_id):
             desc = (i["description"] or "").strip()
             unit = (i["unit"] or "").strip()
 
-            item_type = raw_item_type or "mulch"
+            item_type = raw_item_type or "mowing"
 
-            if item_type == "mulch" and not unit:
-                unit = "Yards"
-            elif item_type == "stone" and not unit:
-                unit = "Tons"
-            elif item_type == "soil" and not unit:
-                unit = "Yards"
-            elif item_type == "hardscape_material" and not unit:
-                unit = "Tons"
-            elif item_type == "fuel" and not unit:
-                unit = "Gallons"
-            elif item_type == "delivery" and not unit:
-                unit = "Miles"
-            elif item_type == "labor" and not unit:
-                unit = "Hours"
-            elif item_type == "equipment" and not unit:
-                unit = "Rentals"
-            elif item_type in ["plants", "trees", "misc", "dump_fee"]:
+            default_unit = _default_unit_for_quote_item_type(item_type)
+            if item_type == "dump_fee":
+                unit = ""
+            elif default_unit and not unit:
+                unit = default_unit
+            elif item_type in ["plants", "trees", "misc"]:
                 unit = ""
 
             if item_type == "labor":

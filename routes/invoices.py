@@ -1364,7 +1364,17 @@ def new_invoice():
             width: 100%;
         }}
 
-        .customer-search-wrap input {{
+        .customer-search-wrap label {{
+            display: block;
+            margin-bottom: 6px;
+        }}
+
+        .customer-search-input-wrap {{
+            position: relative;
+            width: 100%;
+        }}
+
+        .customer-search-input-wrap input {{
             width: 100%;
         }}
 
@@ -1406,6 +1416,13 @@ def new_invoice():
         .grid {{
             align-items: start;
         }}
+
+        .invoice-form-helper {{
+            margin-top: 6px;
+            font-size: .8rem;
+            color: #64748b;
+            line-height: 1.35;
+        }}
     </style>
 
     <div class='card'>
@@ -1419,18 +1436,21 @@ def new_invoice():
             <div class='grid'>
                 <div class='customer-search-wrap'>
                     <label>Customer</label>
-                    <input type='text'
-                           id='customer_search'
-                           placeholder='Search customer name, company, or email...'
-                           autocomplete='off'
-                           required>
-                    <input type='hidden' name='customer_id' id='customer_id' required>
-                    <div id='customer_results' class='customer-results'></div>
+                    <div class='customer-search-input-wrap'>
+                        <input type='text'
+                               id='customer_search'
+                               placeholder='Search customer name, company, or email...'
+                               autocomplete='off'
+                               required>
+                        <input type='hidden' name='customer_id' id='customer_id' required>
+                        <div id='customer_results' class='customer-results'></div>
+                    </div>
                 </div>
 
                 <div>
                     <label>Invoice Number</label>
                     <input type='text' name='invoice_number' placeholder='Auto-assigned if left blank'>
+                    <div class='invoice-form-helper'>Next invoice number on file: {escape(next_invoice_number_preview)}</div>
                 </div>
 
                 <div>
@@ -1459,7 +1479,7 @@ def new_invoice():
 
                 <div style='grid-column:1 / -1;'>
                     <label>Description / Notes</label>
-                    <textarea name='description' placeholder='Material, labor, fuel, delivery, etc.'></textarea>
+                    <textarea name='description' placeholder='Mowing service, mulch, labor, fuel, delivery, or other invoice details.'></textarea>
                 </div>
             </div>
 
@@ -1523,35 +1543,34 @@ def new_invoice():
             }});
         }}
 
-        searchInput.addEventListener("input", function () {{
-            const q = this.value.trim().toLowerCase();
-            customerIdInput.value = "";
+        function getMatches(query) {{
+            const q = String(query || "").trim().toLowerCase();
+            if (!q) return [];
 
-            if (!q) {{
-                closeResults();
-                return;
-            }}
-
-            const matches = customers.filter(c =>
+            return customers.filter(c =>
                 (c.name && c.name.toLowerCase().includes(q)) ||
                 (c.company && c.company.toLowerCase().includes(q)) ||
                 (c.email && c.email.toLowerCase().includes(q))
             ).slice(0, 8);
+        }}
+
+        searchInput.addEventListener("input", function () {{
+            customerIdInput.value = "";
+            const matches = getMatches(this.value);
+
+            if (!this.value.trim()) {{
+                closeResults();
+                return;
+            }}
 
             renderCustomerResults(matches);
         }});
 
         searchInput.addEventListener("focus", function () {{
-            const q = this.value.trim().toLowerCase();
-            if (!q) return;
-
-            const matches = customers.filter(c =>
-                (c.name && c.name.toLowerCase().includes(q)) ||
-                (c.company && c.company.toLowerCase().includes(q)) ||
-                (c.email && c.email.toLowerCase().includes(q))
-            ).slice(0, 8);
-
-            renderCustomerResults(matches);
+            const matches = getMatches(this.value);
+            if (matches.length) {{
+                renderCustomerResults(matches);
+            }}
         }});
 
         document.addEventListener("click", function (e) {{
@@ -1589,12 +1608,7 @@ def view_invoice(invoice_id):
         abort(404)
 
     items = conn.execute(
-        """
-        SELECT *
-        FROM invoice_items
-        WHERE invoice_id = %s
-        ORDER BY id
-        """,
+        "SELECT * FROM invoice_items WHERE invoice_id = %s ORDER BY id",
         (invoice_id,),
     ).fetchall()
 
@@ -1610,29 +1624,29 @@ def view_invoice(invoice_id):
 
     conn.close()
 
+    # ---------- ITEMS ----------
     item_rows = ""
     item_mobile_cards = ""
+
     for item in items:
         item_rows += f"""
         <tr>
             <td>{escape(_clean_display(item["description"]))}</td>
-            <td>{_safe_float(item["quantity"]):,.2f}</td>
+            <td>{_safe_float(item["quantity"]):.2f}</td>
             <td>{escape(_clean_display(item["unit"]))}</td>
-            <td>${_safe_float(item["unit_price"]):,.2f}</td>
-            <td>${_safe_float(item["line_total"]):,.2f}</td>
+            <td>${_safe_float(item["unit_price"]):.2f}</td>
+            <td>${_safe_float(item["line_total"]):.2f}</td>
         </tr>
         """
 
         item_mobile_cards += f"""
         <div class='mobile-list-card'>
-            <div class='mobile-list-top'>
-                <div class='mobile-list-title'>{escape(_clean_display(item["description"]))}</div>
-            </div>
+            <div class='mobile-list-title'>{escape(_clean_display(item["description"]))}</div>
             <div class='mobile-list-grid'>
-                <div><span>Qty</span><strong>{_safe_float(item["quantity"]):,.2f}</strong></div>
+                <div><span>Qty</span><strong>{_safe_float(item["quantity"]):.2f}</strong></div>
                 <div><span>Unit</span><strong>{escape(_clean_display(item["unit"]))}</strong></div>
-                <div><span>Unit Price</span><strong>${_safe_float(item["unit_price"]):,.2f}</strong></div>
-                <div><span>Line Total</span><strong>${_safe_float(item["line_total"]):,.2f}</strong></div>
+                <div><span>Unit Price</span><strong>${_safe_float(item["unit_price"]):.2f}</strong></div>
+                <div><span>Total</span><strong>${_safe_float(item["line_total"]):.2f}</strong></div>
             </div>
         </div>
         """
@@ -1640,47 +1654,36 @@ def view_invoice(invoice_id):
     if not item_rows:
         item_rows = "<tr><td colspan='5' class='muted'>No invoice items found.</td></tr>"
 
-    if not item_mobile_cards:
-        item_mobile_cards = "<div class='mobile-list-card muted'>No invoice items found.</div>"
-
+    # ---------- PAYMENTS ----------
     payment_rows = ""
     payment_mobile_cards = ""
+
     for p in payments:
-        payment_csrf = generate_csrf()
+        csrf = generate_csrf()
+
         payment_rows += f"""
         <tr>
             <td>{escape(str(p["payment_date"] or "-"))}</td>
-            <td>${_safe_float(p["amount"]):,.2f}</td>
+            <td>${_safe_float(p["amount"]):.2f}</td>
             <td>{escape(_clean_display(p["payment_method"]))}</td>
             <td>{escape(_clean_display(p["reference"]))}</td>
             <td>
-                <div class='row-actions'>
-                    <a class='btn small' href='{url_for("invoices.edit_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}'>Edit</a>
-                    <form method='post' action='{url_for("invoices.delete_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}' style='display:inline;'>
-                        <input type="hidden" name="csrf_token" value="{payment_csrf}">
-                        <button class='btn secondary small' type='submit'>Delete</button>
-                    </form>
-                </div>
+                <a class='btn small' href='{url_for("invoices.edit_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}'>Edit</a>
+                <form method='post' action='{url_for("invoices.delete_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}' style='display:inline;'>
+                    <input type="hidden" name="csrf_token" value="{csrf}">
+                    <button class='btn secondary small'>Delete</button>
+                </form>
             </td>
         </tr>
         """
 
         payment_mobile_cards += f"""
         <div class='mobile-list-card'>
-            <div class='mobile-list-top'>
-                <div class='mobile-list-title'>Payment on {escape(str(p["payment_date"] or "-"))}</div>
-                <div class='mobile-badge'>${_safe_float(p["amount"]):,.2f}</div>
-            </div>
+            <div class='mobile-list-title'>${_safe_float(p["amount"]):.2f}</div>
             <div class='mobile-list-grid'>
+                <div><span>Date</span><strong>{escape(str(p["payment_date"] or "-"))}</strong></div>
                 <div><span>Method</span><strong>{escape(_clean_display(p["payment_method"]))}</strong></div>
-                <div><span>Reference</span><strong>{escape(_clean_display(p["reference"]))}</strong></div>
-            </div>
-            <div class='mobile-list-actions'>
-                <a class='btn small' href='{url_for("invoices.edit_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}'>Edit</a>
-                <form method='post' action='{url_for("invoices.delete_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}' style='display:inline;'>
-                    <input type="hidden" name="csrf_token" value="{payment_csrf}">
-                    <button class='btn secondary small' type='submit'>Delete</button>
-                </form>
+                <div><span>Ref</span><strong>{escape(_clean_display(p["reference"]))}</strong></div>
             </div>
         </div>
         """
@@ -1688,334 +1691,95 @@ def view_invoice(invoice_id):
     if not payment_rows:
         payment_rows = "<tr><td colspan='5' class='muted'>No payments recorded.</td></tr>"
 
-    if not payment_mobile_cards:
-        payment_mobile_cards = "<div class='mobile-list-card muted'>No payments recorded.</div>"
-
+    # ---------- META ----------
     invoice_number = _clean_display(invoice["invoice_number"] or invoice["id"])
-    invoice_status = _clean_display(invoice["status"])
-    is_paid = str(invoice["status"] or "").strip().lower() == "paid"
+    is_paid = str(invoice["status"]).lower() == "paid"
 
-    toggle_csrf = generate_csrf()
-    delete_invoice_csrf = generate_csrf()
-    add_payment_csrf = generate_csrf()
-
-    toggle_button_html = f"""
-    <form method='post' action='{url_for("invoices.toggle_invoice_paid", invoice_id=invoice_id)}' style='display:inline;'>
-        <input type="hidden" name="csrf_token" value="{toggle_csrf}">
-        <button class='btn {"secondary" if is_paid else "success"}' type='submit'>
+    toggle_btn = f"""
+    <form method='post' action='{url_for("invoices.toggle_invoice_paid", invoice_id=invoice_id)}'>
+        <input type="hidden" name="csrf_token" value="{generate_csrf()}">
+        <button class='btn {"secondary" if is_paid else "success"}'>
             {"Mark Unpaid" if is_paid else "Mark Paid"}
         </button>
     </form>
     """
 
+    # ---------- PAGE ----------
     content = f"""
     <style>
-        .invoice-view-page {{
-            display:grid;
-            gap:18px;
-        }}
+        .invoice-page {{ display:grid; gap:16px; }}
 
-        .invoice-head {{
+        .invoice-header {{
             display:flex;
             justify-content:space-between;
-            gap:16px;
             flex-wrap:wrap;
-            align-items:flex-start;
-        }}
-
-        .invoice-actions-stack {{
-            display:flex;
-            flex-direction:column;
-            gap:10px;
-            align-items:flex-end;
-        }}
-
-        .invoice-meta-grid {{
-            display:grid;
-            grid-template-columns:repeat(3, minmax(0, 1fr));
             gap:12px;
-            margin-top:14px;
         }}
 
-        .invoice-meta-card,
-        .invoice-total-card {{
-            border:1px solid rgba(15, 23, 42, 0.08);
+        .invoice-grid {{
+            display:grid;
+            grid-template-columns:repeat(3,1fr);
+            gap:12px;
+        }}
+
+        .invoice-card {{
+            border:1px solid #e5e7eb;
             border-radius:12px;
             padding:12px;
-            background:#fff;
         }}
 
-        .invoice-meta-card span,
-        .invoice-total-card span {{
-            display:block;
-            font-size:.8rem;
-            color:#64748b;
-            margin-bottom:4px;
-        }}
+        .mobile-only {{ display:none; }}
 
-        .invoice-meta-card strong,
-        .invoice-total-card strong {{
-            display:block;
-            color:#0f172a;
-            line-height:1.3;
-            word-break:break-word;
-        }}
-
-        .invoice-total-grid {{
-            display:grid;
-            grid-template-columns:repeat(3, minmax(0, 1fr));
-            gap:16px;
-        }}
-
-        .invoice-table-wrap {{
-            width:100%;
-            overflow-x:auto;
-        }}
-
-        .mobile-only {{
-            display:none;
-        }}
-
-        .desktop-only {{
-            display:block;
-        }}
-
-        .mobile-list {{
-            display:grid;
-            gap:12px;
-        }}
-
-        .mobile-list-card {{
-            border:1px solid rgba(15, 23, 42, 0.08);
-            border-radius:14px;
-            padding:14px;
-            background:#fff;
-            box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
-        }}
-
-        .mobile-list-top {{
-            display:flex;
-            justify-content:space-between;
-            align-items:flex-start;
-            gap:10px;
-            margin-bottom:10px;
-        }}
-
-        .mobile-list-title {{
-            font-weight:700;
-            color:#0f172a;
-            line-height:1.25;
-            word-break:break-word;
-        }}
-
-        .mobile-badge {{
-            font-size:.85rem;
-            font-weight:700;
-            color:#334155;
-            background:#f1f5f9;
-            padding:6px 10px;
-            border-radius:999px;
-            white-space:nowrap;
-        }}
-
-        .mobile-list-grid {{
-            display:grid;
-            grid-template-columns:1fr 1fr;
-            gap:10px 12px;
-            margin-bottom:12px;
-        }}
-
-        .mobile-list-grid span {{
-            display:block;
-            font-size:.78rem;
-            color:#64748b;
-            margin-bottom:3px;
-        }}
-
-        .mobile-list-grid strong {{
-            display:block;
-            color:#0f172a;
-            font-size:.95rem;
-            line-height:1.25;
-            word-break:break-word;
-        }}
-
-        .mobile-list-actions {{
-            display:flex;
-            gap:8px;
-            flex-wrap:wrap;
-        }}
-
-        @media (max-width: 900px) {{
-            .invoice-meta-grid,
-            .invoice-total-grid {{
-                grid-template-columns:1fr;
-            }}
-        }}
-
-        @media (max-width: 640px) {{
-            .desktop-only {{
-                display:none !important;
-            }}
-
-            .mobile-only {{
-                display:block !important;
-            }}
-
-            .mobile-list-grid {{
-                grid-template-columns:1fr;
-            }}
-
-            .invoice-actions-stack {{
-                align-items:stretch;
-                width:100%;
-            }}
-
-            .invoice-actions-stack .row-actions,
-            .invoice-actions-stack form {{
-                width:100%;
-            }}
+        @media (max-width:700px){{
+            .invoice-grid {{ grid-template-columns:1fr; }}
+            .mobile-only {{ display:block; }}
+            .desktop-only {{ display:none; }}
         }}
     </style>
 
-    <div class='invoice-view-page'>
-        <div class='card'>
-            <div class='invoice-head'>
-                <div>
-                    <h1>Invoice #{escape(str(invoice_number))}</h1>
-                </div>
+    <div class='invoice-page'>
 
-                <div class='invoice-actions-stack'>
-                    <div class='row-actions' style='justify-content:flex-end;'>
-                        <a class='btn secondary' href='{url_for("invoices.invoices")}'>Back</a>
-                        <a class='btn' href='{url_for("invoices.email_invoice_preview", invoice_id=invoice_id)}'>Email Invoice</a>
-                        {toggle_button_html}
-                    </div>
-
-                    <form method='post'
-                          action='{url_for("invoices.delete_invoice", invoice_id=invoice_id)}'
-                          onsubmit="return confirm('Delete this invoice? This will also remove its items and payments.');">
-                        <input type="hidden" name="csrf_token" value="{delete_invoice_csrf}">
-                        <button class='btn danger small' type='submit'>Delete Invoice</button>
-                    </form>
-                </div>
-            </div>
-
-            <div class='invoice-meta-grid'>
-                <div class='invoice-meta-card'>
-                    <span>Customer</span>
-                    <strong>{escape(_clean_display(invoice["customer_name"]))}</strong>
-                </div>
-                <div class='invoice-meta-card'>
-                    <span>Company</span>
-                    <strong>{escape(_clean_display(invoice["customer_company"]))}</strong>
-                </div>
-                <div class='invoice-meta-card'>
-                    <span>Email</span>
-                    <strong>{escape(_clean_display(invoice["customer_email"]))}</strong>
-                </div>
-                <div class='invoice-meta-card'>
-                    <span>Invoice Date</span>
-                    <strong>{escape(str(invoice["invoice_date"] or "-"))}</strong>
-                </div>
-                <div class='invoice-meta-card'>
-                    <span>Due Date</span>
-                    <strong>{escape(str(invoice["due_date"] or "-"))}</strong>
-                </div>
-                <div class='invoice-meta-card'>
-                    <span>Status</span>
-                    <strong>{escape(invoice_status)}</strong>
-                </div>
+        <div class='card invoice-header'>
+            <h1>Invoice #{invoice_number}</h1>
+            <div class='row-actions'>
+                <a class='btn secondary' href='{url_for("invoices.invoices")}'>Back</a>
+                {toggle_btn}
             </div>
         </div>
 
-        <div class='invoice-total-grid'>
-            <div class='card stat-card invoice-total-card'>
-                <span>Total</span>
-                <strong>${_safe_float(invoice["total"]):,.2f}</strong>
-            </div>
-
-            <div class='card stat-card invoice-total-card'>
-                <span>Paid</span>
-                <strong style='color:#16a34a;'>${_safe_float(invoice["amount_paid"]):,.2f}</strong>
-            </div>
-
-            <div class='card stat-card invoice-total-card'>
-                <span>Balance Due</span>
-                <strong style='color:#dc2626;'>${_safe_float(invoice["balance_due"]):,.2f}</strong>
-            </div>
+        <div class='invoice-grid'>
+            <div class='invoice-card'><span>Customer</span><strong>{escape(_clean_display(invoice["customer_name"]))}</strong></div>
+            <div class='invoice-card'><span>Date</span><strong>{escape(str(invoice["invoice_date"] or "-"))}</strong></div>
+            <div class='invoice-card'><span>Status</span><strong>{escape(invoice["status"])}</strong></div>
         </div>
 
         <div class='card'>
-            <h2>Add Payment</h2>
-            <p class='muted'>
-                Use this for partial payments. Example: if a $500 invoice gets a $200 payment,
-                TerraLedger will mark it as Partial and leave $300 due.
-            </p>
+            <h2>Items</h2>
 
-            <form method='post' action='{url_for("invoices.add_invoice_payment", invoice_id=invoice_id)}'>
-                <input type="hidden" name="csrf_token" value="{add_payment_csrf}">
-                <div class='grid'>
-                    <div>
-                        <label>Amount</label>
-                        <input type='number' step='0.01' min='0.01' name='amount' required>
-                    </div>
-                    <div>
-                        <label>Payment Date</label>
-                        <input type='date' name='payment_date' value='{date.today().isoformat()}'>
-                    </div>
-                    <div>
-                        <label>Payment Method</label>
-                        <input name='payment_method' placeholder='Cash, Check, Card, ACH'>
-                    </div>
-                    <div>
-                        <label>Reference</label>
-                        <input name='reference' placeholder='Check # or transaction ID'>
-                    </div>
-                    <div style='grid-column:1 / -1;'>
-                        <label>Notes</label>
-                        <textarea name='notes'></textarea>
-                    </div>
-                </div>
-
-                <br>
-                <button class='btn success' type='submit'>Record Payment</button>
-            </form>
-        </div>
-
-        <div class='card'>
-            <h2>Invoice Items</h2>
-
-            <div class='invoice-table-wrap desktop-only'>
+            <div class='desktop-only'>
                 <table class='table'>
                     <thead>
                         <tr>
                             <th>Description</th>
                             <th>Qty</th>
                             <th>Unit</th>
-                            <th>Unit Price</th>
-                            <th>Line Total</th>
+                            <th>Price</th>
+                            <th>Total</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        {item_rows}
-                    </tbody>
+                    <tbody>{item_rows}</tbody>
                 </table>
             </div>
 
             <div class='mobile-only'>
-                <div class='mobile-list'>
-                    {item_mobile_cards}
-                </div>
+                {item_mobile_cards}
             </div>
         </div>
 
         <div class='card'>
-            <div class='section-head'>
-                <h2>Payment History</h2>
-            </div>
+            <h2>Payments</h2>
 
-            <div class='invoice-table-wrap desktop-only'>
+            <div class='desktop-only'>
                 <table class='table'>
                     <thead>
                         <tr>
@@ -2026,25 +1790,18 @@ def view_invoice(invoice_id):
                             <th></th>
                         </tr>
                     </thead>
-                    <tbody>
-                        {payment_rows}
-                    </tbody>
+                    <tbody>{payment_rows}</tbody>
                 </table>
             </div>
 
             <div class='mobile-only'>
-                <div class='mobile-list'>
-                    {payment_mobile_cards}
-                </div>
+                {payment_mobile_cards}
             </div>
         </div>
 
-        <div class='card'>
-            <h2>Notes</h2>
-            <p>{escape(_clean_display(invoice["notes"]))}</p>
-        </div>
     </div>
     """
+
     return render_page(content, f"Invoice #{invoice_number}")
 
 

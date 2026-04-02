@@ -1,6 +1,6 @@
 from flask import Blueprint, request, redirect, url_for, session, flash, make_response, abort
 from flask_wtf.csrf import generate_csrf
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from html import escape
 import json
 import io
@@ -53,6 +53,112 @@ def ensure_job_schedule_columns():
         cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_end_time TIME")
         cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS assigned_to TEXT")
         cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS service_type TEXT")
+        cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS recurring_schedule_id INTEGER")
+        cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS generated_from_schedule BOOLEAN DEFAULT FALSE")
+        conn.commit()
+    finally:
+        conn.close()
+
+    ensure_recurring_mowing_tables()
+
+
+def ensure_recurring_mowing_tables():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS recurring_mowing_schedules (
+                id SERIAL PRIMARY KEY,
+                company_id INTEGER NOT NULL,
+                customer_id INTEGER NOT NULL,
+                title TEXT,
+                service_type TEXT DEFAULT 'mowing',
+                interval_weeks INTEGER DEFAULT 1,
+                start_date DATE NOT NULL,
+                next_run_date DATE,
+                end_date DATE,
+                scheduled_start_time TIME,
+                scheduled_end_time TIME,
+                assigned_to TEXT,
+                status_default TEXT DEFAULT 'Scheduled',
+                address TEXT,
+                notes TEXT,
+                active BOOLEAN DEFAULT TRUE,
+                auto_generate_until_days INTEGER DEFAULT 42,
+                last_generated_on TIMESTAMP NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_recurring_mowing_schedules_company
+            ON recurring_mowing_schedules (company_id, active, next_run_date)
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_jobs_recurring_schedule
+            ON jobs (company_id, recurring_schedule_id, scheduled_date)
+            """
+        )
+
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedules ADD COLUMN IF NOT EXISTS title TEXT"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedules ADD COLUMN IF NOT EXISTS service_type TEXT DEFAULT 'mowing'"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedules ADD COLUMN IF NOT EXISTS interval_weeks INTEGER DEFAULT 1"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedules ADD COLUMN IF NOT EXISTS start_date DATE"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedules ADD COLUMN IF NOT EXISTS next_run_date DATE"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedules ADD COLUMN IF NOT EXISTS end_date DATE"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedules ADD COLUMN IF NOT EXISTS scheduled_start_time TIME"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedules ADD COLUMN IF NOT EXISTS scheduled_end_time TIME"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedules ADD COLUMN IF NOT EXISTS assigned_to TEXT"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedules ADD COLUMN IF NOT EXISTS status_default TEXT DEFAULT 'Scheduled'"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedules ADD COLUMN IF NOT EXISTS address TEXT"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedules ADD COLUMN IF NOT EXISTS notes TEXT"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedules ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedules ADD COLUMN IF NOT EXISTS auto_generate_until_days INTEGER DEFAULT 42"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedules ADD COLUMN IF NOT EXISTS last_generated_on TIMESTAMP NULL"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedules ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedules ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        )
+
         conn.commit()
     finally:
         conn.close()
@@ -79,6 +185,34 @@ def safe_float(value, default=0.0):
         return float(value or 0)
     except Exception:
         return default
+
+
+def safe_int(value, default=0):
+    try:
+        return int(str(value).strip())
+    except Exception:
+        return default
+
+
+def parse_iso_date(value):
+    text = clean_text_input(value)
+    if not text:
+        return None
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def date_to_iso(value):
+    if not value:
+        return ""
+    if isinstance(value, str):
+        return clean_text_input(value)
+    try:
+        return value.isoformat()
+    except Exception:
+        return clean_text_input(value)
 
 
 def normalize_service_type(value):
@@ -109,6 +243,52 @@ def service_type_select_options(selected_value="other"):
         selected_attr = " selected" if key == selected_value else ""
         options.append(f"<option value='{key}'{selected_attr}>{escape(label)}</option>")
     return "".join(options)
+
+
+def interval_mode_from_weeks(interval_weeks):
+    weeks = safe_int(interval_weeks, 1)
+    if weeks <= 1:
+        return "weekly"
+    if weeks == 2:
+        return "every_2"
+    return "custom"
+
+
+def interval_label(interval_weeks):
+    weeks = safe_int(interval_weeks, 1)
+    if weeks <= 1:
+        return "Weekly"
+    if weeks == 2:
+        return "Every 2 Weeks"
+    return f"Every {weeks} Weeks"
+
+
+def schedule_status_badge(active):
+    return "Active" if active else "Paused"
+
+
+def schedule_status_class(active):
+    return "mowing" if active else "default"
+
+
+def derive_interval_weeks_from_form(form):
+    mode = clean_text_input(form.get("interval_mode", "weekly")).lower()
+    if mode == "every_2":
+        return 2
+    if mode == "custom":
+        custom_value = safe_int(form.get("custom_interval_weeks"), 1)
+        return custom_value if custom_value > 0 else 1
+    return 1
+
+
+def recurring_schedule_title_default(title):
+    title = clean_text_input(title)
+    return title or "Recurring Mowing"
+
+
+def default_mowing_status(value="Scheduled"):
+    text = clean_text_input(value)
+    return text or "Scheduled"
 
 
 def _time_to_minutes(value):
@@ -295,6 +475,159 @@ def send_job_update_email(company_id, customer_email, job, update_type, user_id=
         return False, str(e)
 
 
+def get_schedule_job_title(schedule_row):
+    title = clean_text_input(schedule_row.get("title")) if hasattr(schedule_row, "get") else clean_text_input(schedule_row["title"])
+    return title or "Recurring Mowing"
+
+
+def create_job_from_recurring_schedule(conn, schedule_row, scheduled_date):
+    scheduled_date_iso = date_to_iso(scheduled_date)
+    existing = conn.execute(
+        """
+        SELECT id
+        FROM jobs
+        WHERE company_id = %s
+          AND recurring_schedule_id = %s
+          AND scheduled_date = %s
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (schedule_row["company_id"], schedule_row["id"], scheduled_date_iso),
+    ).fetchone()
+
+    if existing:
+        return existing["id"], False
+
+    title = get_schedule_job_title(schedule_row)
+    service_type = normalize_service_type(schedule_row["service_type"] or "mowing")
+    notes = clean_text_input(schedule_row["notes"])
+    schedule_note = f"Auto-generated from recurring mowing schedule #{schedule_row['id']}."
+    notes_final = schedule_note if not notes else f"{schedule_note}\n\n{notes}"
+
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO jobs (
+            company_id,
+            customer_id,
+            title,
+            service_type,
+            scheduled_date,
+            scheduled_start_time,
+            scheduled_end_time,
+            assigned_to,
+            status,
+            address,
+            notes,
+            recurring_schedule_id,
+            generated_from_schedule
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (
+            schedule_row["company_id"],
+            schedule_row["customer_id"],
+            title,
+            service_type,
+            scheduled_date_iso or None,
+            clean_text_input(schedule_row["scheduled_start_time"]) or None,
+            clean_text_input(schedule_row["scheduled_end_time"]) or None,
+            clean_text_input(schedule_row["assigned_to"]) or None,
+            default_mowing_status(schedule_row["status_default"]),
+            clean_text_input(schedule_row["address"]),
+            notes_final,
+            schedule_row["id"],
+            True,
+        ),
+    )
+    row = cur.fetchone()
+    return (row["id"] if row and "id" in row else None), True
+
+
+def auto_generate_recurring_jobs(conn, company_id, through_date=None):
+    today = date.today()
+    if through_date is None:
+        through_date = today + timedelta(days=42)
+
+    schedules = conn.execute(
+        """
+        SELECT *
+        FROM recurring_mowing_schedules
+        WHERE company_id = %s
+          AND COALESCE(active, TRUE) = TRUE
+          AND next_run_date IS NOT NULL
+        ORDER BY next_run_date ASC, id ASC
+        """,
+        (company_id,),
+    ).fetchall()
+
+    created_count = 0
+
+    for schedule in schedules:
+        interval_weeks = safe_int(schedule["interval_weeks"], 1)
+        if interval_weeks <= 0:
+            interval_weeks = 1
+
+        next_run = parse_iso_date(schedule["next_run_date"])
+        start_date_value = parse_iso_date(schedule["start_date"])
+        end_date_value = parse_iso_date(schedule["end_date"])
+        horizon_days = safe_int(schedule["auto_generate_until_days"], 42)
+        schedule_through = today + timedelta(days=horizon_days if horizon_days > 0 else 42)
+
+        target_through = through_date if through_date <= schedule_through else schedule_through
+
+        if next_run is None:
+            next_run = start_date_value or today
+
+        safety = 0
+        while next_run and next_run <= target_through and safety < 250:
+            safety += 1
+
+            if end_date_value and next_run > end_date_value:
+                break
+
+            _, created = create_job_from_recurring_schedule(conn, schedule, next_run)
+            if created:
+                created_count += 1
+
+            next_run = next_run + timedelta(weeks=interval_weeks)
+
+        conn.execute(
+            """
+            UPDATE recurring_mowing_schedules
+            SET next_run_date = %s,
+                last_generated_on = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND company_id = %s
+            """,
+            (
+                date_to_iso(next_run) if next_run else None,
+                schedule["id"],
+                company_id,
+            ),
+        )
+
+    return created_count
+
+
+def upcoming_schedule_preview(start_date_value, interval_weeks, count=3, end_date_value=None):
+    preview = []
+    current = parse_iso_date(start_date_value)
+    interval_weeks = max(1, safe_int(interval_weeks, 1))
+    end_date_value = parse_iso_date(end_date_value)
+
+    loops = 0
+    while current and len(preview) < count and loops < 50:
+        loops += 1
+        if end_date_value and current > end_date_value:
+            break
+        preview.append(current.isoformat())
+        current = current + timedelta(weeks=interval_weeks)
+
+    return ", ".join(preview)
+
+
 @jobs_bp.route("/jobs", methods=["GET", "POST"])
 @login_required
 @subscription_required
@@ -304,6 +637,12 @@ def jobs():
 
     conn = get_db_connection()
     cid = session["company_id"]
+
+    try:
+        auto_generate_recurring_jobs(conn, cid)
+        conn.commit()
+    except Exception:
+        conn.rollback()
 
     customers = conn.execute(
         """
@@ -379,9 +718,11 @@ def jobs():
                 assigned_to,
                 status,
                 address,
-                notes
+                notes,
+                recurring_schedule_id,
+                generated_from_schedule
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -396,6 +737,8 @@ def jobs():
                 status,
                 address,
                 notes,
+                None,
+                False,
             ),
         )
         row = cur.fetchone()
@@ -413,15 +756,40 @@ def jobs():
 
     rows = conn.execute(
         """
-        SELECT j.*, c.name AS customer_name
+        SELECT
+            j.*,
+            c.name AS customer_name,
+            rms.title AS recurring_title
         FROM jobs j
         JOIN customers c ON j.customer_id = c.id
+        LEFT JOIN recurring_mowing_schedules rms
+          ON j.recurring_schedule_id = rms.id
+         AND rms.company_id = j.company_id
         WHERE j.company_id = %s
           AND COALESCE(j.status, '') != 'Finished'
         ORDER BY
             j.scheduled_date NULLS LAST,
             j.scheduled_start_time NULLS LAST,
             j.id DESC
+        """,
+        (cid,),
+    ).fetchall()
+
+    recurring_rows = conn.execute(
+        """
+        SELECT
+            rms.*,
+            c.name AS customer_name,
+            (
+                SELECT COUNT(*)
+                FROM jobs j
+                WHERE j.company_id = rms.company_id
+                  AND j.recurring_schedule_id = rms.id
+            ) AS generated_jobs_count
+        FROM recurring_mowing_schedules rms
+        JOIN customers c ON rms.customer_id = c.id
+        WHERE rms.company_id = %s
+        ORDER BY COALESCE(rms.active, TRUE) DESC, rms.id DESC
         """,
         (cid,),
     ).fetchall()
@@ -435,11 +803,22 @@ def jobs():
         service_type_label = display_service_type(r["service_type"])
         service_type_class = service_type_badge_class(r["service_type"])
 
+        recurring_link_html = ""
+        if r.get("recurring_schedule_id"):
+            recurring_link_html = (
+                f"<div class='small muted' style='margin-top:4px;'>"
+                f"Recurring: <a href='{url_for('jobs.edit_recurring_schedule', schedule_id=r['recurring_schedule_id'])}'>"
+                f"Schedule #{r['recurring_schedule_id']}</a></div>"
+            )
+
         job_row_list.append(
             f"""
             <tr>
                 <td>#{r['id']}</td>
-                <td class='wrap'>{escape(clean_text_display(r['title']))}</td>
+                <td class='wrap'>
+                    {escape(clean_text_display(r['title']))}
+                    {recurring_link_html}
+                </td>
                 <td><span class='service-chip {service_type_class}'>{escape(service_type_label)}</span></td>
                 <td class='wrap'>{escape(clean_text_display(r['customer_name']))}</td>
                 <td>{escape(clean_text_display(r['scheduled_date']))}</td>
@@ -468,16 +847,25 @@ def jobs():
             """
         )
 
+        mobile_recurring = ""
+        if r.get("recurring_schedule_id"):
+            mobile_recurring = (
+                f"<div style='margin-top:6px;' class='muted small'>"
+                f"Recurring: <a href='{url_for('jobs.edit_recurring_schedule', schedule_id=r['recurring_schedule_id'])}'>"
+                f"Schedule #{r['recurring_schedule_id']}</a></div>"
+            )
+
         job_mobile_card_list.append(
             f"""
             <div class='mobile-list-card'>
                 <div class='mobile-list-top'>
-                    <div class='mobile-list-title'>#{r['id']} - {escape(clean_text_display(r['title']))}</div>
+                    <div class='mobile-list-title'>#{r['id']} - {escape(clean_text_display(r['title']))}{mobile_recurring}</div>
                     <div class='mobile-badge'>{escape(clean_text_display(r['status']))}</div>
                 </div>
 
-                <div style='margin:-2px 0 10px 0;'>
+                <div style='margin:-2px 0 10px 0; display:flex; flex-wrap:wrap; gap:8px;'>
                     <span class='service-chip {service_type_class}'>{escape(service_type_label)}</span>
+                    {'<span class="service-chip mowing">Recurring</span>' if r.get("recurring_schedule_id") else ''}
                 </div>
 
                 <div class='mobile-list-grid'>
@@ -507,10 +895,131 @@ def jobs():
             """
         )
 
+    recurring_row_list = []
+    recurring_mobile_list = []
+
+    for r in recurring_rows:
+        edit_url = url_for("jobs.edit_recurring_schedule", schedule_id=r["id"])
+        toggle_url = url_for("jobs.toggle_recurring_schedule", schedule_id=r["id"])
+        generate_url = url_for("jobs.generate_recurring_schedule_jobs", schedule_id=r["id"])
+        delete_url = url_for("jobs.delete_recurring_schedule", schedule_id=r["id"])
+        toggle_csrf = generate_csrf()
+        generate_csrf = generate_csrf()
+        delete_csrf = generate_csrf()
+
+        next_preview = upcoming_schedule_preview(r["next_run_date"] or r["start_date"], r["interval_weeks"], 3, r["end_date"])
+        active_chip = f"<span class='service-chip {schedule_status_class(r['active'])}'>{escape(schedule_status_badge(r['active']))}</span>"
+
+        for r in recurring_rows:
+            edit_url = url_for("jobs.edit_recurring_schedule", schedule_id=r["id"])
+            toggle_url = url_for("jobs.toggle_recurring_schedule", schedule_id=r["id"])
+            generate_url = url_for("jobs.generate_recurring_schedule_jobs", schedule_id=r["id"])
+            delete_url = url_for("jobs.delete_recurring_schedule", schedule_id=r["id"])
+            toggle_csrf = generate_csrf()
+            generate_now_csrf = generate_csrf()
+            delete_csrf = generate_csrf()
+
+            next_preview = upcoming_schedule_preview(r["next_run_date"] or r["start_date"], r["interval_weeks"], 3, r["end_date"])
+            active_chip = f"<span class='service-chip {schedule_status_class(r['active'])}'>{escape(schedule_status_badge(r['active']))}</span>"
+
+            recurring_row_list.append(
+                f"""
+                <tr>
+                    <td>#{r['id']}</td>
+                    <td class='wrap'>
+                        {escape(clean_text_display(r['title'], 'Recurring Mowing'))}
+                        <div class='small muted' style='margin-top:4px;'>Mowing Default</div>
+                    </td>
+                    <td><span class='service-chip mowing'>Mowing</span></td>
+                    <td class='wrap'>{escape(clean_text_display(r['customer_name']))}</td>
+                    <td>{escape(interval_label(r['interval_weeks']))}</td>
+                    <td>{escape(clean_text_display(r['next_run_date']))}</td>
+                    <td class='wrap'>{escape(clean_text_display(r['assigned_to']))}</td>
+                    <td>{active_chip}</td>
+                    <td class='center'>{safe_int(r['generated_jobs_count'], 0)}</td>
+                    <td class='wrap'>{escape(next_preview or '-')}</td>
+                    <td class='wrap'>
+                        <div class='static-actions'>
+                            <a class='btn secondary small' href='{edit_url}'>Edit Schedule</a>
+
+                            <form method='post' action='{generate_url}' style='margin:0;'>
+                                <input type="hidden" name="csrf_token" value="{generate_now_csrf}">
+                                <button class='btn success small' type='submit'>Generate Now</button>
+                            </form>
+
+                            <form method='post' action='{toggle_url}' style='margin:0;'>
+                                <input type="hidden" name="csrf_token" value="{toggle_csrf}">
+                                <button class='btn warning small' type='submit'>
+                                    {"Pause" if r["active"] else "Resume"}
+                                </button>
+                            </form>
+
+                            <form method='post'
+                                action='{delete_url}'
+                                style='margin:0;'
+                                onsubmit="return confirm('Delete this recurring mowing schedule? Existing jobs will stay, but future auto-generation will stop.');">
+                                <input type="hidden" name="csrf_token" value="{delete_csrf}">
+                                <button class='btn danger small' type='submit'>Delete</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                """
+        )
+
+            recurring_mobile_list.append(
+                f"""
+                <div class='mobile-list-card'>
+                    <div class='mobile-list-top'>
+                        <div class='mobile-list-title'>#{r['id']} - {escape(clean_text_display(r['title'], 'Recurring Mowing'))}</div>
+                        <div>{active_chip}</div>
+                    </div>
+
+                    <div style='margin:-2px 0 10px 0; display:flex; gap:8px; flex-wrap:wrap;'>
+                        <span class='service-chip mowing'>Mowing</span>
+                        <span class='service-chip default'>{escape(interval_label(r['interval_weeks']))}</span>
+                    </div>
+
+                    <div class='mobile-list-grid'>
+                        <div><span>Customer</span><strong>{escape(clean_text_display(r['customer_name']))}</strong></div>
+                        <div><span>Next Run</span><strong>{escape(clean_text_display(r['next_run_date']))}</strong></div>
+                        <div><span>Assigned To</span><strong>{escape(clean_text_display(r['assigned_to']))}</strong></div>
+                        <div><span>Jobs Generated</span><strong>{safe_int(r['generated_jobs_count'], 0)}</strong></div>
+                        <div><span>Upcoming</span><strong>{escape(next_preview or '-')}</strong></div>
+                    </div>
+
+                    <div class='mobile-list-actions'>
+                        <a class='btn secondary small' href='{edit_url}'>Edit Schedule</a>
+
+                        <form method='post' action='{generate_url}' style='margin:0;'>
+                            <input type="hidden" name="csrf_token" value="{generate_now_csrf}">
+                            <button class='btn success small' type='submit'>Generate</button>
+                        </form>
+
+                        <form method='post' action='{toggle_url}' style='margin:0;'>
+                            <input type="hidden" name="csrf_token" value="{toggle_csrf}">
+                            <button class='btn warning small' type='submit'>{"Pause" if r["active"] else "Resume"}</button>
+                        </form>
+
+                        <form method='post'
+                            action='{delete_url}'
+                            style='margin:0;'
+                            onsubmit="return confirm('Delete this recurring mowing schedule?');">
+                            <input type="hidden" name="csrf_token" value="{delete_csrf}">
+                            <button class='btn danger small' type='submit'>Delete</button>
+                        </form>
+                    </div>
+                </div>
+                """
+            )
+
     job_rows = "".join(job_row_list)
     job_mobile_cards = "".join(job_mobile_card_list)
+    recurring_rows_html = "".join(recurring_row_list)
+    recurring_mobile_cards = "".join(recurring_mobile_list)
 
     create_job_csrf = generate_csrf()
+    create_schedule_csrf = generate_csrf()
 
     content = f"""
     <style>
@@ -777,6 +1286,26 @@ def jobs():
             align-items:center;
         }}
 
+        .recurring-card-head {{
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:12px;
+            flex-wrap:wrap;
+            margin-bottom:14px;
+        }}
+
+        .recurring-default-note {{
+            margin-top:8px;
+            padding:10px 12px;
+            border-radius:12px;
+            background:#f0fdf4;
+            border:1px solid #bbf7d0;
+            color:#166534;
+            font-size:.88rem;
+            line-height:1.35;
+        }}
+
         @media (max-width: 640px) {{
             .desktop-only {{
                 display:none !important;
@@ -826,14 +1355,14 @@ def jobs():
 
                         <div class='customer-search-input-wrap'>
                             <input type='text'
-                                id='customer_search'
+                                id='job_customer_search'
                                 placeholder='Search customer name, company, or email...'
                                 autocomplete='off'
                                 required>
-                            <input type='hidden' name='customer_id' id='customer_id' required>
-                        <div id='customer_results' class='customer-results'></div>
+                            <input type='hidden' name='customer_id' id='job_customer_id' required>
+                            <div id='job_customer_results' class='customer-results'></div>
+                        </div>
                     </div>
-                </div>
 
                     <div>
                         <label>Title</label>
@@ -845,7 +1374,7 @@ def jobs():
                         <select name='service_type' id='service_type'>
                             {service_type_select_options("mowing")}
                         </select>
-                        <div class='service-help'>Use this to identify mowing customers later, build better reports, and keep recurring work organized.</div>
+                        <div class='service-help'>Mowing defaults are built in, and mowing jobs get a green mowing badge across Jobs and Calendar.</div>
                     </div>
 
                     <div>
@@ -900,6 +1429,157 @@ def jobs():
         </div>
 
         <div class='card'>
+            <div class='recurring-card-head'>
+                <div>
+                    <h2 style='margin:0;'>Recurring Mowing Schedules</h2>
+                    <p class='muted' style='margin:6px 0 0 0;'>Weekly, every 2 weeks, or your own custom week interval. Upcoming jobs are auto-generated into Jobs and your Calendar.</p>
+                </div>
+                <div style='display:flex; gap:8px; flex-wrap:wrap;'>
+                    <span class='service-chip mowing'>Mowing Default</span>
+                    <span class='service-chip default'>Auto-Generates Jobs</span>
+                </div>
+            </div>
+
+            <div class='recurring-default-note'>
+                Recurring mowing schedules default to <strong>Mowing</strong>, create future jobs automatically, and each generated job links back to its parent recurring schedule.
+            </div>
+
+            <form method='post' action='{url_for("jobs.create_recurring_schedule")}' style='margin-top:16px;'>
+                <input type="hidden" name="csrf_token" value="{create_schedule_csrf}">
+
+                <div class='grid'>
+                    <div class='customer-search-wrap'>
+                        <label>Customer</label>
+
+                        <div class='customer-search-input-wrap'>
+                            <input type='text'
+                                id='recurring_customer_search'
+                                placeholder='Search customer name, company, or email...'
+                                autocomplete='off'
+                                required>
+                            <input type='hidden' name='customer_id' id='recurring_customer_id' required>
+                            <div id='recurring_customer_results' class='customer-results'></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label>Schedule Title</label>
+                        <input name='title' id='recurring_title' value='Recurring Mowing' required>
+                    </div>
+
+                    <div>
+                        <label>Service Type</label>
+                        <select name='service_type'>
+                            {service_type_select_options("mowing")}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label>Start Date</label>
+                        <input type='date' name='start_date' value='{date.today().isoformat()}' required>
+                    </div>
+
+                    <div>
+                        <label>Interval</label>
+                        <select name='interval_mode' id='interval_mode' onchange='toggleCustomInterval()'>
+                            <option value='weekly'>Weekly</option>
+                            <option value='every_2'>Every 2 Weeks</option>
+                            <option value='custom'>Custom Week Interval</option>
+                        </select>
+                    </div>
+
+                    <div id='custom_interval_wrap' style='display:none;'>
+                        <label>Custom Weeks</label>
+                        <input type='number' name='custom_interval_weeks' id='custom_interval_weeks' min='1' step='1' value='3'>
+                    </div>
+
+                    <div>
+                        <label>End Date</label>
+                        <input type='date' name='end_date'>
+                    </div>
+
+                    <div>
+                        <label>Start Time</label>
+                        <input type='time' name='scheduled_start_time'>
+                    </div>
+
+                    <div>
+                        <label>End Time</label>
+                        <input type='time' name='scheduled_end_time'>
+                    </div>
+
+                    <div>
+                        <label>Assigned To</label>
+                        <input name='assigned_to' placeholder='Crew / Employee'>
+                    </div>
+
+                    <div>
+                        <label>Default Job Status</label>
+                        <select name='status_default'>
+                            <option selected>Scheduled</option>
+                            <option>In Progress</option>
+                            <option>Completed</option>
+                            <option>Invoiced</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label>Address</label>
+                        <input name='address'>
+                    </div>
+                </div>
+
+                <br>
+                <label>Notes</label>
+                <textarea name='notes' placeholder='Notes that should carry onto each generated mowing job'></textarea>
+                <br>
+                <button class='btn success'>Create Recurring Mowing Schedule</button>
+            </form>
+        </div>
+
+        <div class='card'>
+            <h2>Recurring Schedule List</h2>
+
+            <div class='static-table-wrap desktop-only'>
+                <table class='static-table'>
+                    <colgroup>
+                        <col style='width:5%;'>
+                        <col style='width:12%;'>
+                        <col style='width:8%;'>
+                        <col style='width:12%;'>
+                        <col style='width:9%;'>
+                        <col style='width:9%;'>
+                        <col style='width:9%;'>
+                        <col style='width:8%;'>
+                        <col style='width:6%;'>
+                        <col style='width:12%;'>
+                        <col style='width:20%;'>
+                    </colgroup>
+                    <tr>
+                        <th>ID</th>
+                        <th class='wrap'>Title</th>
+                        <th>Service</th>
+                        <th class='wrap'>Customer</th>
+                        <th>Interval</th>
+                        <th>Next Run</th>
+                        <th class='wrap'>Assigned To</th>
+                        <th>Status</th>
+                        <th class='center'>Jobs</th>
+                        <th class='wrap'>Upcoming Dates</th>
+                        <th class='wrap'>Actions</th>
+                    </tr>
+                    {recurring_rows_html or '<tr><td colspan="11" class="muted">No recurring mowing schedules yet.</td></tr>'}
+                </table>
+            </div>
+
+            <div class='mobile-only'>
+                <div class='mobile-list'>
+                    {recurring_mobile_cards or "<div class='mobile-list-card'>No recurring mowing schedules yet.</div>"}
+                </div>
+            </div>
+        </div>
+
+        <div class='card'>
             <h2>Job List</h2>
 
             <div class='static-table-wrap desktop-only'>
@@ -949,12 +1629,6 @@ def jobs():
     <script>
         const customers = {json.dumps(customer_list)};
 
-        const searchInput = document.getElementById("customer_search");
-        const customerIdInput = document.getElementById("customer_id");
-        const resultsBox = document.getElementById("customer_results");
-        const serviceTypeInput = document.getElementById("service_type");
-        const titleInput = document.getElementById("title");
-
         function escapeHtml(text) {{
             return String(text || "")
                 .replace(/&/g, "&amp;")
@@ -964,47 +1638,82 @@ def jobs():
                 .replace(/'/g, "&#039;");
         }}
 
-        function hideCustomerResults() {{
-            resultsBox.innerHTML = "";
-            resultsBox.classList.remove("show");
-        }}
+        function bindCustomerLookup(searchId, hiddenId, resultsId) {{
+            const searchInput = document.getElementById(searchId);
+            const customerIdInput = document.getElementById(hiddenId);
+            const resultsBox = document.getElementById(resultsId);
 
-        function showCustomerResults() {{
-            resultsBox.classList.add("show");
-        }}
+            if (!searchInput || !customerIdInput || !resultsBox) return;
 
-        function renderCustomerResults(matches) {{
-            if (!matches.length) {{
-                resultsBox.innerHTML = "<div class='customer-result-item muted'>No customers found</div>";
-                showCustomerResults();
-                return;
+            function hideResults() {{
+                resultsBox.innerHTML = "";
+                resultsBox.classList.remove("show");
             }}
 
-            resultsBox.innerHTML = matches.map(c => `
-                <div class="customer-result-item" data-id="${{c.id}}">
-                    <strong>${{escapeHtml(c.name || "Unnamed Customer")}}</strong>
-                    ${{c.company ? `<div class="muted small">${{escapeHtml(c.company)}}</div>` : ""}}
-                    ${{c.email ? `<div class="muted small">${{escapeHtml(c.email)}}</div>` : ""}}
-                </div>
-            `).join("");
+            function showResults() {{
+                resultsBox.classList.add("show");
+            }}
 
-            showCustomerResults();
+            function renderResults(matches) {{
+                if (!matches.length) {{
+                    resultsBox.innerHTML = "<div class='customer-result-item muted'>No customers found</div>";
+                    showResults();
+                    return;
+                }}
 
-            document.querySelectorAll(".customer-result-item[data-id]").forEach(item => {{
-                item.addEventListener("click", function () {{
-                    const id = this.dataset.id;
-                    const customer = customers.find(x => String(x.id) === String(id));
-                    if (!customer) return;
+                resultsBox.innerHTML = matches.map(c => `
+                    <div class="customer-result-item" data-id="${{c.id}}">
+                        <strong>${{escapeHtml(c.name || "Unnamed Customer")}}</strong>
+                        ${{c.company ? `<div class="muted small">${{escapeHtml(c.company)}}</div>` : ""}}
+                        ${{c.email ? `<div class="muted small">${{escapeHtml(c.email)}}</div>` : ""}}
+                    </div>
+                `).join("");
 
-                    customerIdInput.value = customer.id;
-                    searchInput.value = customer.company
-                        ? `${{customer.name}} - ${{customer.company}}`
-                        : (customer.name || "Unnamed Customer");
+                showResults();
 
-                    hideCustomerResults();
+                resultsBox.querySelectorAll(".customer-result-item[data-id]").forEach(item => {{
+                    item.addEventListener("click", function () {{
+                        const id = this.dataset.id;
+                        const customer = customers.find(x => String(x.id) === String(id));
+                        if (!customer) return;
+
+                        customerIdInput.value = customer.id;
+                        searchInput.value = customer.company
+                            ? `${{customer.name}} - ${{customer.company}}`
+                            : (customer.name || "Unnamed Customer");
+
+                        hideResults();
+                    }});
                 }});
+            }}
+
+            searchInput.addEventListener("input", function () {{
+                const q = this.value.trim().toLowerCase();
+                customerIdInput.value = "";
+
+                if (!q) {{
+                    hideResults();
+                    return;
+                }}
+
+                const matches = customers.filter(c =>
+                    (c.name && c.name.toLowerCase().includes(q)) ||
+                    (c.company && c.company.toLowerCase().includes(q)) ||
+                    (c.email && c.email.toLowerCase().includes(q))
+                ).slice(0, 8);
+
+                renderResults(matches);
+            }});
+
+            document.addEventListener("click", function (e) {{
+                if (!e.target.closest(".customer-search-wrap")) {{
+                    hideResults();
+                }}
             }});
         }}
+
+        const serviceTypeInput = document.getElementById("service_type");
+        const titleInput = document.getElementById("title");
 
         function maybeFillTitleFromService() {{
             if (!titleInput || !serviceTypeInput) return;
@@ -1031,25 +1740,18 @@ def jobs():
             if (!serviceTypeInput) return;
             serviceTypeInput.value = serviceType;
             maybeFillTitleFromService();
+
+            if (serviceType === "mowing" && titleInput && !(titleInput.value || "").trim()) {{
+                titleInput.value = "Weekly Mowing";
+            }}
         }}
 
-        searchInput.addEventListener("input", function () {{
-            const q = this.value.trim().toLowerCase();
-            customerIdInput.value = "";
-
-            if (!q) {{
-                hideCustomerResults();
-                return;
-            }}
-
-            const matches = customers.filter(c =>
-                (c.name && c.name.toLowerCase().includes(q)) ||
-                (c.company && c.company.toLowerCase().includes(q)) ||
-                (c.email && c.email.toLowerCase().includes(q))
-            ).slice(0, 8);
-
-            renderCustomerResults(matches);
-        }});
+        function toggleCustomInterval() {{
+            const mode = document.getElementById("interval_mode");
+            const wrap = document.getElementById("custom_interval_wrap");
+            if (!mode || !wrap) return;
+            wrap.style.display = mode.value === "custom" ? "block" : "none";
+        }}
 
         if (serviceTypeInput) {{
             serviceTypeInput.addEventListener("change", function() {{
@@ -1057,14 +1759,631 @@ def jobs():
             }});
         }}
 
-        document.addEventListener("click", function (e) {{
-            if (!e.target.closest(".customer-search-wrap")) {{
-                hideCustomerResults();
-            }}
-        }});
+        bindCustomerLookup("job_customer_search", "job_customer_id", "job_customer_results");
+        bindCustomerLookup("recurring_customer_search", "recurring_customer_id", "recurring_customer_results");
+        toggleCustomInterval();
     </script>
     """
     return render_page(content, "Jobs")
+
+
+@jobs_bp.route("/jobs/recurring/create", methods=["POST"])
+@login_required
+@subscription_required
+@require_permission("can_manage_jobs")
+def create_recurring_schedule():
+    ensure_job_schedule_columns()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    customer_id = request.form.get("customer_id", type=int)
+    title = recurring_schedule_title_default(request.form.get("title", "Recurring Mowing"))
+    service_type = normalize_service_type(request.form.get("service_type", "mowing"))
+    start_date = clean_text_input(request.form.get("start_date", ""))
+    end_date = clean_text_input(request.form.get("end_date", ""))
+    scheduled_start_time = clean_text_input(request.form.get("scheduled_start_time", ""))
+    scheduled_end_time = clean_text_input(request.form.get("scheduled_end_time", ""))
+    assigned_to = clean_text_input(request.form.get("assigned_to", ""))
+    status_default = default_mowing_status(request.form.get("status_default", "Scheduled"))
+    address = clean_text_input(request.form.get("address", ""))
+    notes = clean_text_input(request.form.get("notes", ""))
+    interval_weeks = derive_interval_weeks_from_form(request.form)
+
+    if not customer_id:
+        conn.close()
+        flash("Please select a customer for the recurring mowing schedule.")
+        return redirect(url_for("jobs.jobs"))
+
+    if not start_date:
+        conn.close()
+        flash("Start date is required.")
+        return redirect(url_for("jobs.jobs"))
+
+    start_date_value = parse_iso_date(start_date)
+    end_date_value = parse_iso_date(end_date)
+
+    if not start_date_value:
+        conn.close()
+        flash("Invalid start date.")
+        return redirect(url_for("jobs.jobs"))
+
+    if end_date and not end_date_value:
+        conn.close()
+        flash("Invalid end date.")
+        return redirect(url_for("jobs.jobs"))
+
+    if end_date_value and end_date_value < start_date_value:
+        conn.close()
+        flash("End date cannot be before the start date.")
+        return redirect(url_for("jobs.jobs"))
+
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO recurring_mowing_schedules (
+            company_id,
+            customer_id,
+            title,
+            service_type,
+            interval_weeks,
+            start_date,
+            next_run_date,
+            end_date,
+            scheduled_start_time,
+            scheduled_end_time,
+            assigned_to,
+            status_default,
+            address,
+            notes,
+            active,
+            auto_generate_until_days,
+            updated_at
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+        RETURNING id
+        """,
+        (
+            cid,
+            customer_id,
+            title,
+            service_type or "mowing",
+            interval_weeks,
+            start_date,
+            start_date,
+            end_date or None,
+            scheduled_start_time or None,
+            scheduled_end_time or None,
+            assigned_to or None,
+            status_default,
+            address,
+            notes,
+            True,
+            42,
+        ),
+    )
+    row = cur.fetchone()
+    schedule_id = row["id"] if row and "id" in row else None
+
+    try:
+        auto_generate_recurring_jobs(conn, cid)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        flash(f"Could not create recurring mowing schedule: {e}")
+        return redirect(url_for("jobs.jobs"))
+
+    conn.close()
+
+    if schedule_id:
+        flash("Recurring mowing schedule created and upcoming jobs generated.")
+        return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+    flash("Recurring mowing schedule created.")
+    return redirect(url_for("jobs.jobs"))
+
+
+@jobs_bp.route("/jobs/recurring/<int:schedule_id>/edit", methods=["GET", "POST"])
+@login_required
+@subscription_required
+@require_permission("can_manage_jobs")
+def edit_recurring_schedule(schedule_id):
+    ensure_job_schedule_columns()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    schedule = conn.execute(
+        """
+        SELECT rms.*, c.name AS customer_name
+        FROM recurring_mowing_schedules rms
+        JOIN customers c ON rms.customer_id = c.id
+        WHERE rms.id = %s AND rms.company_id = %s
+        """,
+        (schedule_id, cid),
+    ).fetchone()
+
+    if not schedule:
+        conn.close()
+        flash("Recurring mowing schedule not found.")
+        return redirect(url_for("jobs.jobs"))
+
+    customers = conn.execute(
+        "SELECT id, name FROM customers WHERE company_id = %s ORDER BY name",
+        (cid,),
+    ).fetchall()
+
+    if request.method == "POST":
+        customer_id = request.form.get("customer_id", type=int)
+        title = recurring_schedule_title_default(request.form.get("title", "Recurring Mowing"))
+        service_type = normalize_service_type(request.form.get("service_type", "mowing"))
+        start_date = clean_text_input(request.form.get("start_date", ""))
+        end_date = clean_text_input(request.form.get("end_date", ""))
+        scheduled_start_time = clean_text_input(request.form.get("scheduled_start_time", ""))
+        scheduled_end_time = clean_text_input(request.form.get("scheduled_end_time", ""))
+        assigned_to = clean_text_input(request.form.get("assigned_to", ""))
+        status_default = default_mowing_status(request.form.get("status_default", "Scheduled"))
+        address = clean_text_input(request.form.get("address", ""))
+        notes = clean_text_input(request.form.get("notes", ""))
+        interval_weeks = derive_interval_weeks_from_form(request.form)
+
+        start_date_value = parse_iso_date(start_date)
+        end_date_value = parse_iso_date(end_date)
+        old_next_run = parse_iso_date(schedule["next_run_date"])
+        old_start_date = parse_iso_date(schedule["start_date"])
+
+        if not customer_id:
+            conn.close()
+            flash("Customer is required.")
+            return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+        if not start_date_value:
+            conn.close()
+            flash("Valid start date is required.")
+            return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+        if end_date and not end_date_value:
+            conn.close()
+            flash("Invalid end date.")
+            return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+        if end_date_value and end_date_value < start_date_value:
+            conn.close()
+            flash("End date cannot be before start date.")
+            return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+        new_next_run = old_next_run
+        if not new_next_run:
+            new_next_run = start_date_value
+
+        if old_start_date and start_date_value and old_next_run == old_start_date:
+            new_next_run = start_date_value
+
+        if new_next_run and new_next_run < start_date_value:
+            new_next_run = start_date_value
+
+        conn.execute(
+            """
+            UPDATE recurring_mowing_schedules
+            SET customer_id = %s,
+                title = %s,
+                service_type = %s,
+                interval_weeks = %s,
+                start_date = %s,
+                next_run_date = %s,
+                end_date = %s,
+                scheduled_start_time = %s,
+                scheduled_end_time = %s,
+                assigned_to = %s,
+                status_default = %s,
+                address = %s,
+                notes = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND company_id = %s
+            """,
+            (
+                customer_id,
+                title,
+                service_type or "mowing",
+                interval_weeks,
+                start_date,
+                date_to_iso(new_next_run) if new_next_run else start_date,
+                end_date or None,
+                scheduled_start_time or None,
+                scheduled_end_time or None,
+                assigned_to or None,
+                status_default,
+                address,
+                notes,
+                schedule_id,
+                cid,
+            ),
+        )
+
+        try:
+            auto_generate_recurring_jobs(conn, cid)
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            flash(f"Could not update recurring mowing schedule: {e}")
+            return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+        conn.close()
+        flash("Recurring mowing schedule updated.")
+        return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+    generated_jobs = conn.execute(
+        """
+        SELECT id, title, scheduled_date, scheduled_start_time, scheduled_end_time, status
+        FROM jobs
+        WHERE company_id = %s
+          AND recurring_schedule_id = %s
+        ORDER BY scheduled_date DESC, id DESC
+        LIMIT 25
+        """,
+        (cid, schedule_id),
+    ).fetchall()
+
+    customer_opts = "".join(
+        f"<option value='{c['id']}' {'selected' if c['id'] == schedule['customer_id'] else ''}>{escape(clean_text_display(c['name'], 'Customer #' + str(c['id'])))}</option>"
+        for c in customers
+    )
+
+    edit_csrf = generate_csrf()
+    generate_csrf_token = generate_csrf()
+    toggle_csrf = generate_csrf()
+
+    jobs_rows = []
+    for j in generated_jobs:
+        jobs_rows.append(
+            f"""
+            <tr>
+                <td>#{j['id']}</td>
+                <td class='wrap'><a href='{url_for("jobs.view_job", job_id=j["id"])}'>{escape(clean_text_display(j['title']))}</a></td>
+                <td>{escape(clean_text_display(j['scheduled_date']))}</td>
+                <td>{escape(clean_text_display(j['scheduled_start_time']))}</td>
+                <td>{escape(clean_text_display(j['scheduled_end_time']))}</td>
+                <td>{escape(clean_text_display(j['status']))}</td>
+            </tr>
+            """
+        )
+
+    generated_jobs_table = "".join(jobs_rows)
+
+    interval_mode = interval_mode_from_weeks(schedule["interval_weeks"])
+    custom_wrap_display = "block" if interval_mode == "custom" else "none"
+
+    content = f"""
+    <style>
+        .service-chip {{
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: .79rem;
+            font-weight: 700;
+            line-height: 1;
+            white-space: nowrap;
+            border: 1px solid rgba(15,23,42,.08);
+            background: #f8fafc;
+            color: #334155;
+        }}
+        .service-chip.mowing {{
+            background: #ecfdf3;
+            color: #166534;
+            border-color: #bbf7d0;
+        }}
+        .service-chip.default {{
+            background: #f8fafc;
+            color: #334155;
+            border-color: #e2e8f0;
+        }}
+        .static-table {{
+            width:100%;
+            border-collapse:collapse;
+            table-layout:fixed;
+        }}
+        .static-table th,
+        .static-table td {{
+            padding:10px 8px;
+            border-bottom:1px solid rgba(0,0,0,.06);
+            vertical-align:top;
+        }}
+        .static-table td.wrap,
+        .static-table th.wrap {{
+            word-break:break-word;
+            white-space:normal;
+        }}
+    </style>
+
+    <div class='card'>
+        <div style='display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;'>
+            <div>
+                <h1 style='margin:0;'>Edit Recurring Mowing Schedule #{schedule['id']}</h1>
+                <p class='muted' style='margin:6px 0 0 0;'>This schedule auto-generates mowing jobs and keeps them linked back here.</p>
+            </div>
+            <div style='display:flex; gap:8px; flex-wrap:wrap;'>
+                <span class='service-chip mowing'>Mowing</span>
+                <span class='service-chip default'>{escape(interval_label(schedule['interval_weeks']))}</span>
+                <span class='service-chip {schedule_status_class(schedule["active"])}'>{escape(schedule_status_badge(schedule["active"]))}</span>
+            </div>
+        </div>
+
+        <div class='row-actions' style='margin-top:14px;'>
+            <a class='btn secondary' href='{url_for("jobs.jobs")}'>Back to Jobs</a>
+
+            <form method='post' action='{url_for("jobs.generate_recurring_schedule_jobs", schedule_id=schedule["id"])}' style='margin:0;'>
+                <input type="hidden" name="csrf_token" value="{generate_csrf_token}">
+                <button class='btn success' type='submit'>Generate Upcoming Jobs Now</button>
+            </form>
+
+            <form method='post' action='{url_for("jobs.toggle_recurring_schedule", schedule_id=schedule["id"])}' style='margin:0;'>
+                <input type="hidden" name="csrf_token" value="{toggle_csrf}">
+                <button class='btn warning' type='submit'>{"Pause Schedule" if schedule["active"] else "Resume Schedule"}</button>
+            </form>
+        </div>
+    </div>
+
+    <div class='card'>
+        <form method='post'>
+            <input type="hidden" name="csrf_token" value="{edit_csrf}">
+            <div class='grid'>
+                <div>
+                    <label>Customer</label>
+                    <select name='customer_id' required>
+                        <option value=''>Select customer</option>
+                        {customer_opts}
+                    </select>
+                </div>
+
+                <div>
+                    <label>Schedule Title</label>
+                    <input name='title' value="{escape(clean_text_input(schedule['title']) or 'Recurring Mowing')}" required>
+                </div>
+
+                <div>
+                    <label>Service Type</label>
+                    <select name='service_type'>
+                        {service_type_select_options(schedule['service_type'] or 'mowing')}
+                    </select>
+                </div>
+
+                <div>
+                    <label>Start Date</label>
+                    <input type='date' name='start_date' value="{escape(date_to_iso(schedule['start_date']))}" required>
+                </div>
+
+                <div>
+                    <label>Interval</label>
+                    <select name='interval_mode' id='edit_interval_mode' onchange='toggleEditCustomInterval()'>
+                        <option value='weekly' {'selected' if interval_mode == 'weekly' else ''}>Weekly</option>
+                        <option value='every_2' {'selected' if interval_mode == 'every_2' else ''}>Every 2 Weeks</option>
+                        <option value='custom' {'selected' if interval_mode == 'custom' else ''}>Custom Week Interval</option>
+                    </select>
+                </div>
+
+                <div id='edit_custom_interval_wrap' style='display:{custom_wrap_display};'>
+                    <label>Custom Weeks</label>
+                    <input type='number' name='custom_interval_weeks' min='1' step='1' value='{safe_int(schedule["interval_weeks"], 1)}'>
+                </div>
+
+                <div>
+                    <label>Next Run Date</label>
+                    <input type='date' value="{escape(date_to_iso(schedule['next_run_date']))}" disabled>
+                    <div class='muted small' style='margin-top:4px;'>Auto-managed after generation.</div>
+                </div>
+
+                <div>
+                    <label>End Date</label>
+                    <input type='date' name='end_date' value="{escape(date_to_iso(schedule['end_date']))}">
+                </div>
+
+                <div>
+                    <label>Start Time</label>
+                    <input type='time' name='scheduled_start_time' value="{escape(clean_text_input(schedule['scheduled_start_time']))}">
+                </div>
+
+                <div>
+                    <label>End Time</label>
+                    <input type='time' name='scheduled_end_time' value="{escape(clean_text_input(schedule['scheduled_end_time']))}">
+                </div>
+
+                <div>
+                    <label>Assigned To</label>
+                    <input name='assigned_to' value="{escape(clean_text_input(schedule['assigned_to']))}">
+                </div>
+
+                <div>
+                    <label>Default Job Status</label>
+                    <select name='status_default'>
+                        <option {'selected' if clean_text_input(schedule['status_default']) == 'Scheduled' else ''}>Scheduled</option>
+                        <option {'selected' if clean_text_input(schedule['status_default']) == 'In Progress' else ''}>In Progress</option>
+                        <option {'selected' if clean_text_input(schedule['status_default']) == 'Completed' else ''}>Completed</option>
+                        <option {'selected' if clean_text_input(schedule['status_default']) == 'Invoiced' else ''}>Invoiced</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label>Address</label>
+                    <input name='address' value="{escape(clean_text_input(schedule['address']))}">
+                </div>
+            </div>
+
+            <br>
+            <label>Notes</label>
+            <textarea name='notes'>{escape(clean_text_input(schedule['notes']))}</textarea>
+            <br>
+            <button class='btn'>Save Schedule Changes</button>
+        </form>
+    </div>
+
+    <div class='card'>
+        <h2>Generated Jobs Linked to This Schedule</h2>
+        <table class='static-table'>
+            <colgroup>
+                <col style='width:10%;'>
+                <col style='width:30%;'>
+                <col style='width:16%;'>
+                <col style='width:14%;'>
+                <col style='width:14%;'>
+                <col style='width:16%;'>
+            </colgroup>
+            <tr>
+                <th>ID</th>
+                <th class='wrap'>Title</th>
+                <th>Date</th>
+                <th>Start</th>
+                <th>End</th>
+                <th>Status</th>
+            </tr>
+            {generated_jobs_table or '<tr><td colspan="6" class="muted">No generated jobs yet.</td></tr>'}
+        </table>
+    </div>
+
+    <script>
+        function toggleEditCustomInterval() {{
+            const mode = document.getElementById("edit_interval_mode");
+            const wrap = document.getElementById("edit_custom_interval_wrap");
+            if (!mode || !wrap) return;
+            wrap.style.display = mode.value === "custom" ? "block" : "none";
+        }}
+        toggleEditCustomInterval();
+    </script>
+    """
+    conn.close()
+    return render_page(content, f"Recurring Schedule #{schedule_id}")
+
+
+@jobs_bp.route("/jobs/recurring/<int:schedule_id>/toggle", methods=["POST"])
+@login_required
+@subscription_required
+@require_permission("can_manage_jobs")
+def toggle_recurring_schedule(schedule_id):
+    ensure_job_schedule_columns()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    schedule = conn.execute(
+        """
+        SELECT id, active
+        FROM recurring_mowing_schedules
+        WHERE id = %s AND company_id = %s
+        """,
+        (schedule_id, cid),
+    ).fetchone()
+
+    if not schedule:
+        conn.close()
+        flash("Recurring mowing schedule not found.")
+        return redirect(url_for("jobs.jobs"))
+
+    new_active = not bool(schedule["active"])
+
+    conn.execute(
+        """
+        UPDATE recurring_mowing_schedules
+        SET active = %s,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = %s AND company_id = %s
+        """,
+        (new_active, schedule_id, cid),
+    )
+    conn.commit()
+    conn.close()
+
+    flash("Recurring mowing schedule resumed." if new_active else "Recurring mowing schedule paused.")
+    return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+
+@jobs_bp.route("/jobs/recurring/<int:schedule_id>/generate", methods=["POST"])
+@login_required
+@subscription_required
+@require_permission("can_manage_jobs")
+def generate_recurring_schedule_jobs(schedule_id):
+    ensure_job_schedule_columns()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    schedule = conn.execute(
+        """
+        SELECT *
+        FROM recurring_mowing_schedules
+        WHERE id = %s AND company_id = %s
+        """,
+        (schedule_id, cid),
+    ).fetchone()
+
+    if not schedule:
+        conn.close()
+        flash("Recurring mowing schedule not found.")
+        return redirect(url_for("jobs.jobs"))
+
+    try:
+        horizon_days = safe_int(schedule["auto_generate_until_days"], 42)
+        through_date = date.today() + timedelta(days=horizon_days if horizon_days > 0 else 42)
+        created_count = auto_generate_recurring_jobs(conn, cid, through_date=through_date)
+        conn.commit()
+        flash(f"Recurring generation complete. {created_count} job(s) created.")
+    except Exception as e:
+        conn.rollback()
+        flash(f"Could not generate recurring jobs: {e}")
+    finally:
+        conn.close()
+
+    return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+
+@jobs_bp.route("/jobs/recurring/<int:schedule_id>/delete", methods=["POST"])
+@login_required
+@subscription_required
+@require_permission("can_manage_jobs")
+def delete_recurring_schedule(schedule_id):
+    ensure_job_schedule_columns()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    schedule = conn.execute(
+        """
+        SELECT id
+        FROM recurring_mowing_schedules
+        WHERE id = %s AND company_id = %s
+        """,
+        (schedule_id, cid),
+    ).fetchone()
+
+    if not schedule:
+        conn.close()
+        flash("Recurring mowing schedule not found.")
+        return redirect(url_for("jobs.jobs"))
+
+    conn.execute(
+        """
+        UPDATE jobs
+        SET recurring_schedule_id = NULL,
+            generated_from_schedule = FALSE
+        WHERE company_id = %s AND recurring_schedule_id = %s
+        """,
+        (cid, schedule_id),
+    )
+
+    conn.execute(
+        """
+        DELETE FROM recurring_mowing_schedules
+        WHERE id = %s AND company_id = %s
+        """,
+        (schedule_id, cid),
+    )
+
+    conn.commit()
+    conn.close()
+
+    flash("Recurring mowing schedule deleted. Existing generated jobs were kept.")
+    return redirect(url_for("jobs.jobs"))
 
 
 @jobs_bp.route("/jobs/export")
@@ -1093,6 +2412,8 @@ def export_jobs():
             j.revenue,
             j.cost_total,
             j.profit,
+            j.recurring_schedule_id,
+            j.generated_from_schedule,
             c.name AS customer_name,
             c.email AS customer_email
         FROM jobs j
@@ -1121,6 +2442,8 @@ def export_jobs():
         "Revenue",
         "Costs",
         "Profit/Loss",
+        "Recurring Schedule ID",
+        "Generated From Schedule",
         "Notes",
     ])
 
@@ -1140,6 +2463,8 @@ def export_jobs():
             safe_float(r["revenue"]),
             safe_float(r["cost_total"]),
             safe_float(r["profit"]),
+            r["recurring_schedule_id"] or "",
+            "Yes" if r["generated_from_schedule"] else "No",
             clean_text_input(r["notes"]),
         ])
 
@@ -1154,7 +2479,6 @@ def export_jobs():
     response.headers["Content-Type"] = "text/csv; charset=utf-8"
     response.headers["Content-Disposition"] = f"attachment; filename={filename}"
     return response
-
 
 @jobs_bp.route("/jobs/<int:job_id>", methods=["GET", "POST"])
 @login_required
@@ -1171,9 +2495,13 @@ def view_job(job_id):
         SELECT
             j.*,
             c.name AS customer_name,
-            c.email AS customer_email
+            c.email AS customer_email,
+            rms.title AS recurring_title
         FROM jobs j
         JOIN customers c ON j.customer_id = c.id
+        LEFT JOIN recurring_mowing_schedules rms
+          ON j.recurring_schedule_id = rms.id
+         AND rms.company_id = j.company_id
         WHERE j.id = %s AND j.company_id = %s
         """,
         (job_id, cid),
@@ -1365,6 +2693,19 @@ def view_job(job_id):
     customer_email = clean_text_input(job["customer_email"])
     service_type_label = display_service_type(job["service_type"])
     service_type_class = service_type_badge_class(job["service_type"])
+
+    recurring_link_block = ""
+    if job["recurring_schedule_id"]:
+        recurring_link_block = f"""
+        <div class='job-summary-card'>
+            <span>Recurring Schedule</span>
+            <strong>
+                <a href='{url_for("jobs.edit_recurring_schedule", schedule_id=job["recurring_schedule_id"])}'>
+                    Schedule #{job["recurring_schedule_id"]}
+                </a>
+            </strong>
+        </div>
+        """
 
     if customer_email:
         email_csrf_1 = generate_csrf()
@@ -1820,8 +3161,9 @@ Thank you,
             <div class='card'>
                 <h1>Job #{job['id']} - {escape(clean_text_display(job['title']))}</h1>
 
-                <div style="margin-top:10px;">
+                <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
                     <span class='service-chip {service_type_class}'>{escape(service_type_label)}</span>
+                    {'<span class="service-chip mowing">Recurring</span>' if job["recurring_schedule_id"] else ''}
                 </div>
 
                 <div class='job-summary-grid'>
@@ -1845,6 +3187,7 @@ Thank you,
                         <span>Schedule</span>
                         <strong>{schedule_html.replace("<br>", " | ")}</strong>
                     </div>
+                    {recurring_link_block}
                 </div>
 
                 <div class='job-financials-grid'>
@@ -2082,7 +3425,6 @@ Thank you,
         """
     return render_page(content, f"Job #{job_id}")
 
-
 @jobs_bp.route("/jobs/<int:job_id>/send_update_email", methods=["POST"])
 @login_required
 @subscription_required
@@ -2199,7 +3541,6 @@ def send_custom_email(job_id):
 
     return redirect(url_for("jobs.view_job", job_id=job_id))
 
-
 @jobs_bp.route("/jobs/<int:job_id>/edit", methods=["GET", "POST"])
 @login_required
 @subscription_required
@@ -2307,7 +3648,17 @@ def edit_job(job_id):
 
     edit_job_csrf = generate_csrf()
 
+    recurring_note = ""
+    if job["recurring_schedule_id"]:
+        recurring_note = f"""
+        <div class="card" style="margin-bottom:16px;">
+            <strong>This job was generated from recurring schedule #{job["recurring_schedule_id"]}.</strong><br>
+            <a href="{url_for("jobs.edit_recurring_schedule", schedule_id=job["recurring_schedule_id"])}">Edit recurring schedule</a>
+        </div>
+        """
+
     content = f"""
+    {recurring_note}
     <div class='card'>
         <h1>Edit Job #{job['id']}</h1>
         <form method='post'>
@@ -2372,7 +3723,6 @@ def edit_job(job_id):
     """
     conn.close()
     return render_page(content, f"Edit Job #{job['id']}")
-
 
 @jobs_bp.route("/jobs/<int:job_id>/items/<int:item_id>/edit", methods=["GET", "POST"])
 @login_required
@@ -2653,7 +4003,6 @@ def edit_job_item(job_id, item_id):
     conn.close()
     return render_page(content, f"Edit Job Item #{item_id}")
 
-
 @jobs_bp.route("/jobs/<int:job_id>/items/<int:item_id>/delete", methods=["POST"])
 @login_required
 @subscription_required
@@ -2864,7 +4213,6 @@ def delete_job(job_id):
     flash("Job deleted.")
     return redirect(url_for("jobs.jobs"))
 
-
 @jobs_bp.route("/jobs/finished")
 @login_required
 @subscription_required
@@ -2899,11 +4247,15 @@ def finished_jobs():
         service_type_label = display_service_type(r["service_type"])
         service_type_class = service_type_badge_class(r["service_type"])
 
+        recurring_note = ""
+        if r["recurring_schedule_id"]:
+            recurring_note = f"<div class='small muted' style='margin-top:4px;'>Recurring: Schedule #{r['recurring_schedule_id']}</div>"
+
         table_rows.append(
             f"""
             <tr>
                 <td>#{r['id']}</td>
-                <td class='wrap'>{escape(clean_text_display(r['title']))}</td>
+                <td class='wrap'>{escape(clean_text_display(r['title']))}{recurring_note}</td>
                 <td><span class='service-chip {service_type_class}'>{escape(service_type_label)}</span></td>
                 <td class='wrap'>{escape(clean_text_display(r['customer_name']))}</td>
                 <td>{escape(clean_text_display(r['scheduled_date']))}</td>
@@ -2932,8 +4284,9 @@ def finished_jobs():
                     <div class='mobile-badge'>{escape(clean_text_display(r['status']))}</div>
                 </div>
 
-                <div style='margin:-2px 0 10px 0;'>
+                <div style='margin:-2px 0 10px 0; display:flex; gap:8px; flex-wrap:wrap;'>
                     <span class='service-chip {service_type_class}'>{escape(service_type_label)}</span>
+                    {'<span class="service-chip mowing">Recurring</span>' if r["recurring_schedule_id"] else ''}
                 </div>
 
                 <div class='mobile-list-grid'>
