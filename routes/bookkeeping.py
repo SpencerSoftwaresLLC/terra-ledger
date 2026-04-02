@@ -88,6 +88,17 @@ JOB_COST_CATEGORY_MAP = {
     "licensing and certifications": "Licensing & Certifications",
 }
 
+SERVICE_TYPE_LABELS = {
+    "mowing": "Mowing",
+    "mulch": "Mulch",
+    "cleanup": "Cleanup",
+    "installation": "Installation",
+    "hardscape": "Hardscape",
+    "snow_removal": "Snow Removal",
+    "fertilizing": "Fertilizing",
+    "other": "Other",
+}
+
 
 def _safe_float(value, default=0.0):
     try:
@@ -120,6 +131,29 @@ def _clean_text(value):
 
 def _money(value):
     return float(Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def _normalize_service_type(value):
+    key = _normalize_text(value).replace("-", "_").replace(" ", "_")
+    return key if key in SERVICE_TYPE_LABELS else ""
+
+
+def _display_service_type(value, fallback="-"):
+    key = _normalize_service_type(value)
+    if not key:
+        return fallback
+    return SERVICE_TYPE_LABELS.get(key, fallback)
+
+
+def _service_chip_class(value):
+    key = _normalize_service_type(value)
+    if key == "mowing":
+        return "mowing"
+    if key in {"mulch", "installation", "hardscape"}:
+        return "material"
+    if key in {"cleanup", "snow_removal"}:
+        return "seasonal"
+    return "default"
 
 
 def _table_exists(conn, table_name):
@@ -620,37 +654,40 @@ def _fetch_ledger_entry_by_id(conn, cid, entry_id):
     def col_or(expr, alias):
         return f"{expr} AS {alias}"
 
-    date_select = "entry_date" if "entry_date" in ledger_cols else ("date" if "date" in ledger_cols else "NULL")
-    entry_type_select = "entry_type" if "entry_type" in ledger_cols else "''"
-    category_select = "category" if "category" in ledger_cols else "''"
-    amount_select = "amount" if "amount" in ledger_cols else "0"
+    date_select = "le.entry_date" if "entry_date" in ledger_cols else ("le.date" if "date" in ledger_cols else "NULL")
+    entry_type_select = "le.entry_type" if "entry_type" in ledger_cols else "''"
+    category_select = "le.category" if "category" in ledger_cols else "''"
+    amount_select = "le.amount" if "amount" in ledger_cols else "0"
 
     if "description" in ledger_cols and "memo" in ledger_cols:
-        description_select = "COALESCE(description, memo, '')"
+        description_select = "COALESCE(le.description, le.memo, '')"
     elif "description" in ledger_cols:
-        description_select = "COALESCE(description, '')"
+        description_select = "COALESCE(le.description, '')"
     elif "memo" in ledger_cols:
-        description_select = "COALESCE(memo, '')"
+        description_select = "COALESCE(le.memo, '')"
     else:
         description_select = "''"
 
-    notes_select = "notes" if "notes" in ledger_cols else "''"
-    source_type_select = "source_type" if "source_type" in ledger_cols else "''"
-    reference_type_select = "reference_type" if "reference_type" in ledger_cols else "''"
-    source_id_select = "source_id" if "source_id" in ledger_cols else "NULL"
-    customer_id_select = "customer_id" if "customer_id" in ledger_cols else "NULL"
-    invoice_id_select = "invoice_id" if "invoice_id" in ledger_cols else "NULL"
-    job_id_select = "job_id" if "job_id" in ledger_cols else "NULL"
-    payee_name_select = "payee_name" if "payee_name" in ledger_cols else "''"
-    payment_method_select = "payment_method" if "payment_method" in ledger_cols else "''"
-    check_id_select = "check_id" if "check_id" in ledger_cols else "NULL"
-    check_number_select = "check_number" if "check_number" in ledger_cols else "NULL"
+    notes_select = "le.notes" if "notes" in ledger_cols else "''"
+    source_type_select = "le.source_type" if "source_type" in ledger_cols else "''"
+    reference_type_select = "le.reference_type" if "reference_type" in ledger_cols else "''"
+    source_id_select = "le.source_id" if "source_id" in ledger_cols else "NULL"
+    customer_id_select = "le.customer_id" if "customer_id" in ledger_cols else "NULL"
+    invoice_id_select = "le.invoice_id" if "invoice_id" in ledger_cols else "NULL"
+    job_id_select = "le.job_id" if "job_id" in ledger_cols else "NULL"
+    payee_name_select = "le.payee_name" if "payee_name" in ledger_cols else "''"
+    payment_method_select = "le.payment_method" if "payment_method" in ledger_cols else "''"
+    check_id_select = "le.check_id" if "check_id" in ledger_cols else "NULL"
+    check_number_select = "le.check_number" if "check_number" in ledger_cols else "NULL"
+
+    job_join = "LEFT JOIN jobs j ON le.job_id = j.id"
+    service_type_select = "COALESCE(j.service_type, '')"
 
     return conn.execute(
         f"""
         SELECT
-            id,
-            company_id,
+            le.id,
+            le.company_id,
             {col_or(date_select, "entry_date")},
             {col_or(entry_type_select, "entry_type")},
             {col_or(category_select, "category")},
@@ -666,9 +703,11 @@ def _fetch_ledger_entry_by_id(conn, cid, entry_id):
             {col_or(payee_name_select, "payee_name")},
             {col_or(payment_method_select, "payment_method")},
             {col_or(check_id_select, "check_id")},
-            {col_or(check_number_select, "check_number")}
-        FROM ledger_entries
-        WHERE id = %s AND company_id = %s
+            {col_or(check_number_select, "check_number")},
+            {col_or(service_type_select, "service_type")}
+        FROM ledger_entries le
+        {job_join}
+        WHERE le.id = %s AND le.company_id = %s
         """,
         (entry_id, cid),
     ).fetchone()
@@ -780,27 +819,28 @@ def _get_ledger_select_parts(conn):
 
     description_expr = []
     if "description" in ledger_cols:
-        description_expr.append("description")
+        description_expr.append("le.description")
     if "memo" in ledger_cols:
-        description_expr.append("memo")
+        description_expr.append("le.memo")
     if "notes" in ledger_cols:
-        description_expr.append("notes")
+        description_expr.append("le.notes")
     if "source_type" in ledger_cols:
-        description_expr.append("source_type")
+        description_expr.append("le.source_type")
     if "reference_type" in ledger_cols:
-        description_expr.append("reference_type")
+        description_expr.append("le.reference_type")
 
     desc_sql = "COALESCE(" + ", ".join(description_expr) + ", '')" if description_expr else "''"
-    entry_type_expr = "entry_type" if "entry_type" in ledger_cols else "'Entry'"
-    amount_expr = "amount" if "amount" in ledger_cols else "0"
-    category_expr = "category" if "category" in ledger_cols else "NULL"
-    source_type_expr = "source_type" if "source_type" in ledger_cols else "NULL"
-    reference_type_expr = "reference_type" if "reference_type" in ledger_cols else "NULL"
-    source_id_expr = "source_id" if "source_id" in ledger_cols else "NULL"
-    customer_id_expr = "customer_id" if "customer_id" in ledger_cols else "NULL"
-    invoice_id_expr = "invoice_id" if "invoice_id" in ledger_cols else "NULL"
-    job_id_expr = "job_id" if "job_id" in ledger_cols else "NULL"
-    notes_expr = "notes" if "notes" in ledger_cols else "''"
+    entry_type_expr = "le.entry_type" if "entry_type" in ledger_cols else "'Entry'"
+    amount_expr = "le.amount" if "amount" in ledger_cols else "0"
+    category_expr = "le.category" if "category" in ledger_cols else "NULL"
+    source_type_expr = "le.source_type" if "source_type" in ledger_cols else "NULL"
+    reference_type_expr = "le.reference_type" if "reference_type" in ledger_cols else "NULL"
+    source_id_expr = "le.source_id" if "source_id" in ledger_cols else "NULL"
+    customer_id_expr = "le.customer_id" if "customer_id" in ledger_cols else "NULL"
+    invoice_id_expr = "le.invoice_id" if "invoice_id" in ledger_cols else "NULL"
+    job_id_expr = "le.job_id" if "job_id" in ledger_cols else "NULL"
+    notes_expr = "le.notes" if "notes" in ledger_cols else "''"
+    service_type_expr = "COALESCE(j.service_type, '')"
 
     return {
         "ledger_cols": ledger_cols,
@@ -816,6 +856,7 @@ def _get_ledger_select_parts(conn):
         "invoice_id_expr": invoice_id_expr,
         "job_id_expr": job_id_expr,
         "notes_expr": notes_expr,
+        "service_type_expr": service_type_expr,
     }
 
 
@@ -903,6 +944,7 @@ def _build_job_item_query(conn, start_date, end_date):
             amount_expr = "0"
 
     customer_expr = "j.customer_id"
+    service_type_expr = "COALESCE(j.service_type, '')"
 
     ledger_entry_expr = "NULL"
     if "ledger_entry_id" in cols:
@@ -921,6 +963,7 @@ def _build_job_item_query(conn, start_date, end_date):
             ji.id,
             ji.{job_id_col} AS job_id,
             {customer_expr} AS customer_id,
+            {service_type_expr} AS service_type,
             {ledger_entry_expr} AS ledger_entry_id,
             {category_expr} AS category,
             {description_expr} AS description,
@@ -990,7 +1033,7 @@ def _fetch_ledger_rows(conn, cid, start_date, end_date):
     rows = conn.execute(
         f"""
         SELECT
-            id,
+            le.id,
             {select_parts["entry_type_expr"]} AS entry_type,
             {select_parts["amount_expr"]} AS amount,
             {select_parts["desc_sql"]} AS description,
@@ -1002,11 +1045,13 @@ def _fetch_ledger_rows(conn, cid, start_date, end_date):
             {select_parts["invoice_id_expr"]} AS invoice_id,
             {select_parts["job_id_expr"]} AS job_id,
             {select_parts["notes_expr"]} AS notes,
-            {date_col} AS entry_date
-        FROM ledger_entries
-        WHERE company_id = %s
-          AND {date_col} BETWEEN %s AND %s
-        ORDER BY {date_col} DESC, id DESC
+            {select_parts["service_type_expr"]} AS service_type,
+            le.{date_col} AS entry_date
+        FROM ledger_entries le
+        LEFT JOIN jobs j ON le.job_id = j.id
+        WHERE le.company_id = %s
+          AND le.{date_col} BETWEEN %s AND %s
+        ORDER BY le.{date_col} DESC, le.id DESC
         """,
         (cid, start_date, end_date),
     ).fetchall()
@@ -1041,13 +1086,21 @@ def _fetch_invoice_payment_rows(conn, cid, start_date, end_date):
         customer_join = "LEFT JOIN customers c ON i.customer_id = c.id"
         customer_name_select = "c.name AS customer_name"
 
+    jobs_join = ""
+    service_type_select = "'' AS service_type"
+    if _table_exists(conn, "jobs") and _has_col(conn, "invoices", "job_id"):
+        jobs_join = "LEFT JOIN jobs j ON i.job_id = j.id"
+        service_type_select = "COALESCE(j.service_type, '') AS service_type"
+
     return conn.execute(
         f"""
         SELECT ip.*, i.customer_id, i.invoice_number, i.total AS invoice_total,
-               i.status AS invoice_status, {customer_name_select}
+               i.status AS invoice_status, {customer_name_select},
+               {service_type_select}
         FROM invoice_payments ip
         JOIN invoices i ON ip.invoice_id = i.id
         {customer_join}
+        {jobs_join}
         WHERE ip.company_id = %s
           AND ip.payment_date BETWEEN %s AND %s
         ORDER BY ip.payment_date DESC, ip.id DESC
@@ -1105,6 +1158,7 @@ def _normalize_ledger_rows(ledger_rows):
             "customer_id": _safe_get(r, "customer_id"),
             "invoice_id": _safe_get(r, "invoice_id"),
             "job_id": _safe_get(r, "job_id"),
+            "service_type": _normalize_service_type(_safe_get(r, "service_type", "")),
             "notes": _safe_get(r, "notes", "") or "",
             "can_delete": _normalize_text(source_type) == "manual" or _normalize_text(reference_type) == "manual",
         })
@@ -1132,6 +1186,7 @@ def _normalize_payroll_rows(payroll_rows):
             "customer_id": None,
             "invoice_id": None,
             "job_id": None,
+            "service_type": "",
             "employee_id": _safe_get(r, "employee_id"),
             "employee_name": employee_name,
             "notes": _safe_get(r, "notes", "") or "",
@@ -1147,6 +1202,7 @@ def _normalize_invoice_payment_rows(payment_rows):
 
     for r in payment_rows:
         invoice_status = (_safe_get(r, "invoice_status", "") or "").strip()
+        service_type = _normalize_service_type(_safe_get(r, "service_type", ""))
 
         if invoice_status == "Paid":
             key = _safe_get(r, "invoice_id")
@@ -1167,6 +1223,7 @@ def _normalize_invoice_payment_rows(payment_rows):
                     "customer_id": _safe_get(r, "customer_id"),
                     "invoice_id": _safe_get(r, "invoice_id"),
                     "job_id": None,
+                    "service_type": service_type,
                     "notes": "",
                     "can_delete": False,
                 }
@@ -1190,6 +1247,7 @@ def _normalize_invoice_payment_rows(payment_rows):
                 "customer_id": _safe_get(r, "customer_id"),
                 "invoice_id": _safe_get(r, "invoice_id"),
                 "job_id": None,
+                "service_type": service_type,
                 "notes": "",
                 "can_delete": False,
             })
@@ -1245,6 +1303,7 @@ def _normalize_job_item_rows(job_item_rows, existing_ledger_rows):
             "customer_id": _safe_get(r, "customer_id"),
             "invoice_id": None,
             "job_id": _safe_get(r, "job_id"),
+            "service_type": _normalize_service_type(_safe_get(r, "service_type", "")),
             "notes": "",
             "can_delete": False,
         })
@@ -1252,7 +1311,20 @@ def _normalize_job_item_rows(job_item_rows, existing_ledger_rows):
     return normalized
 
 
-def _build_combined_rows(conn, cid, start_date, end_date):
+def _apply_service_type_filter(rows, service_filter):
+    service_filter = _normalize_service_type(service_filter)
+    if not service_filter:
+        return rows
+
+    filtered = []
+    for r in rows:
+        row_service = _normalize_service_type(r.get("service_type"))
+        if row_service == service_filter:
+            filtered.append(r)
+    return filtered
+
+
+def _build_combined_rows(conn, cid, start_date, end_date, service_filter=""):
     ledger_rows_db = _fetch_ledger_rows(conn, cid, start_date, end_date)
     payroll_rows_db = _fetch_payroll_rows(conn, cid, start_date, end_date)
     payment_rows_db = _fetch_invoice_payment_rows(conn, cid, start_date, end_date)
@@ -1264,9 +1336,19 @@ def _build_combined_rows(conn, cid, start_date, end_date):
     normalized_job_items = _normalize_job_item_rows(job_item_rows_db, normalized_ledger)
 
     rows = normalized_ledger + normalized_payroll + normalized_payments + normalized_job_items
+    rows = _apply_service_type_filter(rows, service_filter)
     rows.sort(key=lambda x: (x.get("entry_date") or "", str(x.get("id") or "")), reverse=True)
 
     return rows
+
+
+def _service_filter_options(selected_value=""):
+    selected_value = _normalize_service_type(selected_value)
+    options = [f"<option value='' {'selected' if not selected_value else ''}>All Services</option>"]
+    for key, label in SERVICE_TYPE_LABELS.items():
+        selected_attr = " selected" if key == selected_value else ""
+        options.append(f"<option value='{key}'{selected_attr}>{escape(label)}</option>")
+    return "".join(options)
 
 
 def _render_bookkeeping_page(conn, cid):
@@ -1312,6 +1394,7 @@ def _render_bookkeeping_page(conn, cid):
         view_type = "monthly"
 
     anchor_date = request.args.get("anchor_date", date.today().isoformat())
+    service_filter = _normalize_service_type(request.args.get("service_type", ""))
 
     yoy_html = ""
     if view_type == "yoy":
@@ -1319,8 +1402,8 @@ def _render_bookkeeping_page(conn, cid):
         current_year = anchor_year
         prior_year = current_year - 1
 
-        current_rows = _build_combined_rows(conn, cid, f"{current_year}-01-01", f"{current_year}-12-31")
-        prior_rows = _build_combined_rows(conn, cid, f"{prior_year}-01-01", f"{prior_year}-12-31")
+        current_rows = _build_combined_rows(conn, cid, f"{current_year}-01-01", f"{current_year}-12-31", service_filter=service_filter)
+        prior_rows = _build_combined_rows(conn, cid, f"{prior_year}-01-01", f"{prior_year}-12-31", service_filter=service_filter)
 
         rows = current_rows
 
@@ -1336,6 +1419,9 @@ def _render_bookkeeping_page(conn, cid):
         expense = current_expense
         net = current_net
         period_label = f"{current_year} vs {prior_year}"
+
+        if service_filter:
+            period_label += f" • {_display_service_type(service_filter)}"
 
         yoy_html = f"""
         <div class='card'>
@@ -1402,12 +1488,14 @@ def _render_bookkeeping_page(conn, cid):
         """
     else:
         start_date, end_date = get_period_range(view_type, anchor_date)
-        rows = _build_combined_rows(conn, cid, start_date, end_date)
+        rows = _build_combined_rows(conn, cid, start_date, end_date, service_filter=service_filter)
 
         income = sum(r["amount"] for r in rows if r["entry_type"] == "Income")
         expense = sum(r["amount"] for r in rows if r["entry_type"] == "Expense")
         net = income - expense
         period_label = f"{start_date} to {end_date}"
+        if service_filter:
+            period_label += f" • {_display_service_type(service_filter)}"
 
     category_totals = {}
     for r in rows:
@@ -1523,11 +1611,19 @@ def _render_bookkeeping_page(conn, cid):
         amount_class = "positive" if r.get("entry_type") == "Income" else "negative"
         amount_text = f"{'+' if r.get('entry_type') == 'Income' else '-'}${abs(_safe_float(r.get('amount'))):.2f}"
 
+        service_type = _normalize_service_type(r.get("service_type"))
+        service_chip = (
+            f"<span class='service-chip {_service_chip_class(service_type)}'>{escape(_display_service_type(service_type))}</span>"
+            if service_type else "<span class='muted small'>-</span>"
+        )
+        service_text = _display_service_type(service_type)
+
         ledger_row_html.append(
             f"""
             <tr>
                 <td>{escape(str(r.get('entry_date') or '-'))}</td>
                 <td>{escape(str(r.get('entry_type') or '-'))}</td>
+                <td class='center'>{service_chip}</td>
                 <td class='wrap'>{escape(str(r.get('category') or '-'))}</td>
                 <td class='wrap'>{escape(str(r.get('description') or '-'))}</td>
                 <td class='money {amount_class}'>{amount_text}</td>
@@ -1550,6 +1646,10 @@ def _render_bookkeeping_page(conn, cid):
                     <div class='mobile-badge'>{escape(str(r.get('entry_type') or '-'))}</div>
                 </div>
 
+                <div style='margin:-2px 0 10px 0;'>
+                    {service_chip if service_type else ""}
+                </div>
+
                 <div class='mobile-list-grid'>
                     <div>
                         <span>Category</span>
@@ -1558,6 +1658,10 @@ def _render_bookkeeping_page(conn, cid):
                     <div>
                         <span>Amount</span>
                         <strong class='{amount_class}'>{amount_text}</strong>
+                    </div>
+                    <div>
+                        <span>Service</span>
+                        <strong>{escape(service_text)}</strong>
                     </div>
                     <div>
                         <span>Source</span>
@@ -1602,10 +1706,16 @@ def _render_bookkeeping_page(conn, cid):
                     <label>Anchor Date</label>
                     <input type='date' name='anchor_date' value='{anchor_date}'>
                 </div>
+                <div>
+                    <label>Service Filter</label>
+                    <select name='service_type'>
+                        {_service_filter_options(service_filter)}
+                    </select>
+                </div>
             </div>
             <br>
             <button class='btn' type='submit'>Apply</button>
-            <a class='btn secondary' href='{url_for("bookkeeping.export_bookkeeping_csv", view=view_type, anchor_date=anchor_date)}'>Export CSV</a>
+            <a class='btn secondary' href='{url_for("bookkeeping.export_bookkeeping_csv", view=view_type, anchor_date=anchor_date, service_type=service_filter)}'>Export CSV</a>
         </form>
 
         <div class='muted' style='margin-top:14px;'><strong>Viewing:</strong> {period_label}</div>
@@ -1780,6 +1890,45 @@ def _render_bookkeeping_page(conn, cid):
             font-weight: 700;
         }}
 
+        .service-chip {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: .79rem;
+            font-weight: 700;
+            line-height: 1;
+            white-space: nowrap;
+            border: 1px solid rgba(15,23,42,.08);
+            background: #f8fafc;
+            color: #334155;
+        }}
+
+        .service-chip.mowing {{
+            background: #ecfdf3;
+            color: #166534;
+            border-color: #bbf7d0;
+        }}
+
+        .service-chip.material {{
+            background: #fff7ed;
+            color: #9a3412;
+            border-color: #fed7aa;
+        }}
+
+        .service-chip.seasonal {{
+            background: #eff6ff;
+            color: #1d4ed8;
+            border-color: #bfdbfe;
+        }}
+
+        .service-chip.default {{
+            background: #f8fafc;
+            color: #334155;
+            border-color: #e2e8f0;
+        }}
+
         .mobile-list {{
             display: grid;
             gap: 12px;
@@ -1912,18 +2061,20 @@ def _render_bookkeeping_page(conn, cid):
         <div class='static-table-wrap desktop-only'>
             <table class='static-table'>
                 <colgroup>
+                    <col style='width:9%;'>
+                    <col style='width:9%;'>
+                    <col style='width:11%;'>
+                    <col style='width:14%;'>
+                    <col style='width:24%;'>
                     <col style='width:10%;'>
                     <col style='width:10%;'>
-                    <col style='width:15%;'>
-                    <col style='width:28%;'>
-                    <col style='width:10%;'>
-                    <col style='width:12%;'>
-                    <col style='width:15%;'>
+                    <col style='width:13%;'>
                 </colgroup>
                 <thead>
                     <tr>
                         <th>Date</th>
                         <th>Type</th>
+                        <th class='center'>Service</th>
                         <th class='wrap'>Category</th>
                         <th class='wrap'>Description</th>
                         <th class='money'>Amount</th>
@@ -1932,7 +2083,7 @@ def _render_bookkeeping_page(conn, cid):
                     </tr>
                 </thead>
                 <tbody>
-                    {ledger_rows or '<tr><td colspan="7" class="muted">No bookkeeping entries for this period.</td></tr>'}
+                    {ledger_rows or '<tr><td colspan="8" class="muted">No bookkeeping entries for this period.</td></tr>'}
                 </tbody>
             </table>
         </div>
@@ -2068,7 +2219,54 @@ def view_bookkeeping_entry(entry_id):
         elif _safe_get(row, "job_id"):
             source_html = f"<a class='btn secondary' href='{url_for('jobs.view_job', job_id=_safe_get(row, 'job_id'))}'>Open Job</a>"
 
+        service_type = _normalize_service_type(_safe_get(row, "service_type", "")) or ""
+        service_html = (
+            f"<span class='service-chip {_service_chip_class(service_type)}'>{escape(_display_service_type(service_type))}</span>"
+            if service_type else "-"
+        )
+
         content = f"""
+        <style>
+            .service-chip {{
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                padding: 6px 10px;
+                border-radius: 999px;
+                font-size: .79rem;
+                font-weight: 700;
+                line-height: 1;
+                white-space: nowrap;
+                border: 1px solid rgba(15,23,42,.08);
+                background: #f8fafc;
+                color: #334155;
+            }}
+
+            .service-chip.mowing {{
+                background: #ecfdf3;
+                color: #166534;
+                border-color: #bbf7d0;
+            }}
+
+            .service-chip.material {{
+                background: #fff7ed;
+                color: #9a3412;
+                border-color: #fed7aa;
+            }}
+
+            .service-chip.seasonal {{
+                background: #eff6ff;
+                color: #1d4ed8;
+                border-color: #bfdbfe;
+            }}
+
+            .service-chip.default {{
+                background: #f8fafc;
+                color: #334155;
+                border-color: #e2e8f0;
+            }}
+        </style>
+
         <div class='card'>
             <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
                 <div>
@@ -2086,6 +2284,7 @@ def view_bookkeeping_entry(entry_id):
             <div class='grid'>
                 <div><strong>Date</strong><br>{escape(str(_safe_get(row, "entry_date", "") or "-"))}</div>
                 <div><strong>Type</strong><br>{escape(entry_type)}</div>
+                <div><strong>Service</strong><br>{service_html}</div>
                 <div><strong>Category</strong><br>{escape(_clean_text(_safe_get(row, "category", "")) or "-")}</div>
                 <div><strong>Amount</strong><br>{escape(_fmt_money(amount))}</div>
                 <div><strong>Payee</strong><br>{escape(payee_name or "-")}</div>
@@ -2172,6 +2371,7 @@ def export_bookkeeping_csv():
         view_type = "monthly"
 
     anchor_date = request.args.get("anchor_date", date.today().isoformat())
+    service_filter = _normalize_service_type(request.args.get("service_type", ""))
 
     if view_type == "yoy":
         anchor_year = datetime.strptime(anchor_date, "%Y-%m-%d").date().year
@@ -2181,7 +2381,7 @@ def export_bookkeeping_csv():
         start_date, end_date = get_period_range(view_type, anchor_date)
 
     try:
-        rows = _build_combined_rows(conn, cid, start_date, end_date)
+        rows = _build_combined_rows(conn, cid, start_date, end_date, service_filter=service_filter)
     finally:
         conn.close()
 
@@ -2191,6 +2391,7 @@ def export_bookkeeping_csv():
     writer.writerow([
         "Date",
         "Type",
+        "Service Type",
         "Category",
         "Description",
         "Amount",
@@ -2207,6 +2408,7 @@ def export_bookkeeping_csv():
         writer.writerow([
             r.get("entry_date") or "",
             r.get("entry_type") or "",
+            _display_service_type(r.get("service_type"), fallback=""),
             r.get("category") or "",
             r.get("description") or "",
             f"{signed_amount:.2f}",
@@ -2324,6 +2526,7 @@ def bookkeeping_pnl():
 
     date_from = (request.args.get("date_from") or "").strip()
     date_to = (request.args.get("date_to") or "").strip()
+    service_filter = _normalize_service_type(request.args.get("service_type", ""))
 
     today = date.today()
 
@@ -2333,7 +2536,7 @@ def bookkeeping_pnl():
         date_to = today.isoformat()
 
     try:
-        rows = _build_combined_rows(conn, cid, date_from, date_to)
+        rows = _build_combined_rows(conn, cid, date_from, date_to, service_filter=service_filter)
     finally:
         conn.close()
 
@@ -2390,6 +2593,8 @@ def bookkeeping_pnl():
     net_color = "#16a34a" if net_profit >= 0 else "#dc2626"
 
     range_text = f"{escape(date_from)} to {escape(date_to)}"
+    if service_filter:
+        range_text += f" • {escape(_display_service_type(service_filter))}"
 
     content = f"""
     <style>
@@ -2448,6 +2653,12 @@ def bookkeeping_pnl():
                 <div>
                     <label>To Date</label>
                     <input type="date" name="date_to" value="{escape(date_to)}">
+                </div>
+                <div>
+                    <label>Service Filter</label>
+                    <select name="service_type">
+                        {_service_filter_options(service_filter)}
+                    </select>
                 </div>
             </div>
 

@@ -2,12 +2,25 @@
 
 from flask import Blueprint, request, session, render_template_string, url_for, redirect, flash
 from datetime import date, datetime, timedelta
+from html import escape
 import calendar as pycalendar
 
 from db import get_db_connection
 from decorators import login_required, require_permission, subscription_required
 
 calendar_bp = Blueprint("calendar", __name__)
+
+
+SERVICE_TYPE_LABELS = {
+    "mowing": "Mowing",
+    "mulch": "Mulch",
+    "cleanup": "Cleanup",
+    "installation": "Installation",
+    "hardscape": "Hardscape",
+    "snow_removal": "Snow Removal",
+    "fertilizing": "Fertilizing",
+    "other": "Other",
+}
 
 
 def _dict_row(row):
@@ -31,6 +44,31 @@ def _safe_text(value, default=""):
     return text if text else default
 
 
+def _normalize_service_type(value):
+    key = _safe_text(value).lower().replace("-", "_").replace(" ", "_")
+    return key if key in SERVICE_TYPE_LABELS else ""
+
+
+def _display_service_type(value):
+    key = _normalize_service_type(value)
+    if not key:
+        return ""
+    return SERVICE_TYPE_LABELS.get(key, "")
+
+
+def _service_class(value):
+    key = _normalize_service_type(value)
+    if key == "mowing":
+        return "service-mowing"
+    if key in {"mulch", "installation", "hardscape"}:
+        return "service-material"
+    if key in {"cleanup", "snow_removal"}:
+        return "service-seasonal"
+    if key:
+        return "service-default"
+    return ""
+
+
 def ensure_job_schedule_columns():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -41,6 +79,7 @@ def ensure_job_schedule_columns():
             cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_start_time TIME")
             cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_end_time TIME")
             cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS assigned_to TEXT")
+            cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS service_type TEXT")
             conn.commit()
             return
         except Exception:
@@ -58,6 +97,8 @@ def ensure_job_schedule_columns():
                 cur.execute("ALTER TABLE jobs ADD COLUMN scheduled_end_time TEXT")
             if "assigned_to" not in cols:
                 cur.execute("ALTER TABLE jobs ADD COLUMN assigned_to TEXT")
+            if "service_type" not in cols:
+                cur.execute("ALTER TABLE jobs ADD COLUMN service_type TEXT")
 
             conn.commit()
         except Exception:
@@ -106,6 +147,16 @@ def _parse_focus_date():
     return date.today()
 
 
+def _parse_calendar_filters():
+    status_filter = _safe_text(request.args.get("status")).lower()
+    service_filter = _normalize_service_type(request.args.get("service_type"))
+    crew_filter = _safe_text(request.args.get("crew")).lower()
+
+    if status_filter in {"all", ""}:
+        status_filter = ""
+    return status_filter, service_filter, crew_filter
+
+
 def _prev_month(year, month):
     if month == 1:
         return year - 1, 12
@@ -132,7 +183,8 @@ def _fetch_jobs_between(conn, company_id, start_date, end_date):
             scheduled_date,
             scheduled_start_time,
             scheduled_end_time,
-            assigned_to
+            assigned_to,
+            service_type
         FROM jobs
         WHERE company_id = %s
           AND scheduled_date IS NOT NULL
@@ -152,7 +204,8 @@ def _fetch_jobs_between(conn, company_id, start_date, end_date):
             scheduled_date,
             scheduled_start_time,
             scheduled_end_time,
-            assigned_to
+            assigned_to,
+            service_type
         FROM jobs
         WHERE company_id = ?
           AND scheduled_date IS NOT NULL
@@ -183,7 +236,8 @@ def _fetch_jobs_for_day(conn, company_id, day_iso):
             scheduled_date,
             scheduled_start_time,
             scheduled_end_time,
-            assigned_to
+            assigned_to,
+            service_type
         FROM jobs
         WHERE company_id = %s
           AND scheduled_date = %s
@@ -200,7 +254,8 @@ def _fetch_jobs_for_day(conn, company_id, day_iso):
             scheduled_date,
             scheduled_start_time,
             scheduled_end_time,
-            assigned_to
+            assigned_to,
+            service_type
         FROM jobs
         WHERE company_id = ?
           AND scheduled_date = ?
@@ -217,6 +272,48 @@ def _fetch_jobs_for_day(conn, company_id, day_iso):
     except Exception:
         cur.execute(sql_sqlite, (company_id, day_iso))
         return cur.fetchall()
+
+
+def _fetch_crews(conn, company_id):
+    sql_pg = """
+        SELECT DISTINCT assigned_to
+        FROM jobs
+        WHERE company_id = %s
+          AND assigned_to IS NOT NULL
+          AND TRIM(assigned_to) <> ''
+        ORDER BY assigned_to ASC
+    """
+
+    sql_sqlite = """
+        SELECT DISTINCT assigned_to
+        FROM jobs
+        WHERE company_id = ?
+          AND assigned_to IS NOT NULL
+          AND TRIM(assigned_to) <> ''
+        ORDER BY assigned_to ASC
+    """
+
+    cur = conn.cursor()
+    try:
+        try:
+            cur.execute(sql_pg, (company_id,))
+            rows = cur.fetchall()
+        except Exception:
+            cur.execute(sql_sqlite, (company_id,))
+            rows = cur.fetchall()
+
+        crews = []
+        for row in rows:
+            try:
+                value = row["assigned_to"]
+            except Exception:
+                value = row[0]
+            value = _safe_text(value)
+            if value:
+                crews.append(value)
+        return crews
+    finally:
+        cur.close()
 
 
 def _normalize_date_value(value):
@@ -312,6 +409,8 @@ def _job_payload(row):
     row = _dict_row(row)
     job_id = row.get("id")
     status = row.get("status") or ""
+    service_type = _normalize_service_type(row.get("service_type"))
+    service_label = _display_service_type(service_type)
 
     start_time = _normalize_time_value(row.get("scheduled_start_time"))
     end_time = _normalize_time_value(row.get("scheduled_end_time"))
@@ -330,6 +429,10 @@ def _job_payload(row):
         "title": row.get("title") or f"Job #{job_id}",
         "status": status,
         "status_class": _status_class(status),
+        "service_type": service_type,
+        "service_label": service_label,
+        "service_class": _service_class(service_type),
+        "is_mowing": service_type == "mowing",
         "scheduled_date": _normalize_date_value(row.get("scheduled_date")),
         "scheduled_start_time": start_time,
         "scheduled_end_time": end_time,
@@ -341,16 +444,40 @@ def _job_payload(row):
         ),
         "assigned_to": row.get("assigned_to") or "",
         "label": row.get("title") or f"Job #{job_id}",
+        "search_text": " ".join([
+            _safe_text(row.get("title")),
+            _safe_text(row.get("status")),
+            _safe_text(row.get("assigned_to")),
+            service_label,
+        ]).lower(),
         "url": url_for("jobs.view_job", job_id=job_id),
         "lane_index": 0,
         "lane_count": 1,
     }
 
 
-def _build_week_columns(week_start, raw_jobs):
+def _job_matches_filters(job, status_filter="", service_filter="", crew_filter=""):
+    if status_filter:
+        if _safe_text(job.get("status")).lower() != status_filter:
+            return False
+
+    if service_filter:
+        if _normalize_service_type(job.get("service_type")) != service_filter:
+            return False
+
+    if crew_filter:
+        if crew_filter not in _safe_text(job.get("assigned_to")).lower():
+            return False
+
+    return True
+
+
+def _build_week_columns(week_start, raw_jobs, status_filter="", service_filter="", crew_filter=""):
     jobs_by_day = {}
     for raw in raw_jobs:
         job = _job_payload(raw)
+        if not _job_matches_filters(job, status_filter, service_filter, crew_filter):
+            continue
         iso_day = job["scheduled_date"]
         if not iso_day:
             continue
@@ -440,6 +567,7 @@ def calendar_page():
     today_iso = today.isoformat()
     view_mode = _parse_view_mode()
     focus_date = _parse_focus_date()
+    status_filter, service_filter, crew_filter = _parse_calendar_filters()
 
     year, month = _parse_month_year()
     first_day = date(year, month, 1)
@@ -468,18 +596,25 @@ def calendar_page():
             week_start.isoformat(),
             week_end.isoformat(),
         )
+        crews = _fetch_crews(conn, company_id)
     finally:
         conn.close()
 
-    today_jobs = [_job_payload(row) for row in today_jobs_raw]
+    today_jobs = [
+        _job_payload(row)
+        for row in today_jobs_raw
+        if _job_matches_filters(_job_payload(row), status_filter, service_filter, crew_filter)
+    ]
 
     jobs_by_day = {}
     for raw in month_jobs_raw:
-        row = _dict_row(raw)
-        job_date = _normalize_date_value(row.get("scheduled_date"))
+        payload = _job_payload(raw)
+        if not _job_matches_filters(payload, status_filter, service_filter, crew_filter):
+            continue
+        job_date = payload.get("scheduled_date")
         if not job_date:
             continue
-        jobs_by_day.setdefault(job_date, []).append(_job_payload(row))
+        jobs_by_day.setdefault(job_date, []).append(payload)
 
     cal = pycalendar.Calendar(firstweekday=6)
     month_weeks = cal.monthdatescalendar(year, month)
@@ -505,7 +640,13 @@ def calendar_page():
             if cell["in_month"]:
                 month_mobile_days.append(cell)
 
-    week_days = _build_week_columns(week_start, week_jobs_raw)
+    week_days = _build_week_columns(
+        week_start,
+        week_jobs_raw,
+        status_filter=status_filter,
+        service_filter=service_filter,
+        crew_filter=crew_filter,
+    )
     week_time_rows = _build_week_time_rows(6, 20)
 
     month_name = first_day.strftime("%B %Y")
@@ -546,6 +687,22 @@ def calendar_page():
                 --default-bg: rgba(148, 163, 184, 0.12);
                 --default-border: rgba(148, 163, 184, 0.35);
                 --default-text: #cbd5e1;
+
+                --service-mowing-bg: #ecfdf3;
+                --service-mowing-border: #22c55e;
+                --service-mowing-text: #166534;
+
+                --service-material-bg: #fff7ed;
+                --service-material-border: #f97316;
+                --service-material-text: #9a3412;
+
+                --service-seasonal-bg: #eff6ff;
+                --service-seasonal-border: #3b82f6;
+                --service-seasonal-text: #1d4ed8;
+
+                --service-default-bg: #f8fafc;
+                --service-default-border: #94a3b8;
+                --service-default-text: #334155;
             }
 
             * { box-sizing: border-box; }
@@ -583,7 +740,7 @@ def calendar_page():
                 font-size: 14px;
             }
 
-            .nav-actions, .view-actions {
+            .nav-actions, .view-actions, .filter-actions {
                 display: flex;
                 gap: 10px;
                 flex-wrap: wrap;
@@ -607,6 +764,7 @@ def calendar_page():
                 border-radius: 10px;
                 padding: 10px 14px;
                 font-size: 14px;
+                cursor: pointer;
             }
 
             .btn:hover {
@@ -617,6 +775,62 @@ def calendar_page():
             .btn.active {
                 border-color: #38bdf8;
                 background: rgba(56, 189, 248, 0.16);
+            }
+
+            .filter-shell {
+                background: var(--panel);
+                border: 1px solid var(--border);
+                border-radius: 18px;
+                padding: 18px;
+                margin-bottom: 18px;
+                box-shadow: 0 12px 30px rgba(0,0,0,0.2);
+            }
+
+            .filter-grid {
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                gap: 12px;
+            }
+
+            .filter-grid label {
+                display: block;
+                margin-bottom: 6px;
+                font-size: 13px;
+                font-weight: 700;
+                color: var(--muted);
+            }
+
+            .filter-grid select,
+            .filter-grid input {
+                width: 100%;
+                padding: 10px 12px;
+                border-radius: 10px;
+                border: 1px solid var(--border);
+                background: #0f172a;
+                color: var(--text);
+                font-size: 14px;
+            }
+
+            .quick-tools {
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+                margin-top: 14px;
+            }
+
+            .chip-btn {
+                border: 1px solid var(--border);
+                background: #0f172a;
+                color: var(--text);
+                border-radius: 999px;
+                padding: 8px 12px;
+                font-size: 13px;
+                font-weight: 700;
+                cursor: pointer;
+            }
+
+            .chip-btn:hover {
+                border-color: #22c55e;
             }
 
             .today-shell {
@@ -706,6 +920,43 @@ def calendar_page():
                 white-space: nowrap;
             }
 
+            .service-pill {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 11px;
+                font-weight: 700;
+                padding: 4px 8px;
+                border-radius: 999px;
+                border: 1px solid transparent;
+                white-space: nowrap;
+                margin-right: 6px;
+            }
+
+            .service-mowing {
+                background: var(--service-mowing-bg);
+                color: var(--service-mowing-text);
+                border-color: var(--service-mowing-border);
+            }
+
+            .service-material {
+                background: var(--service-material-bg);
+                color: var(--service-material-text);
+                border-color: var(--service-material-border);
+            }
+
+            .service-seasonal {
+                background: var(--service-seasonal-bg);
+                color: var(--service-seasonal-text);
+                border-color: var(--service-seasonal-border);
+            }
+
+            .service-default {
+                background: var(--service-default-bg);
+                color: var(--service-default-text);
+                border-color: var(--service-default-border);
+            }
+
             .today-empty {
                 color: var(--muted);
                 font-size: 14px;
@@ -728,6 +979,29 @@ def calendar_page():
                 font-weight: 700;
                 border-bottom: 1px solid var(--border);
                 background: #0f172a;
+            }
+
+            .month-tools {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 12px;
+                padding: 14px 16px;
+                border-bottom: 1px solid var(--border);
+                background: #0d1526;
+                flex-wrap: wrap;
+            }
+
+            .month-tools-left {
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+                align-items: center;
+            }
+
+            .month-tools-right {
+                color: var(--muted);
+                font-size: 13px;
             }
 
             .dow-row,
@@ -801,6 +1075,16 @@ def calendar_page():
                 transition: transform 0.12s ease;
                 border: 1px solid var(--default-border);
                 background: var(--default-bg);
+                position: relative;
+                overflow: hidden;
+            }
+
+            .job-card.service-mowing,
+            .week-job-card.service-mowing,
+            .today-card.service-mowing,
+            .mobile-job-card.service-mowing {
+                border-color: var(--service-mowing-border) !important;
+                box-shadow: inset 3px 0 0 var(--service-mowing-border);
             }
 
             .job-time {
@@ -819,6 +1103,27 @@ def calendar_page():
 
             .job-meta {
                 font-size: 12px;
+            }
+
+            .job-tools {
+                display: flex;
+                gap: 6px;
+                flex-wrap: wrap;
+                margin-top: 6px;
+            }
+
+            .mini-link {
+                font-size: 11px;
+                color: var(--text);
+                text-decoration: none;
+                padding: 4px 7px;
+                border: 1px solid var(--border);
+                border-radius: 999px;
+                background: rgba(255,255,255,0.04);
+            }
+
+            .mini-link:hover {
+                border-color: #22c55e;
             }
 
             .empty-note {
@@ -970,6 +1275,27 @@ def calendar_page():
                 line-height: 1.2;
             }
 
+            .week-job-tools {
+                margin-top: 6px;
+                display: flex;
+                gap: 5px;
+                flex-wrap: wrap;
+            }
+
+            .week-mini-link {
+                font-size: 10px;
+                color: var(--text);
+                text-decoration: none;
+                padding: 3px 6px;
+                border: 1px solid var(--border);
+                border-radius: 999px;
+                background: rgba(255,255,255,0.04);
+            }
+
+            .week-mini-link:hover {
+                border-color: #22c55e;
+            }
+
             .mobile-only {
                 display: none;
             }
@@ -1035,10 +1361,18 @@ def calendar_page():
                 font-size: 12px;
             }
 
+            .mobile-job-tools {
+                display: flex;
+                gap: 6px;
+                flex-wrap: wrap;
+                margin-top: 8px;
+            }
+
             .legend {
                 margin-top: 14px;
                 color: var(--muted);
                 font-size: 13px;
+                line-height: 1.5;
             }
 
             .status-scheduled {
@@ -1151,6 +1485,12 @@ def calendar_page():
                 background: rgba(148, 163, 184, 0.16);
             }
 
+            @media (max-width: 1100px) {
+                .filter-grid {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+            }
+
             @media (max-width: 980px) {
                 .today-card {
                     grid-template-columns: 1fr;
@@ -1179,6 +1519,10 @@ def calendar_page():
                 .week-header {
                     font-size: 18px;
                 }
+
+                .filter-grid {
+                    grid-template-columns: 1fr;
+                }
             }
         </style>
     </head>
@@ -1193,12 +1537,12 @@ def calendar_page():
                 <div class="view-actions" style="flex-direction: column; align-items: flex-end;">
                     <div style="display:flex; gap:10px; flex-wrap:wrap;">
                         <a class="btn {% if view_mode == 'month' %}active{% endif %}"
-                           href="{{ url_for('calendar.calendar_page', view='month', year=year, month=month, date=focus_date.isoformat()) }}">
+                           href="{{ url_for('calendar.calendar_page', view='month', year=year, month=month, date=focus_date.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">
                             Month View
                         </a>
 
                         <a class="btn {% if view_mode == 'week' %}active{% endif %}"
-                           href="{{ url_for('calendar.calendar_page', view='week', date=focus_date.isoformat()) }}">
+                           href="{{ url_for('calendar.calendar_page', view='week', date=focus_date.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">
                             Week View
                         </a>
                     </div>
@@ -1210,18 +1554,81 @@ def calendar_page():
                 </div>
             </div>
 
+            <div class="filter-shell">
+                <form method="get">
+                    <input type="hidden" name="view" value="{{ view_mode }}">
+                    {% if view_mode == 'month' %}
+                        <input type="hidden" name="year" value="{{ year }}">
+                        <input type="hidden" name="month" value="{{ month }}">
+                    {% endif %}
+                    <input type="hidden" name="date" value="{{ focus_date.isoformat() }}">
+
+                    <div class="filter-grid">
+                        <div>
+                            <label>Status</label>
+                            <select name="status">
+                                <option value="" {% if not status_filter %}selected{% endif %}>All Statuses</option>
+                                <option value="scheduled" {% if status_filter == 'scheduled' %}selected{% endif %}>Scheduled</option>
+                                <option value="in progress" {% if status_filter == 'in progress' %}selected{% endif %}>In Progress</option>
+                                <option value="completed" {% if status_filter == 'completed' %}selected{% endif %}>Completed</option>
+                                <option value="finished" {% if status_filter == 'finished' %}selected{% endif %}>Finished</option>
+                                <option value="invoiced" {% if status_filter == 'invoiced' %}selected{% endif %}>Invoiced</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label>Service Type</label>
+                            <select name="service_type" id="serviceTypeFilter">
+                                <option value="" {% if not service_filter %}selected{% endif %}>All Services</option>
+                                <option value="mowing" {% if service_filter == 'mowing' %}selected{% endif %}>Mowing</option>
+                                <option value="mulch" {% if service_filter == 'mulch' %}selected{% endif %}>Mulch</option>
+                                <option value="cleanup" {% if service_filter == 'cleanup' %}selected{% endif %}>Cleanup</option>
+                                <option value="installation" {% if service_filter == 'installation' %}selected{% endif %}>Installation</option>
+                                <option value="hardscape" {% if service_filter == 'hardscape' %}selected{% endif %}>Hardscape</option>
+                                <option value="snow_removal" {% if service_filter == 'snow_removal' %}selected{% endif %}>Snow Removal</option>
+                                <option value="fertilizing" {% if service_filter == 'fertilizing' %}selected{% endif %}>Fertilizing</option>
+                                <option value="other" {% if service_filter == 'other' %}selected{% endif %}>Other</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label>Assigned To</label>
+                            <select name="crew">
+                                <option value="" {% if not crew_filter %}selected{% endif %}>All Crews / Employees</option>
+                                {% for crew in crews %}
+                                    <option value="{{ crew }}" {% if crew_filter == crew.lower() %}selected{% endif %}>{{ crew }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label>Quick Jump</label>
+                            <input type="date" name="jump_date" id="jumpDate" value="{{ focus_date.isoformat() }}">
+                        </div>
+                    </div>
+
+                    <div class="quick-tools">
+                        <button class="btn" type="submit">Apply Filters</button>
+                        <a class="btn" href="{{ url_for('calendar.calendar_page', view=view_mode, date=focus_date.isoformat(), year=year, month=month) }}">Clear Filters</a>
+                        <button class="chip-btn" type="button" onclick="setMowingOnly()">Mowing Only</button>
+                        <button class="chip-btn" type="button" onclick="goToToday()">Today</button>
+                        <button class="chip-btn" type="button" onclick="jumpToDate()">Jump to Date</button>
+                    </div>
+                </form>
+            </div>
+
             <div class="controls-row">
                 {% if view_mode == 'month' %}
                     <div class="nav-actions">
-                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='month', year=prev_year, month=prev_month, date=focus_date.isoformat()) }}">← Previous Month</a>
-                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='month', year=today.year, month=today.month, date=today.isoformat()) }}">This Month</a>
-                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='month', year=next_year, month=next_month, date=focus_date.isoformat()) }}">Next Month →</a>
+                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='month', year=prev_year, month=prev_month, date=focus_date.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">← Previous Month</a>
+                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='month', year=today.year, month=today.month, date=today.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">This Month</a>
+                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='month', year=next_year, month=next_month, date=focus_date.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">Next Month →</a>
                     </div>
                 {% else %}
                     <div class="nav-actions">
-                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='week', date=prev_week.isoformat()) }}">← Previous Week</a>
-                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='week', date=today.isoformat()) }}">This Week</a>
-                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='week', date=next_week.isoformat()) }}">Next Week →</a>
+                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='week', date=prev_week.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">← Previous Week</a>
+                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='week', date=today.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">This Week</a>
+                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='week', date=next_week.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">Next Week →</a>
                     </div>
                 {% endif %}
             </div>
@@ -1236,15 +1643,23 @@ def calendar_page():
                     <div class="today-list">
                         {% for job in today_jobs %}
                             <a class="today-link" href="{{ job.url }}">
-                                <div class="today-card {{ job.status_class }}">
+                                <div class="today-card {{ job.status_class }} {{ job.service_class }}">
                                     <div class="today-time">{{ job.time_label }}</div>
                                     <div>
                                         <div class="today-title">{{ job.label }}</div>
+                                        <div style="margin-bottom:6px;">
+                                            {% if job.service_label %}
+                                                <span class="service-pill {{ job.service_class }}">{{ job.service_label }}</span>
+                                            {% endif %}
+                                            <span class="status-pill">{{ job.status or "No Status" }}</span>
+                                        </div>
                                         {% if job.assigned_to %}
                                             <div class="today-meta">Assigned: {{ job.assigned_to }}</div>
                                         {% endif %}
                                     </div>
-                                    <div class="status-pill">{{ job.status or "No Status" }}</div>
+                                    <div>
+                                        <span class="mini-link">Open</span>
+                                    </div>
                                 </div>
                             </a>
                         {% endfor %}
@@ -1258,6 +1673,18 @@ def calendar_page():
                 <div class="desktop-only">
                     <div class="calendar-shell">
                         <div class="month-header">{{ month_name }}</div>
+
+                        <div class="month-tools">
+                            <div class="month-tools-left">
+                                <span class="service-pill service-mowing">Mowing</span>
+                                <span class="service-pill service-material">Material / Install</span>
+                                <span class="service-pill service-seasonal">Seasonal</span>
+                                <span class="service-pill service-default">Other</span>
+                            </div>
+                            <div class="month-tools-right">
+                                Click any job to open it.
+                            </div>
+                        </div>
 
                         <div class="dow-row">
                             <div class="dow">Sunday</div>
@@ -1282,14 +1709,24 @@ def calendar_page():
 
                                         {% if cell.jobs %}
                                             {% for job in cell.jobs %}
-                                                <a class="job-link" href="{{ job.url }}">
-                                                    <div class="job-card {{ job.status_class }}">
-                                                        <div class="job-time">{{ job.time_label }}</div>
+                                                <a class="job-link" href="{{ job.url }}" data-job-search="{{ job.search_text }}">
+                                                    <div class="job-card {{ job.status_class }} {{ job.service_class }}">
+                                                        <div style="display:flex; justify-content:space-between; gap:8px; align-items:flex-start; margin-bottom:4px; flex-wrap:wrap;">
+                                                            <div class="job-time">{{ job.time_label }}</div>
+                                                            {% if job.service_label %}
+                                                                <span class="service-pill {{ job.service_class }}">{{ job.service_label }}</span>
+                                                            {% endif %}
+                                                        </div>
                                                         <div class="job-label">{{ job.label }}</div>
                                                         {% if job.assigned_to %}
                                                             <div class="job-meta">Assigned: {{ job.assigned_to }}</div>
                                                         {% endif %}
                                                         <div class="job-meta">{{ job.status or "No Status" }}</div>
+
+                                                        <div class="job-tools">
+                                                            <span class="mini-link">View</span>
+                                                            <span class="mini-link">Edit</span>
+                                                        </div>
                                                     </div>
                                                 </a>
                                             {% endfor %}
@@ -1322,13 +1759,22 @@ def calendar_page():
                                     <div class="mobile-day-list">
                                         {% for job in cell.jobs %}
                                             <a class="mobile-job-link" href="{{ job.url }}">
-                                                <div class="mobile-job-card {{ job.status_class }}">
-                                                    <div class="mobile-job-time">{{ job.time_label }}</div>
+                                                <div class="mobile-job-card {{ job.status_class }} {{ job.service_class }}">
+                                                    <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:4px;">
+                                                        <div class="mobile-job-time">{{ job.time_label }}</div>
+                                                        {% if job.service_label %}
+                                                            <span class="service-pill {{ job.service_class }}">{{ job.service_label }}</span>
+                                                        {% endif %}
+                                                    </div>
                                                     <div class="mobile-job-title">{{ job.label }}</div>
                                                     {% if job.assigned_to %}
                                                         <div class="mobile-job-meta">Assigned: {{ job.assigned_to }}</div>
                                                     {% endif %}
                                                     <div class="mobile-job-meta">{{ job.status or "No Status" }}</div>
+
+                                                    <div class="mobile-job-tools">
+                                                        <span class="mini-link">Open</span>
+                                                    </div>
                                                 </div>
                                             </a>
                                         {% endfor %}
@@ -1388,13 +1834,24 @@ def calendar_page():
                                                        width: calc({{ width_pct }}% - 8px);
                                                        right: auto;
                                                    ">
-                                                    <div class="week-job-card {{ job.status_class }}" style="height: {{ height_px }}px;">
-                                                        <div class="week-job-time">{{ job.time_label }}</div>
+                                                    <div class="week-job-card {{ job.status_class }} {{ job.service_class }}" style="height: {{ height_px }}px;">
+                                                        <div style="display:flex; justify-content:space-between; gap:5px; flex-wrap:wrap; margin-bottom:3px;">
+                                                            <div class="week-job-time">{{ job.time_label }}</div>
+                                                            {% if job.service_label %}
+                                                                <span class="service-pill {{ job.service_class }}">{{ job.service_label }}</span>
+                                                            {% endif %}
+                                                        </div>
                                                         <div class="week-job-title">{{ job.label }}</div>
                                                         {% if job.assigned_to %}
                                                             <div class="week-job-meta">{{ job.assigned_to }}</div>
                                                         {% endif %}
                                                         <div class="week-job-meta">{{ job.status or "No Status" }}</div>
+
+                                                        {% if height_px >= 68 %}
+                                                            <div class="week-job-tools">
+                                                                <span class="week-mini-link">Open</span>
+                                                            </div>
+                                                        {% endif %}
                                                     </div>
                                                 </a>
                                             {% endfor %}
@@ -1423,13 +1880,22 @@ def calendar_page():
                                     <div class="mobile-day-list">
                                         {% for job in day.jobs %}
                                             <a class="mobile-job-link" href="{{ job.url }}">
-                                                <div class="mobile-job-card {{ job.status_class }}">
-                                                    <div class="mobile-job-time">{{ job.time_label }}</div>
+                                                <div class="mobile-job-card {{ job.status_class }} {{ job.service_class }}">
+                                                    <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:4px;">
+                                                        <div class="mobile-job-time">{{ job.time_label }}</div>
+                                                        {% if job.service_label %}
+                                                            <span class="service-pill {{ job.service_class }}">{{ job.service_label }}</span>
+                                                        {% endif %}
+                                                    </div>
                                                     <div class="mobile-job-title">{{ job.label }}</div>
                                                     {% if job.assigned_to %}
                                                         <div class="mobile-job-meta">Assigned: {{ job.assigned_to }}</div>
                                                     {% endif %}
                                                     <div class="mobile-job-meta">{{ job.status or "No Status" }}</div>
+
+                                                    <div class="mobile-job-tools">
+                                                        <span class="mini-link">Open</span>
+                                                    </div>
                                                 </div>
                                             </a>
                                         {% endfor %}
@@ -1444,9 +1910,45 @@ def calendar_page():
             {% endif %}
 
             <div class="legend">
-                Blue = Scheduled, Orange = In Progress, Green = Completed/Finished, Purple = Invoiced.
+                Blue = Scheduled, Orange = In Progress, Green = Completed/Finished, Purple = Invoiced.<br>
+                Mowing jobs are marked with a green service badge and green edge so they stand out immediately.
             </div>
         </div>
+
+        <script>
+            function currentBaseParams() {
+                const params = new URLSearchParams(window.location.search);
+                return params;
+            }
+
+            function setMowingOnly() {
+                const params = currentBaseParams();
+                params.set("service_type", "mowing");
+                window.location.search = params.toString();
+            }
+
+            function goToToday() {
+                const params = currentBaseParams();
+                const today = "{{ today.isoformat() }}";
+                params.set("date", today);
+                params.set("year", "{{ today.year }}");
+                params.set("month", "{{ today.month }}");
+                window.location.search = params.toString();
+            }
+
+            function jumpToDate() {
+                const input = document.getElementById("jumpDate");
+                if (!input || !input.value) return;
+                const params = currentBaseParams();
+                const parts = input.value.split("-");
+                params.set("date", input.value);
+                if (parts.length === 3) {
+                    params.set("year", String(parseInt(parts[0], 10)));
+                    params.set("month", String(parseInt(parts[1], 10)));
+                }
+                window.location.search = params.toString();
+            }
+        </script>
     </body>
     </html>
     """
@@ -1472,4 +1974,8 @@ def calendar_page():
         week_label=week_label,
         prev_week=prev_week,
         next_week=next_week,
+        status_filter=status_filter,
+        service_filter=service_filter,
+        crew_filter=crew_filter,
+        crews=crews,
     )

@@ -33,6 +33,17 @@ ITEM_TYPE_LABELS = {
     "material": "Material",
 }
 
+JOB_SERVICE_TYPE_LABELS = {
+    "mowing": "Mowing",
+    "mulch": "Mulch",
+    "cleanup": "Cleanup",
+    "installation": "Installation",
+    "hardscape": "Hardscape",
+    "snow_removal": "Snow Removal",
+    "fertilizing": "Fertilizing",
+    "other": "Other",
+}
+
 
 def ensure_job_schedule_columns():
     conn = get_db_connection()
@@ -41,6 +52,7 @@ def ensure_job_schedule_columns():
         cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_start_time TIME")
         cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_end_time TIME")
         cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS assigned_to TEXT")
+        cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS service_type TEXT")
         conn.commit()
     finally:
         conn.close()
@@ -67,6 +79,36 @@ def safe_float(value, default=0.0):
         return float(value or 0)
     except Exception:
         return default
+
+
+def normalize_service_type(value):
+    key = clean_text_input(value).lower().replace("-", "_").replace(" ", "_")
+    return key if key in JOB_SERVICE_TYPE_LABELS else "other"
+
+
+def display_service_type(value):
+    key = normalize_service_type(value)
+    return JOB_SERVICE_TYPE_LABELS.get(key, "Other")
+
+
+def service_type_badge_class(value):
+    key = normalize_service_type(value)
+    if key == "mowing":
+        return "mowing"
+    if key in {"mulch", "installation", "hardscape"}:
+        return "material"
+    if key in {"cleanup", "snow_removal"}:
+        return "seasonal"
+    return "default"
+
+
+def service_type_select_options(selected_value="other"):
+    selected_value = normalize_service_type(selected_value)
+    options = []
+    for key, label in JOB_SERVICE_TYPE_LABELS.items():
+        selected_attr = " selected" if key == selected_value else ""
+        options.append(f"<option value='{key}'{selected_attr}>{escape(label)}</option>")
+    return "".join(options)
 
 
 def _time_to_minutes(value):
@@ -157,6 +199,7 @@ def build_job_update_email(job, update_type):
     end_time = clean_text_input(job.get("scheduled_end_time"))
     address = clean_text_input(job.get("address"))
     assigned_to = clean_text_input(job.get("assigned_to"))
+    service_type_label = display_service_type(job.get("service_type"))
 
     schedule_line = ""
     if scheduled_date and start_time and end_time:
@@ -180,6 +223,8 @@ def build_job_update_email(job, update_type):
         intro = f"Hello {customer_name},<br><br>Here is an update for <strong>{escape(job_title)}</strong>."
 
     details = []
+    if service_type_label:
+        details.append(f"<strong>Service Type:</strong> {escape(service_type_label)}")
     if schedule_line:
         details.append(f"<strong>Scheduled:</strong> {escape(schedule_line)}")
     if address:
@@ -213,6 +258,8 @@ def build_job_update_email(job, update_type):
     else:
         text_parts.append(f"Here is an update for {job_title}.")
 
+    if service_type_label:
+        text_parts.append(f"Service Type: {service_type_label}")
     if schedule_line:
         text_parts.append(f"Scheduled: {schedule_line}")
     if address:
@@ -287,6 +334,7 @@ def jobs():
             return redirect(url_for("jobs.jobs"))
 
         title = clean_text_input(request.form.get("title", ""))
+        service_type = normalize_service_type(request.form.get("service_type", "other"))
         scheduled_date = clean_text_input(request.form.get("scheduled_date", ""))
         scheduled_start_time = clean_text_input(request.form.get("scheduled_start_time", ""))
         scheduled_end_time = clean_text_input(request.form.get("scheduled_end_time", ""))
@@ -324,6 +372,7 @@ def jobs():
                 company_id,
                 customer_id,
                 title,
+                service_type,
                 scheduled_date,
                 scheduled_start_time,
                 scheduled_end_time,
@@ -332,13 +381,14 @@ def jobs():
                 address,
                 notes
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
                 cid,
                 customer_id,
                 title,
+                service_type,
                 scheduled_date or None,
                 scheduled_start_time or None,
                 scheduled_end_time or None,
@@ -382,12 +432,15 @@ def jobs():
     job_mobile_card_list = []
     for r in rows:
         delete_csrf = generate_csrf()
+        service_type_label = display_service_type(r["service_type"])
+        service_type_class = service_type_badge_class(r["service_type"])
 
         job_row_list.append(
             f"""
             <tr>
                 <td>#{r['id']}</td>
                 <td class='wrap'>{escape(clean_text_display(r['title']))}</td>
+                <td><span class='service-chip {service_type_class}'>{escape(service_type_label)}</span></td>
                 <td class='wrap'>{escape(clean_text_display(r['customer_name']))}</td>
                 <td>{escape(clean_text_display(r['scheduled_date']))}</td>
                 <td>{escape(clean_text_display(r['scheduled_start_time']))}</td>
@@ -421,6 +474,10 @@ def jobs():
                 <div class='mobile-list-top'>
                     <div class='mobile-list-title'>#{r['id']} - {escape(clean_text_display(r['title']))}</div>
                     <div class='mobile-badge'>{escape(clean_text_display(r['status']))}</div>
+                </div>
+
+                <div style='margin:-2px 0 10px 0;'>
+                    <span class='service-chip {service_type_class}'>{escape(service_type_label)}</span>
                 </div>
 
                 <div class='mobile-list-grid'>
@@ -493,6 +550,74 @@ def jobs():
 
         .customer-result-item:hover {{
             background: #f8fbff;
+        }}
+
+        .service-help {{
+            margin-top: 6px;
+            font-size: .8rem;
+            color: #64748b;
+            line-height: 1.35;
+        }}
+
+        .service-chip {{
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: .79rem;
+            font-weight: 700;
+            line-height: 1;
+            white-space: nowrap;
+            border: 1px solid rgba(15,23,42,.08);
+            background: #f8fafc;
+            color: #334155;
+        }}
+
+        .service-chip.mowing {{
+            background: #ecfdf3;
+            color: #166534;
+            border-color: #bbf7d0;
+        }}
+
+        .service-chip.material {{
+            background: #fff7ed;
+            color: #9a3412;
+            border-color: #fed7aa;
+        }}
+
+        .service-chip.seasonal {{
+            background: #eff6ff;
+            color: #1d4ed8;
+            border-color: #bfdbfe;
+        }}
+
+        .service-chip.default {{
+            background: #f8fafc;
+            color: #334155;
+            border-color: #e2e8f0;
+        }}
+
+        .quick-fill-row {{
+            display:flex;
+            flex-wrap:wrap;
+            gap:8px;
+            margin-top:10px;
+        }}
+
+        .quick-fill-chip {{
+            appearance:none;
+            border:1px solid #d8e2d0;
+            background:#fff;
+            color:#1f2933;
+            border-radius:999px;
+            padding:7px 11px;
+            font-size:.82rem;
+            font-weight:700;
+            cursor:pointer;
+        }}
+
+        .quick-fill-chip:hover {{
+            background:#f7f7f5;
         }}
 
         .static-table-wrap {{
@@ -701,7 +826,15 @@ def jobs():
 
                     <div>
                         <label>Title</label>
-                        <input name='title' required>
+                        <input name='title' id='title' required placeholder='Example: Weekly Front Yard Mowing'>
+                    </div>
+
+                    <div>
+                        <label>Service Type</label>
+                        <select name='service_type' id='service_type'>
+                            {service_type_select_options("mowing")}
+                        </select>
+                        <div class='service-help'>Use this to identify mowing customers later, build better reports, and keep recurring work organized.</div>
                     </div>
 
                     <div>
@@ -730,6 +863,7 @@ def jobs():
                             <option>Scheduled</option>
                             <option>In Progress</option>
                             <option>Completed</option>
+                            <option>Invoiced</option>
                         </select>
                     </div>
 
@@ -737,6 +871,13 @@ def jobs():
                         <label>Address</label>
                         <input name='address'>
                     </div>
+                </div>
+
+                <div class='quick-fill-row'>
+                    <button class='quick-fill-chip' type='button' onclick="applyJobTemplate('mowing')">Use Mowing</button>
+                    <button class='quick-fill-chip' type='button' onclick="applyJobTemplate('mulch')">Use Mulch</button>
+                    <button class='quick-fill-chip' type='button' onclick="applyJobTemplate('cleanup')">Use Cleanup</button>
+                    <button class='quick-fill-chip' type='button' onclick="applyJobTemplate('installation')">Use Installation</button>
                 </div>
 
                 <br>
@@ -754,21 +895,23 @@ def jobs():
                 <table class='static-table'>
                     <colgroup>
                         <col style='width:6%;'>
-                        <col style='width:14%;'>
-                        <col style='width:14%;'>
+                        <col style='width:13%;'>
+                        <col style='width:9%;'>
+                        <col style='width:13%;'>
                         <col style='width:9%;'>
                         <col style='width:7%;'>
                         <col style='width:7%;'>
                         <col style='width:10%;'>
-                        <col style='width:10%;'>
+                        <col style='width:9%;'>
                         <col style='width:7%;'>
                         <col style='width:7%;'>
                         <col style='width:9%;'>
-                        <col style='width:20%;'>
+                        <col style='width:19%;'>
                     </colgroup>
                     <tr>
                         <th>ID</th>
                         <th class='wrap'>Title</th>
+                        <th>Service</th>
                         <th class='wrap'>Customer</th>
                         <th>Date</th>
                         <th>Start</th>
@@ -780,7 +923,7 @@ def jobs():
                         <th class='money'>Profit/Loss</th>
                         <th class='wrap'>Actions</th>
                     </tr>
-                    {job_rows or '<tr><td colspan="12" class="muted">No jobs yet.</td></tr>'}
+                    {job_rows or '<tr><td colspan="13" class="muted">No jobs yet.</td></tr>'}
                 </table>
             </div>
 
@@ -798,6 +941,8 @@ def jobs():
         const searchInput = document.getElementById("customer_search");
         const customerIdInput = document.getElementById("customer_id");
         const resultsBox = document.getElementById("customer_results");
+        const serviceTypeInput = document.getElementById("service_type");
+        const titleInput = document.getElementById("title");
 
         function escapeHtml(text) {{
             return String(text || "")
@@ -850,6 +995,33 @@ def jobs():
             }});
         }}
 
+        function maybeFillTitleFromService() {{
+            if (!titleInput || !serviceTypeInput) return;
+            if ((titleInput.value || "").trim()) return;
+
+            const templates = {{
+                mowing: "Weekly Mowing",
+                mulch: "Mulch Delivery / Install",
+                cleanup: "Property Cleanup",
+                installation: "Landscape Installation",
+                hardscape: "Hardscape Work",
+                snow_removal: "Snow Removal",
+                fertilizing: "Fertilizing Service",
+                other: ""
+            }};
+
+            const value = serviceTypeInput.value || "other";
+            if (templates[value]) {{
+                titleInput.value = templates[value];
+            }}
+        }}
+
+        function applyJobTemplate(serviceType) {{
+            if (!serviceTypeInput) return;
+            serviceTypeInput.value = serviceType;
+            maybeFillTitleFromService();
+        }}
+
         searchInput.addEventListener("input", function () {{
             const q = this.value.trim().toLowerCase();
             customerIdInput.value = "";
@@ -867,6 +1039,12 @@ def jobs():
 
             renderCustomerResults(matches);
         }});
+
+        if (serviceTypeInput) {{
+            serviceTypeInput.addEventListener("change", function() {{
+                maybeFillTitleFromService();
+            }});
+        }}
 
         document.addEventListener("click", function (e) {{
             if (!e.target.closest(".customer-search-wrap")) {{
@@ -893,6 +1071,7 @@ def export_jobs():
         SELECT
             j.id,
             j.title,
+            j.service_type,
             j.scheduled_date,
             j.scheduled_start_time,
             j.scheduled_end_time,
@@ -919,6 +1098,7 @@ def export_jobs():
     writer.writerow([
         "Job ID",
         "Title",
+        "Service Type",
         "Customer",
         "Customer Email",
         "Scheduled Date",
@@ -937,6 +1117,7 @@ def export_jobs():
         writer.writerow([
             r["id"] or "",
             clean_text_input(r["title"]),
+            display_service_type(r["service_type"]),
             clean_text_input(r["customer_name"]),
             clean_text_input(r["customer_email"]),
             clean_text_input(r["scheduled_date"]),
@@ -1171,6 +1352,8 @@ def view_job(job_id):
     schedule_html = "<br>".join(schedule_bits) if schedule_bits else "<strong>Schedule:</strong> -"
 
     customer_email = clean_text_input(job["customer_email"])
+    service_type_label = display_service_type(job["service_type"])
+    service_type_class = service_type_badge_class(job["service_type"])
 
     if customer_email:
         email_csrf_1 = generate_csrf()
@@ -1279,7 +1462,7 @@ def view_job(job_id):
                     <label>Message</label>
                     <textarea name="message" required>Hello {escape(clean_text_display(job['customer_name']))},
 
-This is an update regarding your job "{escape(clean_text_display(job['title']))}".
+This is an update regarding your job "{escape(clean_text_display(job['title']))}" ({escape(service_type_label)}).
 
 Thank you,
 {escape(session.get("company_name") or "Your Company")}</textarea>
@@ -1329,7 +1512,7 @@ Thank you,
                     <label>Message</label>
                     <textarea name="message" required>Hello {customer_name},
 
-This is an update regarding your job "{job_title}".
+This is an update regarding your job "{job_title}" ({service_type_label}).
 
 Thank you,
 {company_name}</textarea>
@@ -1345,6 +1528,7 @@ Thank you,
             csrf_token_value=email_csrf_custom_empty,
             job_title=escape(clean_text_display(job["title"])),
             customer_name=escape(clean_text_display(job["customer_name"])),
+            service_type_label=escape(service_type_label),
             company_name=escape(session.get("company_name") or "Your Company"),
         )
 
@@ -1352,6 +1536,44 @@ Thank you,
 
     content = f"""
         <style>
+            .service-chip {{
+                display: inline-flex;
+                align-items: center;
+                padding: 6px 10px;
+                border-radius: 999px;
+                font-size: .79rem;
+                font-weight: 700;
+                line-height: 1;
+                white-space: nowrap;
+                border: 1px solid rgba(15,23,42,.08);
+                background: #f8fafc;
+                color: #334155;
+            }}
+
+            .service-chip.mowing {{
+                background: #ecfdf3;
+                color: #166534;
+                border-color: #bbf7d0;
+            }}
+
+            .service-chip.material {{
+                background: #fff7ed;
+                color: #9a3412;
+                border-color: #fed7aa;
+            }}
+
+            .service-chip.seasonal {{
+                background: #eff6ff;
+                color: #1d4ed8;
+                border-color: #bfdbfe;
+            }}
+
+            .service-chip.default {{
+                background: #f8fafc;
+                color: #334155;
+                border-color: #e2e8f0;
+            }}
+
             .static-table-wrap {{
                 width: 100%;
             }}
@@ -1420,7 +1642,7 @@ Thank you,
 
             .job-summary-grid {{
                 display:grid;
-                grid-template-columns:repeat(4, minmax(0, 1fr));
+                grid-template-columns:repeat(5, minmax(0, 1fr));
                 gap:12px;
                 margin-top:16px;
             }}
@@ -1587,6 +1809,10 @@ Thank you,
             <div class='card'>
                 <h1>Job #{job['id']} - {escape(clean_text_display(job['title']))}</h1>
 
+                <div style="margin-top:10px;">
+                    <span class='service-chip {service_type_class}'>{escape(service_type_label)}</span>
+                </div>
+
                 <div class='job-summary-grid'>
                     <div class='job-summary-card'>
                         <span>Customer</span>
@@ -1599,6 +1825,10 @@ Thank you,
                     <div class='job-summary-card'>
                         <span>Status</span>
                         <strong>{escape(clean_text_display(job['status']))}</strong>
+                    </div>
+                    <div class='job-summary-card'>
+                        <span>Service Type</span>
+                        <strong>{escape(service_type_label)}</strong>
                     </div>
                     <div class='job-summary-card'>
                         <span>Schedule</span>
@@ -1991,6 +2221,7 @@ def edit_job(job_id):
     if request.method == "POST":
         customer_id = request.form.get("customer_id", type=int)
         title = clean_text_input(request.form.get("title", ""))
+        service_type = normalize_service_type(request.form.get("service_type", "other"))
         scheduled_date = clean_text_input(request.form.get("scheduled_date", ""))
         scheduled_start_time = clean_text_input(request.form.get("scheduled_start_time", ""))
         scheduled_end_time = clean_text_input(request.form.get("scheduled_end_time", ""))
@@ -2027,6 +2258,7 @@ def edit_job(job_id):
             UPDATE jobs
             SET customer_id = %s,
                 title = %s,
+                service_type = %s,
                 scheduled_date = %s,
                 scheduled_start_time = %s,
                 scheduled_end_time = %s,
@@ -2039,6 +2271,7 @@ def edit_job(job_id):
             (
                 customer_id,
                 title,
+                service_type,
                 scheduled_date or None,
                 scheduled_start_time or None,
                 scheduled_end_time or None,
@@ -2081,6 +2314,12 @@ def edit_job(job_id):
                     <input name='title' value="{escape(clean_text_input(job['title']))}" required>
                 </div>
                 <div>
+                    <label>Service Type</label>
+                    <select name='service_type'>
+                        {service_type_select_options(job['service_type'])}
+                    </select>
+                </div>
+                <div>
                     <label>Scheduled Date</label>
                     <input type='date' name='scheduled_date' value="{escape(clean_text_input(job['scheduled_date']))}">
                 </div>
@@ -2102,6 +2341,8 @@ def edit_job(job_id):
                         <option {'selected' if job['status'] == 'Scheduled' else ''}>Scheduled</option>
                         <option {'selected' if job['status'] == 'In Progress' else ''}>In Progress</option>
                         <option {'selected' if job['status'] == 'Completed' else ''}>Completed</option>
+                        <option {'selected' if job['status'] == 'Invoiced' else ''}>Invoiced</option>
+                        <option {'selected' if job['status'] == 'Finished' else ''}>Finished</option>
                     </select>
                 </div>
                 <div>
@@ -2644,11 +2885,15 @@ def finished_jobs():
     mobile_cards = []
 
     for r in rows:
+        service_type_label = display_service_type(r["service_type"])
+        service_type_class = service_type_badge_class(r["service_type"])
+
         table_rows.append(
             f"""
             <tr>
                 <td>#{r['id']}</td>
                 <td class='wrap'>{escape(clean_text_display(r['title']))}</td>
+                <td><span class='service-chip {service_type_class}'>{escape(service_type_label)}</span></td>
                 <td class='wrap'>{escape(clean_text_display(r['customer_name']))}</td>
                 <td>{escape(clean_text_display(r['scheduled_date']))}</td>
                 <td>{escape(clean_text_display(r['scheduled_start_time']))}</td>
@@ -2676,6 +2921,10 @@ def finished_jobs():
                     <div class='mobile-badge'>{escape(clean_text_display(r['status']))}</div>
                 </div>
 
+                <div style='margin:-2px 0 10px 0;'>
+                    <span class='service-chip {service_type_class}'>{escape(service_type_label)}</span>
+                </div>
+
                 <div class='mobile-list-grid'>
                     <div><span>Customer</span><strong>{escape(clean_text_display(r['customer_name']))}</strong></div>
                     <div><span>Date</span><strong>{escape(clean_text_display(r['scheduled_date']))}</strong></div>
@@ -2700,6 +2949,44 @@ def finished_jobs():
 
     content = f"""
     <style>
+        .service-chip {{
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: .79rem;
+            font-weight: 700;
+            line-height: 1;
+            white-space: nowrap;
+            border: 1px solid rgba(15,23,42,.08);
+            background: #f8fafc;
+            color: #334155;
+        }}
+
+        .service-chip.mowing {{
+            background: #ecfdf3;
+            color: #166534;
+            border-color: #bbf7d0;
+        }}
+
+        .service-chip.material {{
+            background: #fff7ed;
+            color: #9a3412;
+            border-color: #fed7aa;
+        }}
+
+        .service-chip.seasonal {{
+            background: #eff6ff;
+            color: #1d4ed8;
+            border-color: #bfdbfe;
+        }}
+
+        .service-chip.default {{
+            background: #f8fafc;
+            color: #334155;
+            border-color: #e2e8f0;
+        }}
+
         .static-table-wrap {{
             width: 100%;
         }}
@@ -2862,21 +3149,23 @@ def finished_jobs():
             <table class='static-table'>
                 <colgroup>
                     <col style='width:6%;'>
-                    <col style='width:14%;'>
-                    <col style='width:14%;'>
+                    <col style='width:13%;'>
+                    <col style='width:9%;'>
+                    <col style='width:13%;'>
                     <col style='width:9%;'>
                     <col style='width:7%;'>
                     <col style='width:7%;'>
                     <col style='width:10%;'>
-                    <col style='width:10%;'>
+                    <col style='width:9%;'>
                     <col style='width:7%;'>
                     <col style='width:7%;'>
                     <col style='width:9%;'>
-                    <col style='width:20%;'>
+                    <col style='width:19%;'>
                 </colgroup>
                 <tr>
                     <th>ID</th>
                     <th class='wrap'>Title</th>
+                    <th>Service</th>
                     <th class='wrap'>Customer</th>
                     <th>Date</th>
                     <th>Start</th>
@@ -2888,7 +3177,7 @@ def finished_jobs():
                     <th class='money'>Profit/Loss</th>
                     <th class='wrap'>Actions</th>
                 </tr>
-                {job_rows or '<tr><td colspan="12" class="muted">No finished jobs yet.</td></tr>'}
+                {job_rows or '<tr><td colspan="13" class="muted">No finished jobs yet.</td></tr>'}
             </table>
         </div>
 
