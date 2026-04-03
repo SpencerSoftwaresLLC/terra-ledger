@@ -948,7 +948,7 @@ def jobs():
                             </form>
 
                             <form method='post' action='{toggle_url}' style='margin:0;'>
-                                <input type="hidden" name="csrf_token" value="{toggle_csrf}">
+                                <input type="hidden" name="csrf_token" value="{generate_now_csrf}">
                                 <button class='btn warning small' type='submit'>
                                     {"Pause" if r["active"] else "Resume"}
                                 </button>
@@ -997,7 +997,7 @@ def jobs():
                         </form>
 
                         <form method='post' action='{toggle_url}' style='margin:0;'>
-                            <input type="hidden" name="csrf_token" value="{toggle_csrf}">
+                            <input type="hidden" name="csrf_token" value="{generate_now_csrf}">
                             <button class='btn warning small' type='submit'>{"Pause" if r["active"] else "Resume"}</button>
                         </form>
 
