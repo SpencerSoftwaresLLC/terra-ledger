@@ -337,25 +337,24 @@ def check_schedule_conflict(conn, company_id, scheduled_date, start_time, end_ti
 
     return None
 
-def upcoming_schedule_preview(start_date, interval_weeks, limit=3):
-    try:
-        if not start_date:
-            return ""
+def upcoming_schedule_preview(start_date_value, interval_weeks, count=3, end_date_value=None):
+    preview = []
 
-        base = datetime.strptime(str(start_date), "%Y-%m-%d").date()
-        interval_days = max(int(interval_weeks or 1), 1) * 7
+    current = parse_iso_date(start_date_value)
+    interval_weeks = max(1, safe_int(interval_weeks, 1))
+    end_date_value = parse_iso_date(end_date_value)
 
-        dates = []
-        current = base
+    loops = 0
+    while current and len(preview) < count and loops < 50:
+        loops += 1
 
-        for _ in range(limit):
-            dates.append(current.strftime("%m/%d"))
-            current += timedelta(days=interval_days)
+        if end_date_value and current > end_date_value:
+            break
 
-        return ", ".join(dates)
+        preview.append(current.isoformat())
+        current = current + timedelta(weeks=interval_weeks)
 
-    except Exception:
-        return ""
+    return ", ".join(preview)
 
 
 def display_item_type(value):
