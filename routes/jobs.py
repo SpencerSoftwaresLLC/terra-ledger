@@ -356,7 +356,6 @@ def upcoming_schedule_preview(start_date_value, interval_weeks, count=3, end_dat
 
     return ", ".join(preview)
 
-
 def display_item_type(value):
     key = clean_text_input(value).lower()
     if key in ITEM_TYPE_LABELS:
@@ -833,16 +832,17 @@ def jobs():
 
     job_row_list = []
     job_mobile_card_list = []
+
     for r in rows:
         delete_csrf = generate_csrf()
         service_type_label = display_service_type(r["service_type"])
         service_type_class = service_type_badge_class(r["service_type"])
 
         recurring_link_html = ""
-        if r.get("recurring_schedule_id"):
+        if r["recurring_schedule_id"]:
             recurring_link_html = (
                 f"<div class='small muted' style='margin-top:4px;'>"
-                f"Recurring: <a href='{url_for('jobs.edit_recurring_schedule', schedule_id=r['recurring_schedule_id'])}'>"
+                f"Recurring: <a href='/jobs/recurring/{r['recurring_schedule_id']}/edit'>"
                 f"Schedule #{r['recurring_schedule_id']}</a></div>"
             )
 
@@ -883,10 +883,10 @@ def jobs():
         )
 
         mobile_recurring = ""
-        if r.get("recurring_schedule_id"):
+        if r["recurring_schedule_id"]:
             mobile_recurring = (
                 f"<div style='margin-top:6px;' class='muted small'>"
-                f"Recurring: <a href='{url_for('jobs.edit_recurring_schedule', schedule_id=r['recurring_schedule_id'])}'>"
+                f"Recurring: <a href='/jobs/recurring/{r['recurring_schedule_id']}/edit'>"
                 f"Schedule #{r['recurring_schedule_id']}</a></div>"
             )
 
@@ -900,7 +900,7 @@ def jobs():
 
                 <div style='margin:-2px 0 10px 0; display:flex; flex-wrap:wrap; gap:8px;'>
                     <span class='service-chip {service_type_class}'>{escape(service_type_label)}</span>
-                    {'<span class="service-chip mowing">Recurring</span>' if r.get("recurring_schedule_id") else ''}
+                    {'<span class="service-chip mowing">Recurring</span>' if r["recurring_schedule_id"] else ''}
                 </div>
 
                 <div class='mobile-list-grid'>
@@ -939,6 +939,7 @@ def jobs():
         generate_url = f"/jobs/recurring/{r['id']}/generate"
         convert_url = f"/jobs/recurring/{r['id']}/convert_to_invoice"
         delete_url = f"/jobs/recurring/{r['id']}/delete"
+
         toggle_csrf = generate_csrf()
         generate_now_csrf = generate_csrf()
         convert_csrf = generate_csrf()
@@ -950,6 +951,7 @@ def jobs():
             3,
             r["end_date"],
         )
+
         active_chip = f"<span class='service-chip {schedule_status_class(r['active'])}'>{escape(schedule_status_badge(r['active']))}</span>"
 
         recurring_row_list.append(
@@ -1001,60 +1003,6 @@ def jobs():
                     </div>
                 </td>
             </tr>
-            """
-        )
-
-        recurring_mobile_list.append(
-            f"""
-            <div class='mobile-list-card'>
-                <div class='mobile-list-top'>
-                    <div class='mobile-list-title'>#{r['id']} - {escape(clean_text_display(r['title'], 'Recurring Mowing'))}</div>
-                    <div>{active_chip}</div>
-                </div>
-
-                <div style='margin:-2px 0 10px 0; display:flex; gap:8px; flex-wrap:wrap;'>
-                    <span class='service-chip mowing'>Mowing</span>
-                    <span class='service-chip default'>{escape(interval_label(r['interval_weeks']))}</span>
-                </div>
-
-                <div class='mobile-list-grid'>
-                    <div><span>Customer</span><strong>{escape(clean_text_display(r['customer_name']))}</strong></div>
-                    <div><span>Next Run</span><strong>{escape(clean_text_display(r['next_run_date']))}</strong></div>
-                    <div><span>Assigned To</span><strong>{escape(clean_text_display(r['assigned_to']))}</strong></div>
-                    <div><span>Jobs Generated</span><strong>{safe_int(r['generated_jobs_count'], 0)}</strong></div>
-                    <div><span>Total Revenue</span><strong>${safe_float(r['total_revenue']):.2f}</strong></div>
-                    <div><span>Total Costs</span><strong>${safe_float(r['total_cost']):.2f}</strong></div>
-                    <div><span>Total Profit</span><strong>${safe_float(r['total_profit']):.2f}</strong></div>
-                    <div><span>Upcoming</span><strong>{escape(next_preview or '-')}</strong></div>
-                </div>
-
-                <div class='mobile-list-actions'>
-                    <a class='btn secondary small' href='{edit_url}'>Edit Schedule</a>
-
-                    <form method='post' action='{generate_url}' style='margin:0;'>
-                        <input type="hidden" name="csrf_token" value="{generate_now_csrf}">
-                        <button class='btn success small' type='submit'>Generate</button>
-                    </form>
-
-                    <form method='post' action='{convert_url}' style='margin:0;'>
-                        <input type="hidden" name="csrf_token" value="{convert_csrf}">
-                        <button class='btn success small' type='submit'>Convert Invoice</button>
-                    </form>
-
-                    <form method='post' action='{toggle_url}' style='margin:0;'>
-                        <input type="hidden" name="csrf_token" value="{toggle_csrf}">
-                        <button class='btn warning small' type='submit'>{"Pause" if r["active"] else "Resume"}</button>
-                    </form>
-
-                    <form method='post'
-                          action='{delete_url}'
-                          style='margin:0;'
-                          onsubmit="return confirm('Delete this recurring mowing schedule?');">
-                        <input type="hidden" name="csrf_token" value="{delete_csrf}">
-                        <button class='btn danger small' type='submit'>Delete</button>
-                    </form>
-                </div>
-            </div>
             """
         )
 
