@@ -337,6 +337,26 @@ def check_schedule_conflict(conn, company_id, scheduled_date, start_time, end_ti
 
     return None
 
+def upcoming_schedule_preview(start_date, interval_weeks, limit=3):
+    try:
+        if not start_date:
+            return ""
+
+        base = datetime.strptime(str(start_date), "%Y-%m-%d").date()
+        interval_days = max(int(interval_weeks or 1), 1) * 7
+
+        dates = []
+        current = base
+
+        for _ in range(limit):
+            dates.append(current.strftime("%m/%d"))
+            current += timedelta(days=interval_days)
+
+        return ", ".join(dates)
+
+    except Exception:
+        return ""
+
 
 def display_item_type(value):
     key = clean_text_input(value).lower()
@@ -573,9 +593,16 @@ def auto_generate_recurring_jobs(conn, company_id, through_date=None):
         start_date_value = parse_iso_date(schedule["start_date"])
         end_date_value = parse_iso_date(schedule["end_date"])
         horizon_days = safe_int(schedule["auto_generate_until_days"], 42)
-        schedule_through = today + timedelta(days=horizon_days if horizon_days > 0 else 42)
 
-        target_through = through_date if through_date <= schedule_through else schedule_through
+        if end_date_value:
+            schedule_through = end_date_value
+        else:
+            schedule_through = today + timedelta(days=horizon_days if horizon_days > 0 else 42)
+
+        if through_date:
+            target_through = schedule_through if schedule_through <= through_date else through_date
+        else:
+            target_through = schedule_through
 
         if next_run is None:
             next_run = start_date_value or today
@@ -609,23 +636,6 @@ def auto_generate_recurring_jobs(conn, company_id, through_date=None):
         )
 
     return created_count
-
-
-def upcoming_schedule_preview(start_date_value, interval_weeks, count=3, end_date_value=None):
-    preview = []
-    current = parse_iso_date(start_date_value)
-    interval_weeks = max(1, safe_int(interval_weeks, 1))
-    end_date_value = parse_iso_date(end_date_value)
-
-    loops = 0
-    while current and len(preview) < count and loops < 50:
-        loops += 1
-        if end_date_value and current > end_date_value:
-            break
-        preview.append(current.isoformat())
-        current = current + timedelta(weeks=interval_weeks)
-
-    return ", ".join(preview)
 
 
 @jobs_bp.route("/jobs", methods=["GET", "POST"])
@@ -767,6 +777,7 @@ def jobs():
          AND rms.company_id = j.company_id
         WHERE j.company_id = %s
           AND COALESCE(j.status, '') != 'Finished'
+          AND COALESCE(j.generated_from_schedule, FALSE) = FALSE
         ORDER BY
             j.scheduled_date NULLS LAST,
             j.scheduled_start_time NULLS LAST,
@@ -785,7 +796,32 @@ def jobs():
                 FROM jobs j
                 WHERE j.company_id = rms.company_id
                   AND j.recurring_schedule_id = rms.id
-            ) AS generated_jobs_count
+            ) AS generated_jobs_count,
+            (
+                SELECT COUNT(*)
+                FROM jobs j
+                WHERE j.company_id = rms.company_id
+                  AND j.recurring_schedule_id = rms.id
+                  AND COALESCE(j.status, '') != 'Finished'
+            ) AS active_jobs_count,
+            (
+                SELECT COALESCE(SUM(j.revenue), 0)
+                FROM jobs j
+                WHERE j.company_id = rms.company_id
+                  AND j.recurring_schedule_id = rms.id
+            ) AS total_revenue,
+            (
+                SELECT COALESCE(SUM(j.cost_total), 0)
+                FROM jobs j
+                WHERE j.company_id = rms.company_id
+                  AND j.recurring_schedule_id = rms.id
+            ) AS total_cost,
+            (
+                SELECT COALESCE(SUM(j.profit), 0)
+                FROM jobs j
+                WHERE j.company_id = rms.company_id
+                  AND j.recurring_schedule_id = rms.id
+            ) AS total_profit
         FROM recurring_mowing_schedules rms
         JOIN customers c ON rms.customer_id = c.id
         WHERE rms.company_id = %s
@@ -902,9 +938,11 @@ def jobs():
         edit_url = url_for("jobs.edit_recurring_schedule", schedule_id=r["id"])
         toggle_url = url_for("jobs.toggle_recurring_schedule", schedule_id=r["id"])
         generate_url = url_for("jobs.generate_recurring_schedule_jobs", schedule_id=r["id"])
+        convert_url = url_for("jobs.convert_recurring_schedule_to_invoice", schedule_id=r["id"])
         delete_url = url_for("jobs.delete_recurring_schedule", schedule_id=r["id"])
         toggle_csrf = generate_csrf()
         generate_now_csrf = generate_csrf()
+        convert_csrf = generate_csrf()
         delete_csrf = generate_csrf()
 
         next_preview = upcoming_schedule_preview(
@@ -930,7 +968,9 @@ def jobs():
                 <td class='wrap'>{escape(clean_text_display(r['assigned_to']))}</td>
                 <td>{active_chip}</td>
                 <td class='center'>{safe_int(r['generated_jobs_count'], 0)}</td>
-                <td class='wrap'>{escape(next_preview or '-')}</td>
+                <td class='money'>${safe_float(r['total_revenue']):.2f}</td>
+                <td class='money'>${safe_float(r['total_cost']):.2f}</td>
+                <td class='money jobs-profit'>${safe_float(r['total_profit']):.2f}</td>
                 <td class='wrap'>
                     <div class='static-actions'>
                         <a class='btn secondary small' href='{edit_url}'>Edit Schedule</a>
@@ -938,6 +978,11 @@ def jobs():
                         <form method='post' action='{generate_url}' style='margin:0;'>
                             <input type="hidden" name="csrf_token" value="{generate_now_csrf}">
                             <button class='btn success small' type='submit'>Generate Now</button>
+                        </form>
+
+                        <form method='post' action='{convert_url}' style='margin:0;'>
+                            <input type="hidden" name="csrf_token" value="{convert_csrf}">
+                            <button class='btn success small' type='submit'>Convert to Invoice</button>
                         </form>
 
                         <form method='post' action='{toggle_url}' style='margin:0;'>
@@ -978,6 +1023,9 @@ def jobs():
                     <div><span>Next Run</span><strong>{escape(clean_text_display(r['next_run_date']))}</strong></div>
                     <div><span>Assigned To</span><strong>{escape(clean_text_display(r['assigned_to']))}</strong></div>
                     <div><span>Jobs Generated</span><strong>{safe_int(r['generated_jobs_count'], 0)}</strong></div>
+                    <div><span>Total Revenue</span><strong>${safe_float(r['total_revenue']):.2f}</strong></div>
+                    <div><span>Total Costs</span><strong>${safe_float(r['total_cost']):.2f}</strong></div>
+                    <div><span>Total Profit</span><strong>${safe_float(r['total_profit']):.2f}</strong></div>
                     <div><span>Upcoming</span><strong>{escape(next_preview or '-')}</strong></div>
                 </div>
 
@@ -987,6 +1035,11 @@ def jobs():
                     <form method='post' action='{generate_url}' style='margin:0;'>
                         <input type="hidden" name="csrf_token" value="{generate_now_csrf}">
                         <button class='btn success small' type='submit'>Generate</button>
+                    </form>
+
+                    <form method='post' action='{convert_url}' style='margin:0;'>
+                        <input type="hidden" name="csrf_token" value="{convert_csrf}">
+                        <button class='btn success small' type='submit'>Convert Invoice</button>
                     </form>
 
                     <form method='post' action='{toggle_url}' style='margin:0;'>
@@ -1545,8 +1598,10 @@ def jobs():
                         <col style='width:9%;'>
                         <col style='width:8%;'>
                         <col style='width:6%;'>
-                        <col style='width:12%;'>
-                        <col style='width:20%;'>
+                        <col style='width:8%;'>
+                        <col style='width:8%;'>
+                        <col style='width:8%;'>
+                        <col style='width:15%;'>
                     </colgroup>
                     <tr>
                         <th>ID</th>
@@ -1558,10 +1613,12 @@ def jobs():
                         <th class='wrap'>Assigned To</th>
                         <th>Status</th>
                         <th class='center'>Jobs</th>
-                        <th class='wrap'>Upcoming Dates</th>
+                        <th class='money'>Revenue</th>
+                        <th class='money'>Costs</th>
+                        <th class='money'>Profit</th>
                         <th class='wrap'>Actions</th>
                     </tr>
-                    {recurring_rows_html or '<tr><td colspan="11" class="muted">No recurring mowing schedules yet.</td></tr>'}
+                    {recurring_rows_html or '<tr><td colspan="13" class="muted">No recurring mowing schedules yet.</td></tr>'}
                 </table>
             </div>
 
@@ -2027,6 +2084,7 @@ def edit_recurring_schedule(schedule_id):
     edit_csrf = generate_csrf()
     generate_csrf_token = generate_csrf()
     toggle_csrf = generate_csrf()
+    convert_csrf = generate_csrf()
 
     jobs_rows = []
     for j in generated_jobs:
@@ -2110,6 +2168,11 @@ def edit_recurring_schedule(schedule_id):
             <form method='post' action='{url_for("jobs.generate_recurring_schedule_jobs", schedule_id=schedule["id"])}' style='margin:0;'>
                 <input type="hidden" name="csrf_token" value="{generate_csrf_token}">
                 <button class='btn success' type='submit'>Generate Upcoming Jobs Now</button>
+            </form>
+
+            <form method='post' action='{url_for("jobs.convert_recurring_schedule_to_invoice", schedule_id=schedule["id"])}' style='margin:0;'>
+                <input type="hidden" name="csrf_token" value="{convert_csrf}">
+                <button class='btn success' type='submit'>Convert Schedule to Invoice</button>
             </form>
 
             <form method='post' action='{url_for("jobs.toggle_recurring_schedule", schedule_id=schedule["id"])}' style='margin:0;'>
@@ -2290,44 +2353,208 @@ def toggle_recurring_schedule(schedule_id):
     flash("Recurring mowing schedule resumed." if new_active else "Recurring mowing schedule paused.")
     return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
-
-@jobs_bp.route("/jobs/recurring/<int:schedule_id>/generate", methods=["POST"])
+@jobs_bp.route("/jobs/recurring/<int:schedule_id>/convert_to_invoice", methods=["POST"])
 @login_required
 @subscription_required
 @require_permission("can_manage_jobs")
-def generate_recurring_schedule_jobs(schedule_id):
-    ensure_job_schedule_columns()
-
+def convert_recurring_schedule_to_invoice(schedule_id):
     conn = get_db_connection()
     cid = session["company_id"]
 
-    schedule = conn.execute(
-        """
-        SELECT *
-        FROM recurring_mowing_schedules
-        WHERE id = %s AND company_id = %s
-        """,
-        (schedule_id, cid),
-    ).fetchone()
-
-    if not schedule:
-        conn.close()
-        flash("Recurring mowing schedule not found.")
-        return redirect(url_for("jobs.jobs"))
-
     try:
-        horizon_days = safe_int(schedule["auto_generate_until_days"], 42)
-        through_date = date.today() + timedelta(days=horizon_days if horizon_days > 0 else 42)
-        created_count = auto_generate_recurring_jobs(conn, cid, through_date=through_date)
+        schedule = conn.execute(
+            """
+            SELECT
+                rms.*,
+                c.name AS customer_name,
+                c.email AS customer_email
+            FROM recurring_mowing_schedules rms
+            JOIN customers c ON rms.customer_id = c.id
+            WHERE rms.id = %s AND rms.company_id = %s
+            """,
+            (schedule_id, cid),
+        ).fetchone()
+
+        if not schedule:
+            flash("Recurring mowing schedule not found.")
+            return redirect(url_for("jobs.jobs"))
+
+        jobs = conn.execute(
+            """
+            SELECT
+                j.*,
+                (
+                    SELECT COUNT(*)
+                    FROM job_items ji
+                    WHERE ji.job_id = j.id
+                      AND COALESCE(ji.billable, 1) = 1
+                ) AS billable_item_count,
+                (
+                    SELECT COALESCE(SUM(ji.line_total), 0)
+                    FROM job_items ji
+                    WHERE ji.job_id = j.id
+                      AND COALESCE(ji.billable, 1) = 1
+                ) AS billable_total
+            FROM jobs j
+            WHERE j.company_id = %s
+              AND j.recurring_schedule_id = %s
+              AND COALESCE(j.generated_from_schedule, FALSE) = TRUE
+              AND COALESCE(j.status, '') != 'Invoiced'
+            ORDER BY j.scheduled_date ASC, j.id ASC
+            """,
+            (cid, schedule_id),
+        ).fetchall()
+
+        if not jobs:
+            flash("There are no eligible recurring jobs to invoice for this schedule.")
+            return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+        invoice_lines = []
+        invoiced_job_ids = []
+
+        for job in jobs:
+            billable_total = safe_float(job["billable_total"])
+            revenue_total = safe_float(job["revenue"])
+
+            line_total = 0.0
+            if billable_total > 0:
+                line_total = billable_total
+            elif revenue_total > 0:
+                line_total = revenue_total
+
+            if line_total <= 0:
+                continue
+
+            scheduled_date = clean_text_input(job["scheduled_date"])
+            title = clean_text_input(job["title"]) or clean_text_input(schedule["title"]) or "Recurring Service"
+            service_label = display_service_type(job["service_type"] or schedule["service_type"] or "mowing")
+
+            desc_parts = [title]
+            if scheduled_date:
+                desc_parts.append(f"({scheduled_date})")
+            if service_label:
+                desc_parts.append(f"- {service_label}")
+
+            description = " ".join(desc_parts)
+
+            invoice_lines.append(
+                {
+                    "description": description.strip(),
+                    "quantity": 1,
+                    "unit": "visit",
+                    "unit_price": line_total,
+                    "line_total": line_total,
+                    "job_id": job["id"],
+                }
+            )
+            invoiced_job_ids.append(job["id"])
+
+        if not invoice_lines:
+            flash("No billable recurring job totals were found to invoice.")
+            return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+        invoice_date = date.today().isoformat()
+        due_date = invoice_date
+        invoice_number = f"INV-{int(datetime.now().timestamp())}"
+
+        first_date = clean_text_input(jobs[0]["scheduled_date"]) if jobs else ""
+        last_date = clean_text_input(jobs[-1]["scheduled_date"]) if jobs else ""
+
+        schedule_title = clean_text_input(schedule["title"]) or "Recurring Mowing"
+        notes_lines = [
+            f"Recurring schedule invoice for Schedule #{schedule_id} - {schedule_title}"
+        ]
+        if first_date and last_date:
+            notes_lines.append(f"Service dates: {first_date} to {last_date}")
+        notes_lines.append(f"Included visits: {len(invoice_lines)}")
+        invoice_notes = "\n".join(notes_lines)
+
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO invoices (
+                company_id,
+                customer_id,
+                job_id,
+                quote_id,
+                invoice_number,
+                invoice_date,
+                due_date,
+                status,
+                notes,
+                amount_paid,
+                balance_due
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (
+                cid,
+                schedule["customer_id"],
+                None,
+                None,
+                invoice_number,
+                invoice_date,
+                due_date,
+                "Unpaid",
+                invoice_notes,
+                0,
+                0,
+            ),
+        )
+
+        row = cur.fetchone()
+        if not row or "id" not in row:
+            raise Exception("Failed to create invoice record.")
+
+        invoice_id = row["id"]
+
+        for line in invoice_lines:
+            cur.execute(
+                """
+                INSERT INTO invoice_items (
+                    invoice_id,
+                    description,
+                    quantity,
+                    unit,
+                    unit_price,
+                    line_total
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    invoice_id,
+                    line["description"],
+                    line["quantity"],
+                    line["unit"],
+                    line["unit_price"],
+                    line["line_total"],
+                ),
+            )
+
+        recalc_invoice(conn, invoice_id)
+
+        cur.execute(
+            """
+            UPDATE jobs
+            SET status = 'Invoiced'
+            WHERE company_id = %s
+              AND id = ANY(%s)
+            """,
+            (cid, invoiced_job_ids),
+        )
+
         conn.commit()
-        flash(f"Recurring generation complete. {created_count} job(s) created.")
+        flash(f"Recurring mowing schedule converted to invoice. {len(invoice_lines)} visit(s) included.")
+        return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
+
     except Exception as e:
         conn.rollback()
-        flash(f"Could not generate recurring jobs: {e}")
+        flash(f"Could not convert recurring mowing schedule to invoice: {e}")
+        return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
     finally:
         conn.close()
-
-    return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
 
 @jobs_bp.route("/jobs/recurring/<int:schedule_id>/delete", methods=["POST"])
