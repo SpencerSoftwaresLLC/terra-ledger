@@ -904,114 +904,107 @@ def jobs():
         generate_url = url_for("jobs.generate_recurring_schedule_jobs", schedule_id=r["id"])
         delete_url = url_for("jobs.delete_recurring_schedule", schedule_id=r["id"])
         toggle_csrf = generate_csrf()
-        generate_csrf = generate_csrf()
+        generate_now_csrf = generate_csrf()
         delete_csrf = generate_csrf()
 
-        next_preview = upcoming_schedule_preview(r["next_run_date"] or r["start_date"], r["interval_weeks"], 3, r["end_date"])
+        next_preview = upcoming_schedule_preview(
+            r["next_run_date"] or r["start_date"],
+            r["interval_weeks"],
+            3,
+            r["end_date"],
+        )
         active_chip = f"<span class='service-chip {schedule_status_class(r['active'])}'>{escape(schedule_status_badge(r['active']))}</span>"
 
-        for r in recurring_rows:
-            edit_url = url_for("jobs.edit_recurring_schedule", schedule_id=r["id"])
-            toggle_url = url_for("jobs.toggle_recurring_schedule", schedule_id=r["id"])
-            generate_url = url_for("jobs.generate_recurring_schedule_jobs", schedule_id=r["id"])
-            delete_url = url_for("jobs.delete_recurring_schedule", schedule_id=r["id"])
-            toggle_csrf = generate_csrf()
-            generate_now_csrf = generate_csrf()
-            delete_csrf = generate_csrf()
-
-            next_preview = upcoming_schedule_preview(r["next_run_date"] or r["start_date"], r["interval_weeks"], 3, r["end_date"])
-            active_chip = f"<span class='service-chip {schedule_status_class(r['active'])}'>{escape(schedule_status_badge(r['active']))}</span>"
-
-            recurring_row_list.append(
-                f"""
-                <tr>
-                    <td>#{r['id']}</td>
-                    <td class='wrap'>
-                        {escape(clean_text_display(r['title'], 'Recurring Mowing'))}
-                        <div class='small muted' style='margin-top:4px;'>Mowing Default</div>
-                    </td>
-                    <td><span class='service-chip mowing'>Mowing</span></td>
-                    <td class='wrap'>{escape(clean_text_display(r['customer_name']))}</td>
-                    <td>{escape(interval_label(r['interval_weeks']))}</td>
-                    <td>{escape(clean_text_display(r['next_run_date']))}</td>
-                    <td class='wrap'>{escape(clean_text_display(r['assigned_to']))}</td>
-                    <td>{active_chip}</td>
-                    <td class='center'>{safe_int(r['generated_jobs_count'], 0)}</td>
-                    <td class='wrap'>{escape(next_preview or '-')}</td>
-                    <td class='wrap'>
-                        <div class='static-actions'>
-                            <a class='btn secondary small' href='{edit_url}'>Edit Schedule</a>
-
-                            <form method='post' action='{generate_url}' style='margin:0;'>
-                                <input type="hidden" name="csrf_token" value="{generate_now_csrf}">
-                                <button class='btn success small' type='submit'>Generate Now</button>
-                            </form>
-
-                            <form method='post' action='{toggle_url}' style='margin:0;'>
-                                <input type="hidden" name="csrf_token" value="{generate_now_csrf}">
-                                <button class='btn warning small' type='submit'>
-                                    {"Pause" if r["active"] else "Resume"}
-                                </button>
-                            </form>
-
-                            <form method='post'
-                                action='{delete_url}'
-                                style='margin:0;'
-                                onsubmit="return confirm('Delete this recurring mowing schedule? Existing jobs will stay, but future auto-generation will stop.');">
-                                <input type="hidden" name="csrf_token" value="{delete_csrf}">
-                                <button class='btn danger small' type='submit'>Delete</button>
-                            </form>
-                        </div>
-                    </td>
-                </tr>
-                """
-        )
-
-            recurring_mobile_list.append(
-                f"""
-                <div class='mobile-list-card'>
-                    <div class='mobile-list-top'>
-                        <div class='mobile-list-title'>#{r['id']} - {escape(clean_text_display(r['title'], 'Recurring Mowing'))}</div>
-                        <div>{active_chip}</div>
-                    </div>
-
-                    <div style='margin:-2px 0 10px 0; display:flex; gap:8px; flex-wrap:wrap;'>
-                        <span class='service-chip mowing'>Mowing</span>
-                        <span class='service-chip default'>{escape(interval_label(r['interval_weeks']))}</span>
-                    </div>
-
-                    <div class='mobile-list-grid'>
-                        <div><span>Customer</span><strong>{escape(clean_text_display(r['customer_name']))}</strong></div>
-                        <div><span>Next Run</span><strong>{escape(clean_text_display(r['next_run_date']))}</strong></div>
-                        <div><span>Assigned To</span><strong>{escape(clean_text_display(r['assigned_to']))}</strong></div>
-                        <div><span>Jobs Generated</span><strong>{safe_int(r['generated_jobs_count'], 0)}</strong></div>
-                        <div><span>Upcoming</span><strong>{escape(next_preview or '-')}</strong></div>
-                    </div>
-
-                    <div class='mobile-list-actions'>
+        recurring_row_list.append(
+            f"""
+            <tr>
+                <td>#{r['id']}</td>
+                <td class='wrap'>
+                    {escape(clean_text_display(r['title'], 'Recurring Mowing'))}
+                    <div class='small muted' style='margin-top:4px;'>Mowing Default</div>
+                </td>
+                <td><span class='service-chip mowing'>Mowing</span></td>
+                <td class='wrap'>{escape(clean_text_display(r['customer_name']))}</td>
+                <td>{escape(interval_label(r['interval_weeks']))}</td>
+                <td>{escape(clean_text_display(r['next_run_date']))}</td>
+                <td class='wrap'>{escape(clean_text_display(r['assigned_to']))}</td>
+                <td>{active_chip}</td>
+                <td class='center'>{safe_int(r['generated_jobs_count'], 0)}</td>
+                <td class='wrap'>{escape(next_preview or '-')}</td>
+                <td class='wrap'>
+                    <div class='static-actions'>
                         <a class='btn secondary small' href='{edit_url}'>Edit Schedule</a>
 
                         <form method='post' action='{generate_url}' style='margin:0;'>
                             <input type="hidden" name="csrf_token" value="{generate_now_csrf}">
-                            <button class='btn success small' type='submit'>Generate</button>
+                            <button class='btn success small' type='submit'>Generate Now</button>
                         </form>
 
                         <form method='post' action='{toggle_url}' style='margin:0;'>
-                            <input type="hidden" name="csrf_token" value="{generate_now_csrf}">
-                            <button class='btn warning small' type='submit'>{"Pause" if r["active"] else "Resume"}</button>
+                            <input type="hidden" name="csrf_token" value="{toggle_csrf}">
+                            <button class='btn warning small' type='submit'>
+                                {"Pause" if r["active"] else "Resume"}
+                            </button>
                         </form>
 
                         <form method='post'
-                            action='{delete_url}'
-                            style='margin:0;'
-                            onsubmit="return confirm('Delete this recurring mowing schedule?');">
+                              action='{delete_url}'
+                              style='margin:0;'
+                              onsubmit="return confirm('Delete this recurring mowing schedule? Existing jobs will stay, but future auto-generation will stop.');">
                             <input type="hidden" name="csrf_token" value="{delete_csrf}">
                             <button class='btn danger small' type='submit'>Delete</button>
                         </form>
                     </div>
+                </td>
+            </tr>
+            """
+        )
+
+        recurring_mobile_list.append(
+            f"""
+            <div class='mobile-list-card'>
+                <div class='mobile-list-top'>
+                    <div class='mobile-list-title'>#{r['id']} - {escape(clean_text_display(r['title'], 'Recurring Mowing'))}</div>
+                    <div>{active_chip}</div>
                 </div>
-                """
-            )
+
+                <div style='margin:-2px 0 10px 0; display:flex; gap:8px; flex-wrap:wrap;'>
+                    <span class='service-chip mowing'>Mowing</span>
+                    <span class='service-chip default'>{escape(interval_label(r['interval_weeks']))}</span>
+                </div>
+
+                <div class='mobile-list-grid'>
+                    <div><span>Customer</span><strong>{escape(clean_text_display(r['customer_name']))}</strong></div>
+                    <div><span>Next Run</span><strong>{escape(clean_text_display(r['next_run_date']))}</strong></div>
+                    <div><span>Assigned To</span><strong>{escape(clean_text_display(r['assigned_to']))}</strong></div>
+                    <div><span>Jobs Generated</span><strong>{safe_int(r['generated_jobs_count'], 0)}</strong></div>
+                    <div><span>Upcoming</span><strong>{escape(next_preview or '-')}</strong></div>
+                </div>
+
+                <div class='mobile-list-actions'>
+                    <a class='btn secondary small' href='{edit_url}'>Edit Schedule</a>
+
+                    <form method='post' action='{generate_url}' style='margin:0;'>
+                        <input type="hidden" name="csrf_token" value="{generate_now_csrf}">
+                        <button class='btn success small' type='submit'>Generate</button>
+                    </form>
+
+                    <form method='post' action='{toggle_url}' style='margin:0;'>
+                        <input type="hidden" name="csrf_token" value="{toggle_csrf}">
+                        <button class='btn warning small' type='submit'>{"Pause" if r["active"] else "Resume"}</button>
+                    </form>
+
+                    <form method='post'
+                          action='{delete_url}'
+                          style='margin:0;'
+                          onsubmit="return confirm('Delete this recurring mowing schedule?');">
+                        <input type="hidden" name="csrf_token" value="{delete_csrf}">
+                        <button class='btn danger small' type='submit'>Delete</button>
+                    </form>
+                </div>
+            </div>
+            """
+        )
 
     job_rows = "".join(job_row_list)
     job_mobile_cards = "".join(job_mobile_card_list)
