@@ -1933,6 +1933,44 @@ def create_recurring_schedule():
     flash("Recurring mowing schedule created.")
     return redirect(url_for("jobs.jobs"))
 
+@jobs_bp.route("/jobs/recurring/<int:schedule_id>/generate", methods=["POST"])
+@login_required
+@subscription_required
+@require_permission("can_manage_jobs")
+def generate_recurring_schedule_jobs(schedule_id):
+    ensure_job_schedule_columns()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    schedule = conn.execute(
+        """
+        SELECT *
+        FROM recurring_mowing_schedules
+        WHERE id = %s AND company_id = %s
+        """,
+        (schedule_id, cid),
+    ).fetchone()
+
+    if not schedule:
+        conn.close()
+        flash("Recurring mowing schedule not found.")
+        return redirect(url_for("jobs.jobs"))
+
+    try:
+        horizon_days = safe_int(schedule["auto_generate_until_days"], 42)
+        through_date = date.today() + timedelta(days=horizon_days if horizon_days > 0 else 42)
+        created_count = auto_generate_recurring_jobs(conn, cid, through_date=through_date)
+        conn.commit()
+        flash(f"Recurring generation complete. {created_count} job(s) created.")
+    except Exception as e:
+        conn.rollback()
+        flash(f"Could not generate recurring jobs: {e}")
+    finally:
+        conn.close()
+
+    return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
 
 @jobs_bp.route("/jobs/recurring/<int:schedule_id>/edit", methods=["GET", "POST"])
 @login_required
