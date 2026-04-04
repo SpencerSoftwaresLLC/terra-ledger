@@ -759,7 +759,7 @@ def create_job_from_recurring_schedule(conn, schedule_row, scheduled_date):
             clean_text_input(schedule_row["address"]),
             notes_final,
             schedule_row["id"],
-            True,
+            1,
         ),
     )
     row = cur.fetchone()
@@ -786,7 +786,7 @@ def create_job_from_recurring_schedule(conn, schedule_row, scheduled_date):
         unit = clean_text_input(item["unit"])
         sale_price = safe_float(item["sale_price"], 0)
         unit_cost = safe_float(item["unit_cost"], 0)
-        billable_value = bool(item["billable"])
+        billable_value = 1 if safe_int(item["billable"], 0) else 0
 
         if qty <= 0:
             qty = 1.0
@@ -875,7 +875,7 @@ def auto_generate_recurring_jobs(conn, company_id, through_date=None):
         SELECT *
         FROM recurring_mowing_schedules
         WHERE company_id = %s
-          AND COALESCE(active, TRUE) = TRUE
+          AND COALESCE(active, TRUE) = 1
           AND next_run_date IS NOT NULL
         ORDER BY next_run_date ASC, id ASC
         """,
@@ -1077,7 +1077,7 @@ def jobs():
          AND rms.company_id = j.company_id
         WHERE j.company_id = %s
           AND COALESCE(j.status, '') != 'Finished'
-          AND COALESCE(j.generated_from_schedule, FALSE) = FALSE
+          AND COALESCE(j.generated_from_schedule, 0) = 0
         ORDER BY
             j.scheduled_date NULLS LAST,
             j.scheduled_start_time NULLS LAST,
@@ -1125,7 +1125,7 @@ def jobs():
         FROM recurring_mowing_schedules rms
         JOIN customers c ON rms.customer_id = c.id
         WHERE rms.company_id = %s
-        ORDER BY COALESCE(rms.active, TRUE) DESC, rms.id DESC
+        ORDER BY COALESCE(rms.active, 1) DESC, rms.id DESC
         """,
         (cid,),
     ).fetchall()
@@ -3353,7 +3353,7 @@ def convert_recurring_schedule_to_invoice(schedule_id):
             FROM jobs j
             WHERE j.company_id = %s
               AND j.recurring_schedule_id = %s
-              AND COALESCE(j.generated_from_schedule, FALSE) = TRUE
+              AND COALESCE(j.generated_from_schedule, 0) = 1
               AND COALESCE(j.status, '') != 'Invoiced'
             ORDER BY j.scheduled_date ASC, j.id ASC
             """,
