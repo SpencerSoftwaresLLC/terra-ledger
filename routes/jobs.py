@@ -601,7 +601,7 @@ def add_default_recurring_mowing_items(conn, company_id, schedule_id):
             "Hours",
             0.00,
             0.00,
-            1,
+            True,
         ),
     )
 
@@ -759,7 +759,7 @@ def create_job_from_recurring_schedule(conn, schedule_row, scheduled_date):
             clean_text_input(schedule_row["address"]),
             notes_final,
             schedule_row["id"],
-            1,
+            True,
         ),
     )
     row = cur.fetchone()
@@ -786,7 +786,7 @@ def create_job_from_recurring_schedule(conn, schedule_row, scheduled_date):
         unit = clean_text_input(item["unit"])
         sale_price = safe_float(item["sale_price"], 0)
         unit_cost = safe_float(item["unit_cost"], 0)
-        billable_value = 1 if safe_int(item["billable"], 0) else 0
+        billable_value = 1 if item["billable"] else 0
 
         if qty <= 0:
             qty = 1.0
@@ -875,7 +875,7 @@ def auto_generate_recurring_jobs(conn, company_id, through_date=None):
         SELECT *
         FROM recurring_mowing_schedules
         WHERE company_id = %s
-          AND COALESCE(active, TRUE) = 1
+          AND COALESCE(active, TRUE) = TRUE
           AND next_run_date IS NOT NULL
         ORDER BY next_run_date ASC, id ASC
         """,
