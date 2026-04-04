@@ -601,7 +601,7 @@ def add_default_recurring_mowing_items(conn, company_id, schedule_id):
             "Hours",
             0.00,
             0.00,
-            True,
+            1,
         ),
     )
 
@@ -1125,7 +1125,7 @@ def jobs():
         FROM recurring_mowing_schedules rms
         JOIN customers c ON rms.customer_id = c.id
         WHERE rms.company_id = %s
-        ORDER BY COALESCE(rms.active, 1) DESC, rms.id DESC
+        ORDER BY COALESCE(rms.active, TRUE) DESC, rms.id DESC
         """,
         (cid,),
     ).fetchall()
