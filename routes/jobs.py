@@ -3512,55 +3512,6 @@ def convert_recurring_schedule_to_invoice(schedule_id):
         conn.close()
 
 
-@jobs_bp.route("/jobs/recurring/<int:schedule_id>/delete", methods=["POST"])
-@login_required
-@subscription_required
-@require_permission("can_manage_jobs")
-def delete_recurring_schedule(schedule_id):
-    ensure_job_schedule_columns()
-
-    conn = get_db_connection()
-    cid = session["company_id"]
-
-    schedule = conn.execute(
-        """
-        SELECT id
-        FROM recurring_mowing_schedules
-        WHERE id = %s AND company_id = %s
-        """,
-        (schedule_id, cid),
-    ).fetchone()
-
-    if not schedule:
-        conn.close()
-        flash("Recurring mowing schedule not found.")
-        return redirect(url_for("jobs.jobs"))
-
-    conn.execute(
-        """
-        UPDATE jobs
-        SET recurring_schedule_id = NULL,
-            generated_from_schedule = FALSE
-        WHERE company_id = %s AND recurring_schedule_id = %s
-        """,
-        (cid, schedule_id),
-    )
-
-    conn.execute(
-        """
-        DELETE FROM recurring_mowing_schedules
-        WHERE id = %s AND company_id = %s
-        """,
-        (schedule_id, cid),
-    )
-
-    conn.commit()
-    conn.close()
-
-    flash("Recurring mowing schedule deleted. Existing generated jobs were kept.")
-    return redirect(url_for("jobs.jobs"))
-
-
 @jobs_bp.route("/jobs/export")
 @login_required
 @subscription_required
