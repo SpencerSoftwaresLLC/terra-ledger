@@ -1077,7 +1077,7 @@ def jobs():
          AND rms.company_id = j.company_id
         WHERE j.company_id = %s
           AND COALESCE(j.status, '') != 'Finished'
-          AND COALESCE(j.generated_from_schedule, 0) = 0
+          AND COALESCE(j.generated_from_schedule, FALSE) = FALSE
         ORDER BY
             j.scheduled_date NULLS LAST,
             j.scheduled_start_time NULLS LAST,
@@ -3353,7 +3353,7 @@ def convert_recurring_schedule_to_invoice(schedule_id):
             FROM jobs j
             WHERE j.company_id = %s
               AND j.recurring_schedule_id = %s
-              AND COALESCE(j.generated_from_schedule, 0) = 1
+              AND COALESCE(j.generated_from_schedule, FALSE) = TRUE
               AND COALESCE(j.status, '') != 'Invoiced'
             ORDER BY j.scheduled_date ASC, j.id ASC
             """,
