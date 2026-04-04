@@ -645,9 +645,6 @@ def copy_recurring_schedule_items_to_job(conn, schedule_id, company_id, job_id):
         elif item_type in ["plants", "trees", "misc", "dump_fee"]:
             unit = ""
 
-        if item_type == "labor":
-            unit_cost = 0.0
-
         if item_type == "dump_fee":
             unit = ""
             if qty <= 0:
@@ -2458,7 +2455,10 @@ def edit_recurring_schedule(schedule_id):
         unit_cost_display = f"${safe_float(item['unit_cost']):.2f}"
         sale_price_display = f"${safe_float(item['sale_price']):.2f}"
         total_cost_display = safe_float(item["quantity"]) * safe_float(item["unit_cost"])
-        total_revenue_display = safe_float(item["quantity"]) * safe_float(item["sale_price"])
+        total_revenue_display = (
+            safe_float(item["quantity"]) * safe_float(item["sale_price"])
+            if item["billable"] else 0.0
+        )
 
         recurring_item_rows.append(
             f"""
@@ -2929,10 +2929,9 @@ def edit_recurring_schedule(schedule_id):
             if (type === 'labor') {{
                 if (quantityLabel) quantityLabel.innerText = 'Billable Hours';
                 if (salePriceLabel) salePriceLabel.innerText = 'Hourly Rate';
+                if (costLabel) costLabel.innerText = 'Hourly Cost';
                 if (unitInput) unitInput.value = 'Hours';
-
-                if (unitCostWrap) unitCostWrap.style.display = 'none';
-                if (unitCostInput) unitCostInput.value = '0';
+                if (unitCostWrap) unitCostWrap.style.display = 'block';
             }}
             else if (type === 'mulch') {{
                 if (quantityLabel) quantityLabel.innerText = 'Yards';
@@ -3020,7 +3019,7 @@ def add_recurring_schedule_item(schedule_id):
     unit = clean_text_input(request.form.get("unit", ""))
     sale_price = safe_float(request.form.get("sale_price"))
     unit_cost = safe_float(request.form.get("unit_cost"))
-    billable = True if request.form.get("billable") == "1" else False
+    billable = 1 if request.form.get("billable") == "1" else 0
 
     if not description:
         conn.close()
@@ -3050,9 +3049,6 @@ def add_recurring_schedule_item(schedule_id):
         unit = "Bags"
     elif item_type in ["plants", "trees", "misc", "dump_fee"]:
         unit = ""
-
-    if item_type == "labor":
-        unit_cost = 0.0
 
     if item_type == "dump_fee":
         unit = ""
@@ -3461,15 +3457,16 @@ def convert_recurring_schedule_to_invoice(schedule_id):
         due_date = invoice_date
         invoice_number = f"INV-{int(datetime.now().timestamp())}"
 
-        first_date = clean_text_input(invoice_lines[0]["description"])
-        last_job_date = clean_text_input(jobs[-1]["scheduled_date"]) if jobs else ""
-
         schedule_title = clean_text_input(schedule["title"]) or "Recurring Mowing"
         notes_lines = [
             f"Recurring schedule invoice for Schedule #{schedule_id} - {schedule_title}"
         ]
 
-        dated_jobs = [clean_text_input(j["scheduled_date"]) for j in jobs if clean_text_input(j["scheduled_date"])]
+        dated_jobs = [
+            clean_text_input(j["scheduled_date"])
+            for j in jobs
+            if clean_text_input(j["scheduled_date"]) and safe_float(j["billable_total"], 0) > 0
+        ]
         if dated_jobs:
             notes_lines.append(f"Service dates: {dated_jobs[0]} to {dated_jobs[-1]}")
 
@@ -3725,9 +3722,6 @@ def view_job(job_id):
         elif item_type in ["plants", "trees", "misc", "dump_fee"]:
             unit = ""
 
-        if item_type == "labor":
-            unit_cost = 0.0
-
         if item_type == "dump_fee":
             unit = ""
             if qty <= 0:
@@ -3791,7 +3785,7 @@ def view_job(job_id):
         delete_item_csrf = generate_csrf()
 
         unit_cost_display = "-"
-        if clean_text_input(i["item_type"]).lower() not in ["dump_fee", "labor"]:
+        if clean_text_input(i["item_type"]).lower() != "dump_fee":
             unit_cost_display = f"${((safe_float(i['cost_amount']) / safe_float(i['quantity'])) if safe_float(i['quantity']) else 0):.2f}"
 
         item_row_list.append(
@@ -4548,9 +4542,9 @@ Thank you,
                 }} else if (type === 'labor') {{
                     quantityLabel.innerText = 'Billable Hours';
                     salePriceLabel.innerText = 'Hourly Rate';
+                    costLabel.innerText = 'Hourly Cost';
                     unitInput.value = 'Hours';
-                    if (unitCostWrap) unitCostWrap.style.display = 'none';
-                    if (unitCostInput) unitCostInput.value = '0';
+                    if (unitCostWrap) unitCostWrap.style.display = 'block';
                 }} else if (type === 'equipment') {{
                     quantityLabel.innerText = 'Rentals';
                     unitInput.value = 'Rentals';
@@ -5012,9 +5006,6 @@ def edit_job_item(job_id, item_id):
             unit = "Rentals"
         elif item_type in ["plants", "trees", "misc", "dump_fee"]:
             unit = ""
-
-        if item_type == "labor":
-            unit_cost = 0.0
 
         if item_type == "dump_fee":
             unit = ""
