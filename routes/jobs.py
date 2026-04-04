@@ -702,6 +702,7 @@ def copy_recurring_schedule_items_to_job(conn, schedule_id, company_id, job_id):
 
 def create_job_from_recurring_schedule(conn, schedule_row, scheduled_date):
     scheduled_date_iso = date_to_iso(scheduled_date)
+
     existing = conn.execute(
         """
         SELECT id
@@ -762,21 +763,106 @@ def create_job_from_recurring_schedule(conn, schedule_row, scheduled_date):
         ),
     )
     row = cur.fetchone()
-    new_job_id = row["id"] if row and "id" in row else None
+    job_id = row["id"] if row and "id" in row else None
 
-    if not new_job_id:
+    if not job_id:
         return None, False
 
-    copy_recurring_schedule_items_to_job(
-        conn,
-        schedule_row["id"],
-        schedule_row["company_id"],
-        new_job_id,
-    )
+    recurring_items = conn.execute(
+        """
+        SELECT *
+        FROM recurring_mowing_schedule_items
+        WHERE company_id = %s
+          AND schedule_id = %s
+        ORDER BY id ASC
+        """,
+        (schedule_row["company_id"], schedule_row["id"]),
+    ).fetchall()
 
-    recalc_job(conn, new_job_id)
+    for item in recurring_items:
+        item_type = clean_text_input(item["item_type"]).lower()
+        description = clean_text_input(item["description"])
+        qty = safe_float(item["quantity"], 0)
+        unit = clean_text_input(item["unit"])
+        sale_price = safe_float(item["sale_price"], 0)
+        unit_cost = safe_float(item["unit_cost"], 0)
+        billable_value = bool(item["billable"])
 
-    return new_job_id, True
+        if qty <= 0:
+            qty = 1.0
+
+        if item_type == "mulch" and not unit:
+            unit = "Yards"
+        elif item_type == "stone" and not unit:
+            unit = "Tons"
+        elif item_type == "soil" and not unit:
+            unit = "Yards"
+        elif item_type == "hardscape_material" and not unit:
+            unit = "Tons"
+        elif item_type == "fuel" and not unit:
+            unit = "Gallons"
+        elif item_type == "delivery" and not unit:
+            unit = "Miles"
+        elif item_type == "labor" and not unit:
+            unit = "Hours"
+        elif item_type == "equipment" and not unit:
+            unit = "Rentals"
+        elif item_type == "fertilizer" and not unit:
+            unit = "Bags"
+        elif item_type in ["plants", "trees", "misc", "dump_fee"]:
+            unit = ""
+
+        if item_type == "labor":
+            unit_cost = 0.0
+
+        if item_type == "dump_fee":
+            unit = ""
+            qty = 1.0
+            unit_cost = 0.0
+
+        line_total = qty * sale_price
+        cost_amount = qty * unit_cost
+
+        cur.execute(
+            """
+            INSERT INTO job_items (
+                job_id,
+                item_type,
+                description,
+                quantity,
+                unit,
+                unit_cost,
+                unit_price,
+                sale_price,
+                cost_amount,
+                line_total,
+                billable
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (
+                job_id,
+                item_type,
+                description,
+                qty,
+                unit,
+                unit_cost,
+                sale_price,
+                sale_price,
+                cost_amount,
+                line_total,
+                billable_value,
+            ),
+        )
+        item_row = cur.fetchone()
+        job_item_id = item_row["id"] if item_row and "id" in item_row else None
+
+        if job_item_id:
+            ensure_job_cost_ledger(conn, job_item_id)
+
+    recalc_job(conn, job_id)
+    return job_id, True
 
 
 def auto_generate_recurring_jobs(conn, company_id, through_date=None):
@@ -2966,6 +3052,9 @@ def add_recurring_schedule_item(schedule_id):
         flash("Description is required.")
         return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
+    if qty <= 0:
+        qty = 1.0
+
     if item_type == "mulch" and not unit:
         unit = "Yards"
     elif item_type == "stone" and not unit:
@@ -2987,10 +3076,12 @@ def add_recurring_schedule_item(schedule_id):
     elif item_type in ["plants", "trees", "misc", "dump_fee"]:
         unit = ""
 
+    if item_type == "labor":
+        unit_cost = 0.0
+
     if item_type == "dump_fee":
         unit = ""
-        if qty <= 0:
-            qty = 1
+        qty = 1.0
         unit_cost = 0.0
 
     cur = conn.cursor()
