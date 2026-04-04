@@ -95,6 +95,56 @@ def ensure_recurring_mowing_tables():
 
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS recurring_mowing_schedule_items (
+                id SERIAL PRIMARY KEY,
+                schedule_id INTEGER NOT NULL,
+                company_id INTEGER NOT NULL,
+                item_type TEXT,
+                description TEXT NOT NULL,
+                quantity NUMERIC(12,2) DEFAULT 0,
+                unit TEXT,
+                unit_cost NUMERIC(12,2) DEFAULT 0,
+                sale_price NUMERIC(12,2) DEFAULT 0,
+                billable BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_recurring_schedule_items_schedule
+            ON recurring_mowing_schedule_items (company_id, schedule_id)
+            """
+        )
+
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedule_items ADD COLUMN IF NOT EXISTS item_type TEXT"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedule_items ADD COLUMN IF NOT EXISTS description TEXT"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedule_items ADD COLUMN IF NOT EXISTS quantity NUMERIC(12,2) DEFAULT 0"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedule_items ADD COLUMN IF NOT EXISTS unit TEXT"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedule_items ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12,2) DEFAULT 0"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedule_items ADD COLUMN IF NOT EXISTS sale_price NUMERIC(12,2) DEFAULT 0"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedule_items ADD COLUMN IF NOT EXISTS billable BOOLEAN DEFAULT TRUE"
+        )
+        cur.execute(
+            "ALTER TABLE recurring_mowing_schedule_items ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        )
+
+        cur.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_recurring_mowing_schedules_company
             ON recurring_mowing_schedules (company_id, active, next_run_date)
             """
@@ -497,6 +547,158 @@ def get_schedule_job_title(schedule_row):
     title = clean_text_input(schedule_row.get("title")) if hasattr(schedule_row, "get") else clean_text_input(schedule_row["title"])
     return title or "Recurring Mowing"
 
+def get_recurring_schedule_items(conn, company_id, schedule_id):
+    return conn.execute(
+        """
+        SELECT *
+        FROM recurring_mowing_schedule_items
+        WHERE company_id = %s
+          AND schedule_id = %s
+        ORDER BY id ASC
+        """,
+        (company_id, schedule_id),
+    ).fetchall()
+
+
+def add_default_recurring_mowing_items(conn, company_id, schedule_id):
+    existing = conn.execute(
+        """
+        SELECT id
+        FROM recurring_mowing_schedule_items
+        WHERE company_id = %s
+          AND schedule_id = %s
+        LIMIT 1
+        """,
+        (company_id, schedule_id),
+    ).fetchone()
+
+    if existing:
+        return
+
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        INSERT INTO recurring_mowing_schedule_items (
+            schedule_id,
+            company_id,
+            item_type,
+            description,
+            quantity,
+            unit,
+            unit_cost,
+            sale_price,
+            billable
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            schedule_id,
+            company_id,
+            "labor",
+            "Mowing Service",
+            1.00,
+            "Hours",
+            0.00,
+            0.00,
+            True,
+        ),
+    )
+
+
+def copy_recurring_schedule_items_to_job(conn, schedule_id, company_id, job_id):
+    items = get_recurring_schedule_items(conn, company_id, schedule_id)
+
+    if not items:
+        return
+
+    created_item_ids = []
+
+    for item in items:
+        item_type = clean_text_input(item["item_type"]).lower()
+        description = clean_text_input(item["description"])
+        qty = safe_float(item["quantity"])
+        unit = clean_text_input(item["unit"])
+        sale_price = safe_float(item["sale_price"])
+        unit_cost = safe_float(item["unit_cost"])
+        billable = 1 if item["billable"] else 0
+
+        if not description:
+            continue
+
+        if item_type == "mulch" and not unit:
+            unit = "Yards"
+        elif item_type == "stone" and not unit:
+            unit = "Tons"
+        elif item_type == "soil" and not unit:
+            unit = "Yards"
+        elif item_type == "hardscape_material" and not unit:
+            unit = "Tons"
+        elif item_type == "fuel" and not unit:
+            unit = "Gallons"
+        elif item_type == "delivery" and not unit:
+            unit = "Miles"
+        elif item_type == "labor" and not unit:
+            unit = "Hours"
+        elif item_type == "equipment" and not unit:
+            unit = "Rentals"
+        elif item_type in ["plants", "trees", "misc", "dump_fee"]:
+            unit = ""
+
+        if item_type == "labor":
+            unit_cost = 0.0
+
+        if item_type == "dump_fee":
+            unit = ""
+            if qty <= 0:
+                qty = 1
+            unit_cost = 0.0
+
+        line_total = qty * sale_price
+        cost_amount = qty * unit_cost
+
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO job_items (
+                job_id,
+                item_type,
+                description,
+                quantity,
+                unit,
+                unit_cost,
+                unit_price,
+                sale_price,
+                cost_amount,
+                line_total,
+                billable
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (
+                job_id,
+                item_type,
+                description,
+                qty,
+                unit,
+                unit_cost,
+                sale_price,
+                sale_price,
+                cost_amount,
+                line_total,
+                billable,
+            ),
+        )
+        row = cur.fetchone()
+        if row and "id" in row:
+            created_item_ids.append(row["id"])
+
+    for job_item_id in created_item_ids:
+        ensure_job_cost_ledger(conn, job_item_id)
+
+    recalc_job(conn, job_id)
+
 
 def create_job_from_recurring_schedule(conn, schedule_row, scheduled_date):
     scheduled_date_iso = date_to_iso(scheduled_date)
@@ -560,7 +762,21 @@ def create_job_from_recurring_schedule(conn, schedule_row, scheduled_date):
         ),
     )
     row = cur.fetchone()
-    return (row["id"] if row and "id" in row else None), True
+    new_job_id = row["id"] if row and "id" in row else None
+
+    if not new_job_id:
+        return None, False
+
+    copy_recurring_schedule_items_to_job(
+        conn,
+        schedule_row["id"],
+        schedule_row["company_id"],
+        new_job_id,
+    )
+
+    recalc_job(conn, new_job_id)
+
+    return new_job_id, True
 
 
 def auto_generate_recurring_jobs(conn, company_id, through_date=None):
@@ -1915,6 +2131,9 @@ def create_recurring_schedule():
     )
     row = cur.fetchone()
     schedule_id = row["id"] if row and "id" in row else None
+
+    if schedule_id:
+        add_default_recurring_mowing_items(conn, cid, schedule_id)
 
     try:
         auto_generate_recurring_jobs(conn, cid)
