@@ -10,7 +10,7 @@ from db import get_db_connection, ensure_job_cost_ledger
 from decorators import login_required, require_permission, subscription_required
 from page_helpers import render_page
 from helpers import *
-from calculations import recalc_job, recalc_invoice
+from calculations import recalc_job, recalc_invoice, recalc_all_recurring_jobs
 from utils.emailing import send_company_email
 
 jobs_bp = Blueprint("jobs", __name__)
@@ -950,6 +950,7 @@ def jobs():
 
     try:
         auto_generate_recurring_jobs(conn, cid)
+        recalc_all_recurring_jobs(conn, cid)
         conn.commit()
     except Exception:
         conn.rollback()

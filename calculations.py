@@ -130,16 +130,16 @@ def recalc_job(conn, job_id):
     row = conn.execute(
         """
         SELECT
-            COALESCE(SUM(line_total), 0) AS revenue,
-            COALESCE(SUM(cost_amount), 0) AS cost_total
+            COALESCE(SUM(COALESCE(line_total, COALESCE(quantity, 0) * COALESCE(unit_price, 0), 0)), 0) AS revenue,
+            COALESCE(SUM(COALESCE(cost_amount, COALESCE(quantity, 0) * COALESCE(unit_cost, 0), 0)), 0) AS cost_total
         FROM job_items
         WHERE job_id = %s
         """,
         (job_id,),
     ).fetchone()
 
-    revenue = _safe_float(row["revenue"] if row and "revenue" in row else 0)
-    cost_total = _safe_float(row["cost_total"] if row and "cost_total" in row else 0)
+    revenue = _safe_float(row["revenue"] if row else 0)
+    cost_total = _safe_float(row["cost_total"] if row else 0)
     profit = revenue - cost_total
 
     conn.execute(
@@ -151,6 +151,20 @@ def recalc_job(conn, job_id):
         (revenue, cost_total, profit, job_id),
     )
 
+def recalc_all_recurring_jobs(conn, company_id):
+    rows = conn.execute(
+        """
+        SELECT id
+        FROM jobs
+        WHERE company_id = %s
+          AND recurring_schedule_id IS NOT NULL
+        ORDER BY id ASC
+        """,
+        (company_id,),
+    ).fetchall()
+
+    for row in rows:
+        recalc_job(conn, row["id"])
 
 def get_pay_periods_per_year(pay_frequency: str) -> int:
     value = (pay_frequency or "Biweekly").strip().lower()
