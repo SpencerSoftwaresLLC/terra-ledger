@@ -3129,46 +3129,142 @@ def add_recurring_schedule_item(schedule_id):
     return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
 
-@jobs_bp.route("/jobs/recurring/<int:schedule_id>/items/<int:item_id>/delete", methods=["POST"])
+@jobs_bp.route("/jobs/recurring/<int:schedule_id>/delete", methods=["POST"])
 @login_required
 @subscription_required
 @require_permission("can_manage_jobs")
-def delete_recurring_schedule_item(schedule_id, item_id):
+def delete_recurring_schedule(schedule_id):
     ensure_job_schedule_columns()
 
     conn = get_db_connection()
     cid = session["company_id"]
 
-    item = conn.execute(
+    schedule = conn.execute(
         """
-        SELECT id
-        FROM recurring_mowing_schedule_items
-        WHERE id = %s
-          AND schedule_id = %s
-          AND company_id = %s
+        SELECT id, title
+        FROM recurring_mowing_schedules
+        WHERE id = %s AND company_id = %s
         """,
-        (item_id, schedule_id, cid),
+        (schedule_id, cid),
     ).fetchone()
 
-    if not item:
+    if not schedule:
         conn.close()
-        flash("Recurring schedule item not found.")
-        return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+        flash("Recurring mowing schedule not found.")
+        return redirect(url_for("jobs.jobs"))
 
-    conn.execute(
-        """
-        DELETE FROM recurring_mowing_schedule_items
-        WHERE id = %s
-          AND schedule_id = %s
-          AND company_id = %s
-        """,
-        (item_id, schedule_id, cid),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        jobs_to_delete = conn.execute(
+            """
+            SELECT id, title, status
+            FROM jobs
+            WHERE company_id = %s
+              AND recurring_schedule_id = %s
+            ORDER BY scheduled_date ASC, id ASC
+            """,
+            (cid, schedule_id),
+        ).fetchall()
 
-    flash("Recurring schedule item deleted.")
-    return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+        job_ids = [row["id"] for row in jobs_to_delete]
+
+        if job_ids:
+            invoiced_jobs = conn.execute(
+                """
+                SELECT
+                    j.id,
+                    j.title,
+                    j.status,
+                    i.id AS invoice_id,
+                    i.invoice_number
+                FROM jobs j
+                LEFT JOIN invoices i
+                  ON i.job_id = j.id
+                 AND i.company_id = j.company_id
+                WHERE j.company_id = %s
+                  AND j.id = ANY(%s)
+                  AND (
+                        COALESCE(j.status, '') = 'Invoiced'
+                        OR i.id IS NOT NULL
+                  )
+                ORDER BY j.id ASC
+                """,
+                (cid, job_ids),
+            ).fetchall()
+
+            if invoiced_jobs:
+                sample = invoiced_jobs[0]
+                invoice_label = clean_text_input(sample["invoice_number"]) or f"Invoice #{sample['invoice_id']}"
+                flash(
+                    f"Cannot delete this recurring mowing schedule because generated job #{sample['id']} "
+                    f"is already tied to {invoice_label}. Remove or handle the invoice first."
+                )
+                conn.close()
+                return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+            ledger_rows = conn.execute(
+                """
+                SELECT ledger_entry_id
+                FROM job_items
+                WHERE job_id = ANY(%s)
+                  AND ledger_entry_id IS NOT NULL
+                """,
+                (job_ids,),
+            ).fetchall()
+
+            ledger_ids = [row["ledger_entry_id"] for row in ledger_rows if row["ledger_entry_id"]]
+
+            if ledger_ids:
+                conn.execute(
+                    """
+                    DELETE FROM ledger_entries
+                    WHERE id = ANY(%s)
+                    """,
+                    (ledger_ids,),
+                )
+
+            conn.execute(
+                """
+                DELETE FROM job_items
+                WHERE job_id = ANY(%s)
+                """,
+                (job_ids,),
+            )
+
+            conn.execute(
+                """
+                DELETE FROM jobs
+                WHERE id = ANY(%s)
+                  AND company_id = %s
+                """,
+                (job_ids, cid),
+            )
+
+        conn.execute(
+            """
+            DELETE FROM recurring_mowing_schedule_items
+            WHERE company_id = %s
+              AND schedule_id = %s
+            """,
+            (cid, schedule_id),
+        )
+
+        conn.execute(
+            """
+            DELETE FROM recurring_mowing_schedules
+            WHERE id = %s AND company_id = %s
+            """,
+            (schedule_id, cid),
+        )
+
+        conn.commit()
+        flash("Recurring mowing schedule and all non-invoiced generated jobs were deleted.")
+    except Exception as e:
+        conn.rollback()
+        flash(f"Could not delete recurring mowing schedule: {e}")
+    finally:
+        conn.close()
+
+    return redirect(url_for("jobs.jobs"))
 
 
 @jobs_bp.route("/jobs/recurring/<int:schedule_id>/toggle", methods=["POST"])
@@ -3706,11 +3802,11 @@ def view_job(job_id):
                 <td class='money job-items-revenue'>${safe_float(i['line_total']):.2f}</td>
                 <td class='wrap'>
                     <div class='static-actions'>
-                        <a class='btn secondary small' href='{url_for("jobs.edit_job_item", job_id=job_id, item_id=i["id"])}'>Edit</a>
+                        <a class='btn secondary small' href='{url_for("jobs.edit_job_item", job_id=job_id, item_id=i["id"])}#job-items-section'>Edit</a>
                         <form method='post'
                               action='{url_for("jobs.delete_job_item", job_id=job_id, item_id=i["id"])}'
                               style='margin:0;'
-                              onsubmit="return confirm('Delete this job item?');">
+                              onsubmit="saveJobsScrollPosition('job-items-section'); return confirm('Delete this job item?');">
                             <input type="hidden" name="csrf_token" value="{delete_item_csrf}">
                             <button class='btn danger small' type='submit'>Delete</button>
                         </form>
@@ -3738,11 +3834,11 @@ def view_job(job_id):
                 </div>
 
                 <div class='mobile-list-actions'>
-                    <a class='btn secondary small' href='{url_for("jobs.edit_job_item", job_id=job_id, item_id=i["id"])}'>Edit</a>
+                    <a class='btn secondary small' href='{url_for("jobs.edit_job_item", job_id=job_id, item_id=i["id"])}#job-items-section'>Edit</a>
                     <form method='post'
                           action='{url_for("jobs.delete_job_item", job_id=job_id, item_id=i["id"])}'
                           style='margin:0;'
-                          onsubmit="return confirm('Delete this job item?');">
+                          onsubmit="saveJobsScrollPosition('job-items-section'); return confirm('Delete this job item?');">
                         <input type="hidden" name="csrf_token" value="{delete_item_csrf}">
                         <button class='btn danger small' type='submit'>Delete</button>
                     </form>
@@ -4295,11 +4391,11 @@ Thank you,
                 </div>
             </div>
 
-            <div class='card'>
+            <div class='card' id='add-job-item-section'>
                 <h2>Add Job Item</h2>
                 <p class='muted'>Any cost you enter here is automatically pushed into bookkeeping as an expense.</p>
 
-                <form method='post'>
+                <form method='post' onsubmit="saveJobsScrollPosition('job-items-section');">
                     <input type="hidden" name="csrf_token" value="{add_item_csrf}">
                     <div class='grid'>
 
@@ -4363,6 +4459,43 @@ Thank you,
             </div>
 
             <script>
+            function saveJobsScrollPosition(targetId) {{
+                try {{
+                    const target = document.getElementById(targetId);
+                    const scrollY = window.scrollY || window.pageYOffset || 0;
+                    sessionStorage.setItem("jobs_view_scroll_y", String(scrollY));
+                    if (targetId) {{
+                        sessionStorage.setItem("jobs_view_scroll_target", targetId);
+                    }}
+                }} catch (e) {{}}
+            }}
+
+            function restoreJobsScrollPosition() {{
+                try {{
+                    const savedTargetId = sessionStorage.getItem("jobs_view_scroll_target");
+                    const savedY = sessionStorage.getItem("jobs_view_scroll_y");
+
+                    if (savedTargetId) {{
+                        const target = document.getElementById(savedTargetId);
+                        if (target) {{
+                            setTimeout(function() {{
+                                target.scrollIntoView({{ behavior: "auto", block: "start" }});
+                                if (savedY) {{
+                                    window.scrollTo(0, parseInt(savedY, 10) || 0);
+                                }}
+                            }}, 40);
+                        }}
+                    }} else if (savedY) {{
+                        setTimeout(function() {{
+                            window.scrollTo(0, parseInt(savedY, 10) || 0);
+                        }}, 40);
+                    }}
+
+                    sessionStorage.removeItem("jobs_view_scroll_target");
+                    sessionStorage.removeItem("jobs_view_scroll_y");
+                }} catch (e) {{}}
+            }}
+
             function toggleJobItemMode() {{
                 const type = document.getElementById('item_type').value;
 
@@ -4451,6 +4584,7 @@ Thank you,
 
             document.addEventListener('DOMContentLoaded', function() {{
                 toggleJobItemMode();
+                restoreJobsScrollPosition();
             }});
 
             document.addEventListener('click', function() {{
@@ -4461,7 +4595,7 @@ Thank you,
             }});
             </script>
 
-            <div class='card'>
+            <div class='card' id='job-items-section'>
                 <h2>Job Items</h2>
 
                 <div class='static-table-wrap desktop-only'>
