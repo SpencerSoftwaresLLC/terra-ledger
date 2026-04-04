@@ -868,23 +868,35 @@ def init_db():
     """)
 
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS job_items (
-            id SERIAL PRIMARY KEY,
-            job_id INTEGER NOT NULL,
-            item_type TEXT DEFAULT 'material',
-            description TEXT NOT NULL,
-            quantity DOUBLE PRECISION DEFAULT 0,
-            unit TEXT,
-            unit_cost DOUBLE PRECISION DEFAULT 0,
-            unit_price DOUBLE PRECISION DEFAULT 0,
-            sale_price DOUBLE PRECISION DEFAULT 0,
-            cost_amount DOUBLE PRECISION DEFAULT 0,
-            line_total DOUBLE PRECISION DEFAULT 0,
-            billable INTEGER DEFAULT 1,
-            ledger_entry_id INTEGER,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
+    CREATE TABLE IF NOT EXISTS job_items (
+        id SERIAL PRIMARY KEY,
+        job_id INTEGER NOT NULL,
+        item_type TEXT DEFAULT 'material',
+        description TEXT NOT NULL,
+        quantity DOUBLE PRECISION DEFAULT 0,
+        unit TEXT,
+        unit_cost DOUBLE PRECISION DEFAULT 0,
+        unit_price DOUBLE PRECISION DEFAULT 0,
+        sale_price DOUBLE PRECISION DEFAULT 0,
+        cost_amount DOUBLE PRECISION DEFAULT 0,
+        line_total DOUBLE PRECISION DEFAULT 0,
+        billable BOOLEAN DEFAULT TRUE,
+        ledger_entry_id INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
     """)
+
+    try:
+        cur.execute("""
+            ALTER TABLE job_items
+            ALTER COLUMN billable TYPE BOOLEAN
+            USING CASE
+                WHEN billable IN (1, '1', TRUE, 'true', 't', 'yes', 'on') THEN TRUE
+                ELSE FALSE
+            END
+        """)
+    except Exception:
+        pass
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS invoices (
@@ -1345,9 +1357,72 @@ def get_billing_history(company_id, limit=20):
 def ensure_job_schedule_columns():
     conn = get_db_connection()
     cur = conn.cursor()
+
+    # -------------------------------
+    # JOBS TABLE
+    # -------------------------------
     cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_start_time TIME")
     cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_end_time TIME")
     cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS assigned_to TEXT")
+
+    # Ensure boolean for generated_from_schedule
+    try:
+        cur.execute("""
+            ALTER TABLE jobs
+            ALTER COLUMN generated_from_schedule TYPE BOOLEAN
+            USING CASE
+                WHEN generated_from_schedule IN (1, '1', TRUE, 'true', 't', 'yes', 'on') THEN TRUE
+                ELSE FALSE
+            END
+        """)
+    except Exception:
+        pass
+
+    # -------------------------------
+    # JOB ITEMS TABLE
+    # -------------------------------
+    try:
+        cur.execute("""
+            ALTER TABLE job_items
+            ALTER COLUMN billable TYPE BOOLEAN
+            USING CASE
+                WHEN billable IN (1, '1', TRUE, 'true', 't', 'yes', 'on') THEN TRUE
+                ELSE FALSE
+            END
+        """)
+    except Exception:
+        pass
+
+    # -------------------------------
+    # RECURRING ITEMS TABLE
+    # -------------------------------
+    try:
+        cur.execute("""
+            ALTER TABLE recurring_mowing_schedule_items
+            ALTER COLUMN billable TYPE BOOLEAN
+            USING CASE
+                WHEN billable IN (1, '1', TRUE, 'true', 't', 'yes', 'on') THEN TRUE
+                ELSE FALSE
+            END
+        """)
+    except Exception:
+        pass
+
+    # -------------------------------
+    # RECURRING SCHEDULE TABLE
+    # -------------------------------
+    try:
+        cur.execute("""
+            ALTER TABLE recurring_mowing_schedules
+            ALTER COLUMN active TYPE BOOLEAN
+            USING CASE
+                WHEN active IN (1, '1', TRUE, 'true', 't', 'yes', 'on') THEN TRUE
+                ELSE FALSE
+            END
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
