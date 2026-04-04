@@ -785,6 +785,7 @@ def create_job_from_recurring_schedule(conn, schedule_row, scheduled_date):
         qty = safe_float(item["quantity"], 0)
         unit = clean_text_input(item["unit"])
         sale_price = safe_float(item["sale_price"], 0)
+        unit_price = safe_float(item["sale_price"], 0)
         unit_cost = safe_float(item["unit_cost"], 0)
         billable_value = 1 if item["billable"] else 0
 
@@ -812,15 +813,11 @@ def create_job_from_recurring_schedule(conn, schedule_row, scheduled_date):
         elif item_type in ["plants", "trees", "misc", "dump_fee"]:
             unit = ""
 
-        if item_type == "labor":
-            unit_cost = 0.0
-
         if item_type == "dump_fee":
             unit = ""
             qty = 1.0
-            unit_cost = 0.0
 
-        line_total = qty * sale_price
+        line_total = qty * unit_price if billable_value else 0.0
         cost_amount = qty * unit_cost
 
         cur.execute(
@@ -848,7 +845,7 @@ def create_job_from_recurring_schedule(conn, schedule_row, scheduled_date):
                 qty,
                 unit,
                 unit_cost,
-                sale_price,
+                unit_price,
                 sale_price,
                 cost_amount,
                 line_total,
@@ -1092,39 +1089,32 @@ def jobs():
         SELECT
             rms.*,
             c.name AS customer_name,
-            (
-                SELECT COUNT(*)
-                FROM jobs j
-                WHERE j.company_id = rms.company_id
-                  AND j.recurring_schedule_id = rms.id
-            ) AS generated_jobs_count,
-            (
-                SELECT COUNT(*)
-                FROM jobs j
-                WHERE j.company_id = rms.company_id
-                  AND j.recurring_schedule_id = rms.id
-                  AND COALESCE(j.status, '') != 'Finished'
-            ) AS active_jobs_count,
-            (
-                SELECT COALESCE(SUM(j.revenue), 0)
-                FROM jobs j
-                WHERE j.company_id = rms.company_id
-                  AND j.recurring_schedule_id = rms.id
-            ) AS total_revenue,
-            (
-                SELECT COALESCE(SUM(j.cost_total), 0)
-                FROM jobs j
-                WHERE j.company_id = rms.company_id
-                  AND j.recurring_schedule_id = rms.id
-            ) AS total_cost,
-            (
-                SELECT COALESCE(SUM(j.profit), 0)
-                FROM jobs j
-                WHERE j.company_id = rms.company_id
-                  AND j.recurring_schedule_id = rms.id
-            ) AS total_profit
+            COALESCE(stats.generated_jobs_count, 0) AS generated_jobs_count,
+            COALESCE(stats.active_jobs_count, 0) AS active_jobs_count,
+            COALESCE(stats.total_revenue, 0) AS total_revenue,
+            COALESCE(stats.total_cost, 0) AS total_cost,
+            COALESCE(stats.total_profit, 0) AS total_profit
         FROM recurring_mowing_schedules rms
-        JOIN customers c ON rms.customer_id = c.id
+        JOIN customers c
+        ON rms.customer_id = c.id
+        LEFT JOIN (
+            SELECT
+                j.company_id,
+                j.recurring_schedule_id,
+                COUNT(DISTINCT j.id) AS generated_jobs_count,
+                COUNT(DISTINCT CASE WHEN COALESCE(j.status, '') != 'Finished' THEN j.id END) AS active_jobs_count,
+                COALESCE(SUM(COALESCE(ji.line_total, COALESCE(ji.quantity, 0) * COALESCE(ji.unit_price, 0), 0)), 0) AS total_revenue,
+                COALESCE(SUM(COALESCE(ji.cost_amount, COALESCE(ji.quantity, 0) * COALESCE(ji.unit_cost, 0), 0)), 0) AS total_cost,
+                COALESCE(SUM(COALESCE(ji.line_total, COALESCE(ji.quantity, 0) * COALESCE(ji.unit_price, 0), 0)), 0)
+                - COALESCE(SUM(COALESCE(ji.cost_amount, COALESCE(ji.quantity, 0) * COALESCE(ji.unit_cost, 0), 0)), 0) AS total_profit
+            FROM jobs j
+            LEFT JOIN job_items ji
+            ON ji.job_id = j.id
+            WHERE j.recurring_schedule_id IS NOT NULL
+            GROUP BY j.company_id, j.recurring_schedule_id
+        ) stats
+        ON stats.company_id = rms.company_id
+        AND stats.recurring_schedule_id = rms.id
         WHERE rms.company_id = %s
         ORDER BY COALESCE(rms.active, TRUE) DESC, rms.id DESC
         """,
@@ -3351,8 +3341,11 @@ def convert_recurring_schedule_to_invoice(schedule_id):
                 c.name AS customer_name,
                 c.email AS customer_email
             FROM recurring_mowing_schedules rms
-            JOIN customers c ON rms.customer_id = c.id
-            WHERE rms.id = %s AND rms.company_id = %s
+            JOIN customers c
+              ON rms.customer_id = c.id
+             AND c.company_id = rms.company_id
+            WHERE rms.id = %s
+              AND rms.company_id = %s
             """,
             (schedule_id, cid),
         ).fetchone()
@@ -3361,27 +3354,63 @@ def convert_recurring_schedule_to_invoice(schedule_id):
             flash("Recurring mowing schedule not found.")
             return redirect(url_for("jobs.jobs"))
 
+        recurring_job_rows = conn.execute(
+            """
+            SELECT id
+            FROM jobs
+            WHERE company_id = %s
+              AND recurring_schedule_id = %s
+              AND COALESCE(generated_from_schedule, FALSE) = TRUE
+              AND COALESCE(status, '') != 'Invoiced'
+            ORDER BY scheduled_date ASC, id ASC
+            """,
+            (cid, schedule_id),
+        ).fetchall()
+
+        if not recurring_job_rows:
+            flash("There are no eligible recurring jobs to invoice for this schedule.")
+            return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+        for row in recurring_job_rows:
+            recalc_job(conn, row["id"])
+
         jobs = conn.execute(
             """
             SELECT
-                j.*,
-                (
-                    SELECT COUNT(*)
-                    FROM job_items ji
-                    WHERE ji.job_id = j.id
-                      AND COALESCE(ji.billable, 1) = 1
-                ) AS billable_item_count,
-                (
-                    SELECT COALESCE(SUM(ji.line_total), 0)
-                    FROM job_items ji
-                    WHERE ji.job_id = j.id
-                      AND COALESCE(ji.billable, 1) = 1
+                j.id,
+                j.customer_id,
+                j.title,
+                j.service_type,
+                j.scheduled_date,
+                j.status,
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN COALESCE(ji.billable, 1) = 1
+                                THEN COALESCE(
+                                    ji.line_total,
+                                    COALESCE(ji.quantity, 0) * COALESCE(ji.unit_price, COALESCE(ji.sale_price, 0)),
+                                    0
+                                )
+                            ELSE 0
+                        END
+                    ),
+                    0
                 ) AS billable_total
             FROM jobs j
+            LEFT JOIN job_items ji
+              ON ji.job_id = j.id
             WHERE j.company_id = %s
               AND j.recurring_schedule_id = %s
               AND COALESCE(j.generated_from_schedule, FALSE) = TRUE
               AND COALESCE(j.status, '') != 'Invoiced'
+            GROUP BY
+                j.id,
+                j.customer_id,
+                j.title,
+                j.service_type,
+                j.scheduled_date,
+                j.status
             ORDER BY j.scheduled_date ASC, j.id ASC
             """,
             (cid, schedule_id),
@@ -3395,21 +3424,16 @@ def convert_recurring_schedule_to_invoice(schedule_id):
         invoiced_job_ids = []
 
         for job in jobs:
-            billable_total = safe_float(job["billable_total"])
-            revenue_total = safe_float(job["revenue"])
-
-            line_total = 0.0
-            if billable_total > 0:
-                line_total = billable_total
-            elif revenue_total > 0:
-                line_total = revenue_total
+            line_total = safe_float(job["billable_total"], 0)
 
             if line_total <= 0:
                 continue
 
             scheduled_date = clean_text_input(job["scheduled_date"])
             title = clean_text_input(job["title"]) or clean_text_input(schedule["title"]) or "Recurring Service"
-            service_label = display_service_type(job["service_type"] or schedule["service_type"] or "mowing")
+            service_label = display_service_type(
+                job["service_type"] or schedule["service_type"] or "mowing"
+            )
 
             desc_parts = [title]
             if scheduled_date:
@@ -3417,11 +3441,9 @@ def convert_recurring_schedule_to_invoice(schedule_id):
             if service_label:
                 desc_parts.append(f"- {service_label}")
 
-            description = " ".join(desc_parts)
-
             invoice_lines.append(
                 {
-                    "description": description.strip(),
+                    "description": " ".join(desc_parts).strip(),
                     "quantity": 1,
                     "unit": "visit",
                     "unit_price": line_total,
@@ -3439,15 +3461,18 @@ def convert_recurring_schedule_to_invoice(schedule_id):
         due_date = invoice_date
         invoice_number = f"INV-{int(datetime.now().timestamp())}"
 
-        first_date = clean_text_input(jobs[0]["scheduled_date"]) if jobs else ""
-        last_date = clean_text_input(jobs[-1]["scheduled_date"]) if jobs else ""
+        first_date = clean_text_input(invoice_lines[0]["description"])
+        last_job_date = clean_text_input(jobs[-1]["scheduled_date"]) if jobs else ""
 
         schedule_title = clean_text_input(schedule["title"]) or "Recurring Mowing"
         notes_lines = [
             f"Recurring schedule invoice for Schedule #{schedule_id} - {schedule_title}"
         ]
-        if first_date and last_date:
-            notes_lines.append(f"Service dates: {first_date} to {last_date}")
+
+        dated_jobs = [clean_text_input(j["scheduled_date"]) for j in jobs if clean_text_input(j["scheduled_date"])]
+        if dated_jobs:
+            notes_lines.append(f"Service dates: {dated_jobs[0]} to {dated_jobs[-1]}")
+
         notes_lines.append(f"Included visits: {len(invoice_lines)}")
         invoice_notes = "\n".join(notes_lines)
 
@@ -3521,9 +3546,12 @@ def convert_recurring_schedule_to_invoice(schedule_id):
             UPDATE jobs
             SET status = 'Invoiced'
             WHERE company_id = %s
+              AND recurring_schedule_id = %s
+              AND COALESCE(generated_from_schedule, FALSE) = TRUE
+              AND COALESCE(status, '') != 'Invoiced'
               AND id = ANY(%s)
             """,
-            (cid, invoiced_job_ids),
+            (cid, schedule_id, invoiced_job_ids),
         )
 
         conn.commit()

@@ -130,8 +130,30 @@ def recalc_job(conn, job_id):
     row = conn.execute(
         """
         SELECT
-            COALESCE(SUM(COALESCE(line_total, COALESCE(quantity, 0) * COALESCE(unit_price, 0), 0)), 0) AS revenue,
-            COALESCE(SUM(COALESCE(cost_amount, COALESCE(quantity, 0) * COALESCE(unit_cost, 0), 0)), 0) AS cost_total
+            COALESCE(
+                SUM(
+                    CASE
+                        WHEN COALESCE(billable, 1) = 1
+                            THEN COALESCE(
+                                line_total,
+                                COALESCE(quantity, 0) * COALESCE(unit_price, COALESCE(sale_price, 0)),
+                                0
+                            )
+                        ELSE 0
+                    END
+                ),
+                0
+            ) AS revenue,
+            COALESCE(
+                SUM(
+                    COALESCE(
+                        cost_amount,
+                        COALESCE(quantity, 0) * COALESCE(unit_cost, 0),
+                        0
+                    )
+                ),
+                0
+            ) AS cost_total
         FROM job_items
         WHERE job_id = %s
         """,
