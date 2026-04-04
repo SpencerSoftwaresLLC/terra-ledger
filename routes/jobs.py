@@ -2334,6 +2334,17 @@ def edit_recurring_schedule(schedule_id):
         (cid, schedule_id),
     ).fetchall()
 
+    recurring_items = conn.execute(
+        """
+        SELECT *
+        FROM recurring_mowing_schedule_items
+        WHERE company_id = %s
+          AND schedule_id = %s
+        ORDER BY id ASC
+        """,
+        (cid, schedule_id),
+    ).fetchall()
+
     customer_opts = "".join(
         f"<option value='{c['id']}' {'selected' if c['id'] == schedule['customer_id'] else ''}>{escape(clean_text_display(c['name'], 'Customer #' + str(c['id'])))}</option>"
         for c in customers
@@ -2360,6 +2371,77 @@ def edit_recurring_schedule(schedule_id):
         )
 
     generated_jobs_table = "".join(jobs_rows)
+
+    recurring_item_rows = []
+    recurring_item_mobile_cards = []
+
+    for item in recurring_items:
+        delete_item_csrf = generate_csrf()
+
+        unit_cost_display = f"${safe_float(item['unit_cost']):.2f}"
+        sale_price_display = f"${safe_float(item['sale_price']):.2f}"
+        total_cost_display = safe_float(item["quantity"]) * safe_float(item["unit_cost"])
+        total_revenue_display = safe_float(item["quantity"]) * safe_float(item["sale_price"])
+
+        recurring_item_rows.append(
+            f"""
+            <tr>
+                <td>{escape(display_item_type(item['item_type']))}</td>
+                <td class='wrap'>{escape(clean_text_display(item['description']))}</td>
+                <td class='money'>{safe_float(item['quantity']):g}</td>
+                <td>{escape(clean_text_display(item['unit']))}</td>
+                <td class='money'>{sale_price_display}</td>
+                <td class='money'>{unit_cost_display}</td>
+                <td class='money'>${total_cost_display:.2f}</td>
+                <td class='center'>{'Yes' if item['billable'] else 'No'}</td>
+                <td class='money'>${total_revenue_display:.2f}</td>
+                <td class='wrap'>
+                    <form method='post'
+                        action='{url_for("jobs.delete_recurring_schedule_item", schedule_id=schedule_id, item_id=item["id"])}'
+                        style='margin:0;'
+                        onsubmit="return confirm('Delete this recurring schedule item?');">
+                        <input type="hidden" name="csrf_token" value="{delete_item_csrf}">
+                        <button class='btn danger small' type='submit'>Delete</button>
+                    </form>
+                </td>
+            </tr>
+            """
+        )
+
+        recurring_item_mobile_cards.append(
+            f"""
+            <div class='mobile-list-card'>
+                <div class='mobile-list-top'>
+                    <div class='mobile-list-title'>{escape(display_item_type(item['item_type']))} - {escape(clean_text_display(item['description']))}</div>
+                    <div class='mobile-badge'>{'Billable' if item['billable'] else 'Non-Billable'}</div>
+                </div>
+
+                <div class='mobile-list-grid'>
+                    <div><span>Qty</span><strong>{safe_float(item['quantity']):g}</strong></div>
+                    <div><span>Unit</span><strong>{escape(clean_text_display(item['unit']))}</strong></div>
+                    <div><span>Sale Price</span><strong>{sale_price_display}</strong></div>
+                    <div><span>Unit Cost</span><strong>{unit_cost_display}</strong></div>
+                    <div><span>Total Cost</span><strong>${total_cost_display:.2f}</strong></div>
+                    <div><span>Total Revenue</span><strong>${total_revenue_display:.2f}</strong></div>
+                </div>
+
+                <div class='mobile-list-actions'>
+                    <form method='post'
+                        action='{url_for("jobs.delete_recurring_schedule_item", schedule_id=schedule_id, item_id=item["id"])}'
+                        style='margin:0;'
+                        onsubmit="return confirm('Delete this recurring schedule item?');">
+                        <input type="hidden" name="csrf_token" value="{delete_item_csrf}">
+                        <button class='btn danger small' type='submit'>Delete</button>
+                    </form>
+                </div>
+            </div>
+            """
+        )
+
+    recurring_item_rows_html = "".join(recurring_item_rows)
+    recurring_item_mobile_html = "".join(recurring_item_mobile_cards)
+
+    add_recurring_item_csrf = generate_csrf()
 
     interval_mode = interval_mode_from_weeks(schedule["interval_weeks"])
     custom_wrap_display = "block" if interval_mode == "custom" else "none"
@@ -2404,6 +2486,81 @@ def edit_recurring_schedule(schedule_id):
         .static-table th.wrap {{
             word-break:break-word;
             white-space:normal;
+        }}
+        .mobile-only {{
+            display:none;
+        }}
+        .desktop-only {{
+            display:block;
+        }}
+        .mobile-list {{
+            display:grid;
+            gap:12px;
+        }}
+        .mobile-list-card {{
+            border:1px solid rgba(15, 23, 42, 0.08);
+            border-radius:14px;
+            padding:14px;
+            background:#fff;
+            box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
+        }}
+        .mobile-list-top {{
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:10px;
+            margin-bottom:10px;
+        }}
+        .mobile-list-title {{
+            font-weight:700;
+            color:#0f172a;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+        .mobile-badge {{
+            font-size:.85rem;
+            font-weight:700;
+            color:#334155;
+            background:#f1f5f9;
+            padding:6px 10px;
+            border-radius:999px;
+            white-space:nowrap;
+        }}
+        .mobile-list-grid {{
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:10px 12px;
+            margin-bottom:12px;
+        }}
+        .mobile-list-grid span {{
+            display:block;
+            font-size:.78rem;
+            color:#64748b;
+            margin-bottom:3px;
+        }}
+        .mobile-list-grid strong {{
+            display:block;
+            color:#0f172a;
+            font-size:.95rem;
+            line-height:1.25;
+            word-break:break-word;
+        }}
+        .mobile-list-actions {{
+            display:flex;
+            gap:8px;
+            flex-wrap:wrap;
+            align-items:center;
+        }}
+        @media (max-width: 640px) {{
+            .desktop-only {{
+                display:none !important;
+            }}
+            .mobile-only {{
+                display:block !important;
+            }}
+            .mobile-list-grid {{
+                grid-template-columns:1fr;
+            }}
         }}
     </style>
 
@@ -2534,6 +2691,111 @@ def edit_recurring_schedule(schedule_id):
     </div>
 
     <div class='card'>
+        <h2>Recurring Schedule Items</h2>
+        <p class='muted'>These items will be copied into each newly generated recurring job. This is where you set the mowing price and costs.</p>
+
+        <form method='post' action='{url_for("jobs.add_recurring_schedule_item", schedule_id=schedule_id)}'>
+            <input type="hidden" name="csrf_token" value="{add_recurring_item_csrf}">
+            <div class='grid'>
+                <div>
+                    <label>Type</label>
+                    <select name='item_type' id='recurring_item_type' onchange='toggleRecurringItemMode()'>
+                        <option value='labor'>Labor</option>
+                        <option value='fuel'>Fuel</option>
+                        <option value='misc'>Misc</option>
+                        <option value='dump_fee'>Dump Fee</option>
+                        <option value='equipment'>Equipment</option>
+                        <option value='delivery'>Delivery</option>
+                        <option value='mulch'>Mulch</option>
+                        <option value='stone'>Stone</option>
+                        <option value='soil'>Soil</option>
+                        <option value='fertilizer'>Fertilizer</option>
+                        <option value='plants'>Plants</option>
+                        <option value='trees'>Trees</option>
+                        <option value='hardscape_material'>Hardscape Material</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label>Description</label>
+                    <input name='description' value='Mowing Service' required>
+                </div>
+
+                <div>
+                    <label id='recurring_quantity_label'>Quantity</label>
+                    <input type='number' step='0.01' name='quantity' id='recurring_quantity' value='1' required>
+                </div>
+
+                <div>
+                    <label>Unit</label>
+                    <input name='unit' id='recurring_unit' value='Hours'>
+                </div>
+
+                <div>
+                    <label id='recurring_sale_price_label'>Sale Price</label>
+                    <input type='number' step='0.01' name='sale_price' id='recurring_sale_price' value='0' required>
+                </div>
+
+                <div>
+                    <label id='recurring_cost_label'>Unit Cost</label>
+                    <input type='number' step='0.01' name='unit_cost' id='recurring_unit_cost' value='0'>
+                </div>
+
+                <div>
+                    <label>Billable?</label>
+                    <select name='billable'>
+                        <option value='1'>Yes</option>
+                        <option value='0'>No</option>
+                    </select>
+                </div>
+            </div>
+
+            <br>
+            <button class='btn success' type='submit'>Add Recurring Item</button>
+        </form>
+    </div>
+
+    <div class='card'>
+        <h2>Recurring Item List</h2>
+
+        <div class='static-table-wrap desktop-only'>
+            <table class='static-table'>
+                <colgroup>
+                    <col style='width:10%;'>
+                    <col style='width:22%;'>
+                    <col style='width:7%;'>
+                    <col style='width:8%;'>
+                    <col style='width:10%;'>
+                    <col style='width:10%;'>
+                    <col style='width:10%;'>
+                    <col style='width:8%;'>
+                    <col style='width:10%;'>
+                    <col style='width:15%;'>
+                </colgroup>
+                <tr>
+                    <th>Type</th>
+                    <th class='wrap'>Description</th>
+                    <th class='money'>Qty</th>
+                    <th>Unit</th>
+                    <th class='money'>Sale Price</th>
+                    <th class='money'>Unit Cost</th>
+                    <th class='money'>Total Cost</th>
+                    <th class='center'>Billable</th>
+                    <th class='money'>Revenue</th>
+                    <th class='wrap'>Actions</th>
+                </tr>
+                {recurring_item_rows_html or '<tr><td colspan="10" class="muted">No recurring items yet.</td></tr>'}
+            </table>
+        </div>
+
+        <div class='mobile-only'>
+            <div class='mobile-list'>
+                {recurring_item_mobile_html or "<div class='mobile-list-card'>No recurring items yet.</div>"}
+            </div>
+        </div>
+    </div>
+
+    <div class='card'>
         <h2>Generated Jobs Linked to This Schedule</h2>
         <table class='static-table'>
             <colgroup>
@@ -2563,11 +2825,217 @@ def edit_recurring_schedule(schedule_id):
             if (!mode || !wrap) return;
             wrap.style.display = mode.value === "custom" ? "block" : "none";
         }}
+
+        function toggleRecurringItemMode() {{
+            const type = document.getElementById('recurring_item_type').value;
+            const quantityLabel = document.getElementById('recurring_quantity_label');
+            const salePriceLabel = document.getElementById('recurring_sale_price_label');
+            const costLabel = document.getElementById('recurring_cost_label');
+            const unitInput = document.getElementById('recurring_unit');
+            const quantityInput = document.getElementById('recurring_quantity');
+            const unitCostInput = document.getElementById('recurring_unit_cost');
+
+            quantityLabel.innerText = 'Quantity';
+            salePriceLabel.innerText = 'Sale Price';
+            costLabel.innerText = 'Unit Cost';
+
+            if (quantityInput) {{
+                quantityInput.readOnly = false;
+                quantityInput.step = '0.01';
+            }}
+
+            if (type === 'mulch') {{
+                quantityLabel.innerText = 'Yards';
+                unitInput.value = 'Yards';
+            }} else if (type === 'stone') {{
+                quantityLabel.innerText = 'Tons';
+                unitInput.value = 'Tons';
+            }} else if (type === 'soil') {{
+                quantityLabel.innerText = 'Yards';
+                unitInput.value = 'Yards';
+            }} else if (type === 'hardscape_material') {{
+                quantityLabel.innerText = 'Tons';
+                unitInput.value = 'Tons';
+            }} else if (type === 'fuel') {{
+                quantityLabel.innerText = 'Gallons';
+                unitInput.value = 'Gallons';
+            }} else if (type === 'delivery') {{
+                quantityLabel.innerText = 'Miles';
+                unitInput.value = 'Miles';
+            }} else if (type === 'labor') {{
+                quantityLabel.innerText = 'Billable Hours';
+                salePriceLabel.innerText = 'Hourly Rate';
+                unitInput.value = 'Hours';
+                if (unitCostInput) unitCostInput.value = '0';
+            }} else if (type === 'equipment') {{
+                quantityLabel.innerText = 'Rentals';
+                unitInput.value = 'Rentals';
+            }} else if (type === 'dump_fee') {{
+                quantityLabel.innerText = 'Fee';
+                salePriceLabel.innerText = 'Fee Amount';
+                unitInput.value = '';
+                if (unitCostInput) unitCostInput.value = '0';
+                if (quantityInput) {{
+                    quantityInput.value = '1';
+                    quantityInput.readOnly = true;
+                }}
+            }} else if (type === 'plants' || type === 'trees' || type === 'misc' || type === 'fertilizer') {{
+                quantityLabel.innerText = 'Quantity';
+                if (type === 'fertilizer') {{
+                    unitInput.value = 'Bags';
+                }} else {{
+                    unitInput.value = '';
+                }}
+            }}
+        }}
+
         toggleEditCustomInterval();
+        toggleRecurringItemMode();
     </script>
     """
     conn.close()
     return render_page(content, f"Recurring Schedule #{schedule_id}")
+
+@jobs_bp.route("/jobs/recurring/<int:schedule_id>/items/add", methods=["POST"])
+@login_required
+@subscription_required
+@require_permission("can_manage_jobs")
+def add_recurring_schedule_item(schedule_id):
+    ensure_job_schedule_columns()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    schedule = conn.execute(
+        """
+        SELECT id, company_id
+        FROM recurring_mowing_schedules
+        WHERE id = %s AND company_id = %s
+        """,
+        (schedule_id, cid),
+    ).fetchone()
+
+    if not schedule:
+        conn.close()
+        flash("Recurring mowing schedule not found.")
+        return redirect(url_for("jobs.jobs"))
+
+    item_type = clean_text_input(request.form.get("item_type", "")).lower()
+    description = clean_text_input(request.form.get("description", ""))
+    qty = safe_float(request.form.get("quantity"))
+    unit = clean_text_input(request.form.get("unit", ""))
+    sale_price = safe_float(request.form.get("sale_price"))
+    unit_cost = safe_float(request.form.get("unit_cost"))
+    billable = 1 if request.form.get("billable") == "1" else 0
+
+    if not description:
+        conn.close()
+        flash("Description is required.")
+        return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+    if item_type == "mulch" and not unit:
+        unit = "Yards"
+    elif item_type == "stone" and not unit:
+        unit = "Tons"
+    elif item_type == "soil" and not unit:
+        unit = "Yards"
+    elif item_type == "hardscape_material" and not unit:
+        unit = "Tons"
+    elif item_type == "fuel" and not unit:
+        unit = "Gallons"
+    elif item_type == "delivery" and not unit:
+        unit = "Miles"
+    elif item_type == "labor" and not unit:
+        unit = "Hours"
+    elif item_type == "equipment" and not unit:
+        unit = "Rentals"
+    elif item_type in ["plants", "trees", "misc", "dump_fee"]:
+        unit = ""
+
+    if item_type == "labor":
+        unit_cost = 0.0
+
+    if item_type == "dump_fee":
+        unit = ""
+        if qty <= 0:
+            qty = 1
+        unit_cost = 0.0
+
+    conn.execute(
+        """
+        INSERT INTO recurring_mowing_schedule_items (
+            schedule_id,
+            company_id,
+            item_type,
+            description,
+            quantity,
+            unit,
+            unit_cost,
+            sale_price,
+            billable
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            schedule_id,
+            cid,
+            item_type,
+            description,
+            qty,
+            unit,
+            unit_cost,
+            sale_price,
+            billable,
+        ),
+    )
+
+    conn.commit()
+    conn.close()
+
+    flash("Recurring schedule item added.")
+    return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+
+@jobs_bp.route("/jobs/recurring/<int:schedule_id>/items/<int:item_id>/delete", methods=["POST"])
+@login_required
+@subscription_required
+@require_permission("can_manage_jobs")
+def delete_recurring_schedule_item(schedule_id, item_id):
+    ensure_job_schedule_columns()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    item = conn.execute(
+        """
+        SELECT id
+        FROM recurring_mowing_schedule_items
+        WHERE id = %s
+          AND schedule_id = %s
+          AND company_id = %s
+        """,
+        (item_id, schedule_id, cid),
+    ).fetchone()
+
+    if not item:
+        conn.close()
+        flash("Recurring schedule item not found.")
+        return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+    conn.execute(
+        """
+        DELETE FROM recurring_mowing_schedule_items
+        WHERE id = %s
+          AND schedule_id = %s
+          AND company_id = %s
+        """,
+        (item_id, schedule_id, cid),
+    )
+    conn.commit()
+    conn.close()
+
+    flash("Recurring schedule item deleted.")
+    return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
 
 @jobs_bp.route("/jobs/recurring/<int:schedule_id>/toggle", methods=["POST"])
