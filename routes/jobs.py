@@ -2736,7 +2736,7 @@ def edit_recurring_schedule(schedule_id):
                     <input type='number' step='0.01' name='sale_price' id='recurring_sale_price' value='0' required>
                 </div>
 
-                <div>
+                <div id="unit_cost_wrap">
                     <label id='recurring_cost_label'>Unit Cost</label>
                     <input type='number' step='0.01' name='unit_cost' id='recurring_unit_cost' value='0'>
                 </div>
@@ -2828,13 +2828,19 @@ def edit_recurring_schedule(schedule_id):
 
         function toggleRecurringItemMode() {{
             const type = document.getElementById('recurring_item_type').value;
+
             const quantityLabel = document.getElementById('recurring_quantity_label');
             const salePriceLabel = document.getElementById('recurring_sale_price_label');
             const costLabel = document.getElementById('recurring_cost_label');
+
             const unitInput = document.getElementById('recurring_unit');
             const quantityInput = document.getElementById('recurring_quantity');
             const unitCostInput = document.getElementById('recurring_unit_cost');
 
+            // 🔥 IMPORTANT — get the parent container so we can hide it
+            const unitCostWrap = unitCostInput?.closest("div");
+
+            // Reset defaults
             quantityLabel.innerText = 'Quantity';
             salePriceLabel.innerText = 'Sale Price';
             costLabel.innerText = 'Unit Cost';
@@ -2844,48 +2850,75 @@ def edit_recurring_schedule(schedule_id):
                 quantityInput.step = '0.01';
             }}
 
-            if (type === 'mulch') {{
-                quantityLabel.innerText = 'Yards';
-                unitInput.value = 'Yards';
-            }} else if (type === 'stone') {{
-                quantityLabel.innerText = 'Tons';
-                unitInput.value = 'Tons';
-            }} else if (type === 'soil') {{
-                quantityLabel.innerText = 'Yards';
-                unitInput.value = 'Yards';
-            }} else if (type === 'hardscape_material') {{
-                quantityLabel.innerText = 'Tons';
-                unitInput.value = 'Tons';
-            }} else if (type === 'fuel') {{
-                quantityLabel.innerText = 'Gallons';
-                unitInput.value = 'Gallons';
-            }} else if (type === 'delivery') {{
-                quantityLabel.innerText = 'Miles';
-                unitInput.value = 'Miles';
-            }} else if (type === 'labor') {{
+            // ✅ SHOW unit cost by default
+            if (unitCostWrap) unitCostWrap.style.display = 'block';
+
+            if (type === 'labor') {{
                 quantityLabel.innerText = 'Billable Hours';
                 salePriceLabel.innerText = 'Hourly Rate';
                 unitInput.value = 'Hours';
+
+                // 🔥 HIDE UNIT COST FOR LABOR
+                if (unitCostWrap) unitCostWrap.style.display = 'none';
+
                 if (unitCostInput) unitCostInput.value = '0';
-            }} else if (type === 'equipment') {{
+            }}
+
+            else if (type === 'mulch') {{
+                quantityLabel.innerText = 'Yards';
+                unitInput.value = 'Yards';
+            }}
+
+            else if (type === 'stone') {{
+                quantityLabel.innerText = 'Tons';
+                unitInput.value = 'Tons';
+            }}
+
+            else if (type === 'soil') {{
+                quantityLabel.innerText = 'Yards';
+                unitInput.value = 'Yards';
+            }}
+
+            else if (type === 'hardscape_material') {{
+                quantityLabel.innerText = 'Tons';
+                unitInput.value = 'Tons';
+            }}
+
+            else if (type === 'fuel') {{
+                quantityLabel.innerText = 'Gallons';
+                unitInput.value = 'Gallons';
+            }}
+
+            else if (type === 'delivery') {{
+                quantityLabel.innerText = 'Miles';
+                unitInput.value = 'Miles';
+            }}
+
+            else if (type === 'equipment') {{
                 quantityLabel.innerText = 'Rentals';
                 unitInput.value = 'Rentals';
-            }} else if (type === 'dump_fee') {{
+            }}
+
+            else if (type === 'dump_fee') {{
                 quantityLabel.innerText = 'Fee';
                 salePriceLabel.innerText = 'Fee Amount';
                 unitInput.value = '';
+
+                if (unitCostWrap) unitCostWrap.style.display = 'none';
                 if (unitCostInput) unitCostInput.value = '0';
+
                 if (quantityInput) {{
                     quantityInput.value = '1';
                     quantityInput.readOnly = true;
                 }}
-            }} else if (type === 'plants' || type === 'trees' || type === 'misc' || type === 'fertilizer') {{
-                quantityLabel.innerText = 'Quantity';
-                if (type === 'fertilizer') {{
-                    unitInput.value = 'Bags';
-                }} else {{
-                    unitInput.value = '';
-                }}
+            }}
+
+            else if (type === 'fertilizer') {{
+                unitInput.value = 'Bags';
+            }}
+
+            else {{
+                unitInput.value = '';
             }}
         }}
 
@@ -2926,7 +2959,7 @@ def add_recurring_schedule_item(schedule_id):
     unit = clean_text_input(request.form.get("unit", ""))
     sale_price = safe_float(request.form.get("sale_price"))
     unit_cost = safe_float(request.form.get("unit_cost"))
-    billable = 1 if request.form.get("billable") == "1" else 0
+    billable = True if request.form.get("billable") == "1" else False
 
     if not description:
         conn.close()
@@ -2949,11 +2982,10 @@ def add_recurring_schedule_item(schedule_id):
         unit = "Hours"
     elif item_type == "equipment" and not unit:
         unit = "Rentals"
+    elif item_type == "fertilizer" and not unit:
+        unit = "Bags"
     elif item_type in ["plants", "trees", "misc", "dump_fee"]:
         unit = ""
-
-    if item_type == "labor":
-        unit_cost = 0.0
 
     if item_type == "dump_fee":
         unit = ""
@@ -2961,11 +2993,12 @@ def add_recurring_schedule_item(schedule_id):
             qty = 1
         unit_cost = 0.0
 
-    conn.execute(
+    cur = conn.cursor()
+    cur.execute(
         """
         INSERT INTO recurring_mowing_schedule_items (
-            schedule_id,
             company_id,
+            schedule_id,
             item_type,
             description,
             quantity,
@@ -2975,10 +3008,11 @@ def add_recurring_schedule_item(schedule_id):
             billable
         )
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
         """,
         (
-            schedule_id,
             cid,
+            schedule_id,
             item_type,
             description,
             qty,
@@ -2988,6 +3022,14 @@ def add_recurring_schedule_item(schedule_id):
             billable,
         ),
     )
+    row = cur.fetchone()
+    item_id = row["id"] if row and "id" in row else None
+
+    if not item_id:
+        conn.rollback()
+        conn.close()
+        flash("Could not add recurring schedule item.")
+        return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
     conn.commit()
     conn.close()
