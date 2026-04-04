@@ -2483,9 +2483,9 @@ def edit_recurring_schedule(schedule_id):
                 <td class='money'>${total_revenue_display:.2f}</td>
                 <td class='wrap'>
                     <form method='post'
-                        action='{url_for("jobs.delete_recurring_schedule_item", schedule_id=schedule_id, item_id=item["id"])}'
-                        style='margin:0;'
-                        onsubmit="return confirm('Delete this recurring schedule item?');">
+                          action='{url_for("jobs.delete_recurring_schedule_item", schedule_id=schedule_id, item_id=item["id"])}'
+                          style='margin:0;'
+                          onsubmit="return confirm('Delete this recurring schedule item?');">
                         <input type="hidden" name="csrf_token" value="{delete_item_csrf}">
                         <button class='btn danger small' type='submit'>Delete</button>
                     </form>
@@ -2513,9 +2513,9 @@ def edit_recurring_schedule(schedule_id):
 
                 <div class='mobile-list-actions'>
                     <form method='post'
-                        action='{url_for("jobs.delete_recurring_schedule_item", schedule_id=schedule_id, item_id=item["id"])}'
-                        style='margin:0;'
-                        onsubmit="return confirm('Delete this recurring schedule item?');">
+                          action='{url_for("jobs.delete_recurring_schedule_item", schedule_id=schedule_id, item_id=item["id"])}'
+                          style='margin:0;'
+                          onsubmit="return confirm('Delete this recurring schedule item?');">
                         <input type="hidden" name="csrf_token" value="{delete_item_csrf}">
                         <button class='btn danger small' type='submit'>Delete</button>
                     </form>
@@ -2922,73 +2922,59 @@ def edit_recurring_schedule(schedule_id):
             const unitInput = document.getElementById('recurring_unit');
             const quantityInput = document.getElementById('recurring_quantity');
             const unitCostInput = document.getElementById('recurring_unit_cost');
+            const unitCostWrap = unitCostInput ? unitCostInput.closest("div") : null;
 
-            // 🔥 IMPORTANT — get the parent container so we can hide it
-            const unitCostWrap = unitCostInput?.closest("div");
-
-            // Reset defaults
-            quantityLabel.innerText = 'Quantity';
-            salePriceLabel.innerText = 'Sale Price';
-            costLabel.innerText = 'Unit Cost';
+            if (quantityLabel) quantityLabel.innerText = 'Quantity';
+            if (salePriceLabel) salePriceLabel.innerText = 'Sale Price';
+            if (costLabel) costLabel.innerText = 'Unit Cost';
 
             if (quantityInput) {{
                 quantityInput.readOnly = false;
                 quantityInput.step = '0.01';
             }}
 
-            // ✅ SHOW unit cost by default
             if (unitCostWrap) unitCostWrap.style.display = 'block';
 
             if (type === 'labor') {{
-                quantityLabel.innerText = 'Billable Hours';
-                salePriceLabel.innerText = 'Hourly Rate';
-                unitInput.value = 'Hours';
+                if (quantityLabel) quantityLabel.innerText = 'Billable Hours';
+                if (salePriceLabel) salePriceLabel.innerText = 'Hourly Rate';
+                if (unitInput) unitInput.value = 'Hours';
 
-                // 🔥 HIDE UNIT COST FOR LABOR
                 if (unitCostWrap) unitCostWrap.style.display = 'none';
-
                 if (unitCostInput) unitCostInput.value = '0';
             }}
-
             else if (type === 'mulch') {{
-                quantityLabel.innerText = 'Yards';
-                unitInput.value = 'Yards';
+                if (quantityLabel) quantityLabel.innerText = 'Yards';
+                if (unitInput) unitInput.value = 'Yards';
             }}
-
             else if (type === 'stone') {{
-                quantityLabel.innerText = 'Tons';
-                unitInput.value = 'Tons';
+                if (quantityLabel) quantityLabel.innerText = 'Tons';
+                if (unitInput) unitInput.value = 'Tons';
             }}
-
             else if (type === 'soil') {{
-                quantityLabel.innerText = 'Yards';
-                unitInput.value = 'Yards';
+                if (quantityLabel) quantityLabel.innerText = 'Yards';
+                if (unitInput) unitInput.value = 'Yards';
             }}
-
             else if (type === 'hardscape_material') {{
-                quantityLabel.innerText = 'Tons';
-                unitInput.value = 'Tons';
+                if (quantityLabel) quantityLabel.innerText = 'Tons';
+                if (unitInput) unitInput.value = 'Tons';
             }}
-
             else if (type === 'fuel') {{
-                quantityLabel.innerText = 'Gallons';
-                unitInput.value = 'Gallons';
+                if (quantityLabel) quantityLabel.innerText = 'Gallons';
+                if (unitInput) unitInput.value = 'Gallons';
             }}
-
             else if (type === 'delivery') {{
-                quantityLabel.innerText = 'Miles';
-                unitInput.value = 'Miles';
+                if (quantityLabel) quantityLabel.innerText = 'Miles';
+                if (unitInput) unitInput.value = 'Miles';
             }}
-
             else if (type === 'equipment') {{
-                quantityLabel.innerText = 'Rentals';
-                unitInput.value = 'Rentals';
+                if (quantityLabel) quantityLabel.innerText = 'Rentals';
+                if (unitInput) unitInput.value = 'Rentals';
             }}
-
             else if (type === 'dump_fee') {{
-                quantityLabel.innerText = 'Fee';
-                salePriceLabel.innerText = 'Fee Amount';
-                unitInput.value = '';
+                if (quantityLabel) quantityLabel.innerText = 'Fee';
+                if (salePriceLabel) salePriceLabel.innerText = 'Fee Amount';
+                if (unitInput) unitInput.value = '';
 
                 if (unitCostWrap) unitCostWrap.style.display = 'none';
                 if (unitCostInput) unitCostInput.value = '0';
@@ -2998,13 +2984,11 @@ def edit_recurring_schedule(schedule_id):
                     quantityInput.readOnly = true;
                 }}
             }}
-
             else if (type === 'fertilizer') {{
-                unitInput.value = 'Bags';
+                if (unitInput) unitInput.value = 'Bags';
             }}
-
             else {{
-                unitInput.value = '';
+                if (unitInput) unitInput.value = '';
             }}
         }}
 
@@ -3265,6 +3249,48 @@ def delete_recurring_schedule(schedule_id):
         conn.close()
 
     return redirect(url_for("jobs.jobs"))
+
+
+@jobs_bp.route("/jobs/recurring/<int:schedule_id>/items/<int:item_id>/delete", methods=["POST"])
+@login_required
+@subscription_required
+@require_permission("can_manage_jobs")
+def delete_recurring_schedule_item(schedule_id, item_id):
+    ensure_job_schedule_columns()
+
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    item = conn.execute(
+        """
+        SELECT id
+        FROM recurring_mowing_schedule_items
+        WHERE id = %s
+          AND schedule_id = %s
+          AND company_id = %s
+        """,
+        (item_id, schedule_id, cid),
+    ).fetchone()
+
+    if not item:
+        conn.close()
+        flash("Recurring schedule item not found.")
+        return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+    conn.execute(
+        """
+        DELETE FROM recurring_mowing_schedule_items
+        WHERE id = %s
+          AND schedule_id = %s
+          AND company_id = %s
+        """,
+        (item_id, schedule_id, cid),
+    )
+    conn.commit()
+    conn.close()
+
+    flash("Recurring schedule item deleted.")
+    return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
 
 @jobs_bp.route("/jobs/recurring/<int:schedule_id>/toggle", methods=["POST"])
