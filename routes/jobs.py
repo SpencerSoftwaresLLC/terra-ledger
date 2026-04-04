@@ -621,7 +621,7 @@ def copy_recurring_schedule_items_to_job(conn, schedule_id, company_id, job_id):
         unit = clean_text_input(item["unit"])
         sale_price = safe_float(item["sale_price"])
         unit_cost = safe_float(item["unit_cost"])
-        billable = 1 if item["billable"] else 0
+        billable = True if item["billable"] else False
 
         if not description:
             continue
@@ -784,7 +784,7 @@ def create_job_from_recurring_schedule(conn, schedule_row, scheduled_date):
         sale_price = safe_float(item["sale_price"], 0)
         unit_price = safe_float(item["sale_price"], 0)
         unit_cost = safe_float(item["unit_cost"], 0)
-        billable_value = 1 if item["billable"] else 0
+        billable_value = True if item["billable"] else False
 
         if qty <= 0:
             qty = 1.0
@@ -3019,7 +3019,7 @@ def add_recurring_schedule_item(schedule_id):
     unit = clean_text_input(request.form.get("unit", ""))
     sale_price = safe_float(request.form.get("sale_price"))
     unit_cost = safe_float(request.form.get("unit_cost"))
-    billable = 1 if request.form.get("billable") == "1" else 0
+    billable = True if request.form.get("billable") == "1" else False
 
     if not description:
         conn.close()
@@ -3696,7 +3696,7 @@ def view_job(job_id):
         unit = clean_text_input(request.form.get("unit", ""))
         sale_price = safe_float(request.form.get("sale_price"))
         unit_cost = safe_float(request.form.get("unit_cost"))
-        billable = 1 if request.form.get("billable") == "1" else 0
+        billable = True if request.form.get("billable") == "1" else False
 
         if not description:
             conn.close()
@@ -4981,7 +4981,7 @@ def edit_job_item(job_id, item_id):
         qty = safe_float(request.form.get("quantity"))
         sale_price = safe_float(request.form.get("sale_price"))
         unit_cost = safe_float(request.form.get("unit_cost"))
-        billable = 1 if request.form.get("billable") == "1" else 0
+        billable = request.form.get("billable") == "1"
 
         if not description:
             conn.close()
