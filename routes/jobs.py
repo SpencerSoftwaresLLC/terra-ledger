@@ -612,52 +612,6 @@ def get_recurring_schedule_items(conn, company_id, schedule_id):
     ).fetchall()
 
 
-def add_default_recurring_mowing_items(conn, company_id, schedule_id):
-    existing = conn.execute(
-        """
-        SELECT id
-        FROM recurring_mowing_schedule_items
-        WHERE company_id = %s
-          AND schedule_id = %s
-        LIMIT 1
-        """,
-        (company_id, schedule_id),
-    ).fetchone()
-
-    if existing:
-        return
-
-    cur = conn.cursor()
-
-    cur.execute(
-        """
-        INSERT INTO recurring_mowing_schedule_items (
-            schedule_id,
-            company_id,
-            item_type,
-            description,
-            quantity,
-            unit,
-            unit_cost,
-            sale_price,
-            billable
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """,
-        (
-            schedule_id,
-            company_id,
-            "labor",
-            "Mowing Service",
-            1.00,
-            "Hours",
-            0.00,
-            0.00,
-            True,
-        ),
-    )
-
-
 def copy_recurring_schedule_items_to_job(conn, schedule_id, company_id, job_id):
     items = get_recurring_schedule_items(conn, company_id, schedule_id)
 
