@@ -2577,6 +2577,10 @@ def delete_invoice(invoice_id):
         conn.close()
         abort(404)
 
+    notes_text = (invoice["notes"] or "").strip() if "notes" in invoice.keys() and invoice["notes"] else ""
+    recurring_schedule_id = None
+
+    # Handle standard job invoice
     if "job_id" in invoice.keys() and invoice["job_id"]:
         conn.execute(
             """
@@ -2587,6 +2591,7 @@ def delete_invoice(invoice_id):
             (invoice["job_id"], cid),
         )
 
+    # Handle standard quote invoice
     if "quote_id" in invoice.keys() and invoice["quote_id"]:
         conn.execute(
             """
@@ -2595,6 +2600,30 @@ def delete_invoice(invoice_id):
             WHERE id = %s AND company_id = %s
             """,
             (invoice["quote_id"], cid),
+        )
+
+    # Handle recurring schedule aggregate invoice
+    # Notes format created earlier:
+    # "Recurring schedule invoice for Schedule #<id> - <title>"
+    if notes_text.lower().startswith("recurring schedule invoice for schedule #"):
+        try:
+            prefix = "Recurring schedule invoice for Schedule #"
+            remainder = notes_text[len(prefix):]
+            recurring_schedule_id = int(remainder.split(" ", 1)[0].split("-", 1)[0].strip())
+        except Exception:
+            recurring_schedule_id = None
+
+    if recurring_schedule_id:
+        conn.execute(
+            """
+            UPDATE jobs
+            SET status = 'Completed'
+            WHERE company_id = %s
+              AND recurring_schedule_id = %s
+              AND COALESCE(generated_from_schedule, FALSE) = TRUE
+              AND COALESCE(status, '') = 'Invoiced'
+            """,
+            (cid, recurring_schedule_id),
         )
 
     conn.execute(
