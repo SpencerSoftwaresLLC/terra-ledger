@@ -4215,3 +4215,41 @@ def restore_backup():
     """
 
     return render_page(content, "Restore Backup")
+
+@settings_bp.route("/fix-billable-column")
+@login_required
+@require_permission("can_manage_settings")
+def fix_billable_column():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        # Fix recurring mowing items
+        cur.execute("""
+            ALTER TABLE recurring_mowing_schedule_items
+            ALTER COLUMN billable TYPE BOOLEAN
+            USING CASE
+                WHEN billable IN (1, '1', TRUE, 'true', 't', 'yes', 'on') THEN TRUE
+                ELSE FALSE
+            END
+        """)
+
+        # Fix job_items
+        cur.execute("""
+            ALTER TABLE job_items
+            ALTER COLUMN billable TYPE BOOLEAN
+            USING CASE
+                WHEN billable IN (1, '1', TRUE, 'true', 't', 'yes', 'on') THEN TRUE
+                ELSE FALSE
+            END
+        """)
+
+        conn.commit()
+        return "Billable columns fixed ✅"
+
+    except Exception as e:
+        conn.rollback()
+        return f"Error: {str(e)}"
+
+    finally:
+        conn.close()
