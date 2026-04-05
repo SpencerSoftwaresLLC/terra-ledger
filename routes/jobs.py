@@ -4771,89 +4771,75 @@ def edit_job(job_id):
         return redirect(url_for("jobs.jobs"))
 
     customers = conn.execute(
-        "SELECT id, name FROM customers WHERE company_id = %s ORDER BY name",
+        """
+        SELECT id, name
+        FROM customers
+        WHERE company_id = %s
+        ORDER BY name
+        """,
         (cid,),
     ).fetchall()
 
     if request.method == "POST":
-        item_type = clean_text_input(request.form.get("item_type", "")).lower()
-        description = clean_text_input(request.form.get("description", ""))
-        unit = clean_text_input(request.form.get("unit", ""))
-        qty = safe_float(request.form.get("quantity"))
-        sale_price = safe_float(request.form.get("sale_price"))
-        unit_cost = safe_float(request.form.get("unit_cost"))
-        billable = request.form.get("billable") == "1"
+        customer_id = request.form.get("customer_id", type=int)
+        title = clean_text_input(request.form.get("title"))
+        service_type = clean_text_input(request.form.get("service_type")).lower()
+        scheduled_date = clean_text_input(request.form.get("scheduled_date"))
+        scheduled_start_time = clean_text_input(request.form.get("scheduled_start_time"))
+        scheduled_end_time = clean_text_input(request.form.get("scheduled_end_time"))
+        assigned_to = clean_text_input(request.form.get("assigned_to"))
+        status = clean_text_input(request.form.get("status")) or "Scheduled"
+        address = clean_text_input(request.form.get("address"))
+        notes = clean_text_input(request.form.get("notes"))
 
-        if not description:
+        if not customer_id:
             conn.close()
-            flash("Description is required.")
-            return redirect(url_for("jobs.edit_job_item", job_id=job_id, item_id=item_id))
+            flash("Please select a customer.")
+            return redirect(url_for("jobs.edit_job", job_id=job_id))
 
-        if item_type == "mulch" and not unit:
-            unit = "Yards"
-        elif item_type == "stone" and not unit:
-            unit = "Tons"
-        elif item_type == "soil" and not unit:
-            unit = "Yards"
-        elif item_type == "hardscape_material" and not unit:
-            unit = "Tons"
-        elif item_type == "fuel" and not unit:
-            unit = "Gallons"
-        elif item_type == "delivery" and not unit:
-            unit = "Miles"
-        elif item_type == "labor" and not unit:
-            unit = "Hours"
-        elif item_type == "equipment" and not unit:
-            unit = "Rentals"
-        elif item_type in ["plants", "trees", "misc", "dump_fee"]:
-            unit = ""
+        if not title:
+            conn.close()
+            flash("Job title is required.")
+            return redirect(url_for("jobs.edit_job", job_id=job_id))
 
-        if item_type == "dump_fee":
-            unit = ""
-            if qty <= 0:
-                qty = 1
-            unit_cost = 0.0
-
-        line_total = qty * sale_price if billable else 0.0
-        cost_amount = qty * unit_cost
+        if service_type == "none":
+            service_type = ""
 
         conn.execute(
             """
-            UPDATE job_items
-            SET item_type = %s,
-                description = %s,
-                quantity = %s,
-                unit = %s,
-                unit_cost = %s,
-                unit_price = %s,
-                sale_price = %s,
-                cost_amount = %s,
-                line_total = %s,
-                billable = %s
-            WHERE id = %s AND job_id = %s
+            UPDATE jobs
+            SET customer_id = %s,
+                title = %s,
+                service_type = %s,
+                scheduled_date = %s,
+                scheduled_start_time = %s,
+                scheduled_end_time = %s,
+                assigned_to = %s,
+                status = %s,
+                address = %s,
+                notes = %s
+            WHERE id = %s AND company_id = %s
             """,
             (
-                item_type,
-                description,
-                qty,
-                unit,
-                unit_cost,
-                sale_price,
-                sale_price,
-                cost_amount,
-                line_total,
-                billable,
-                item_id,
+                customer_id,
+                title,
+                service_type or None,
+                scheduled_date or None,
+                scheduled_start_time or None,
+                scheduled_end_time or None,
+                assigned_to,
+                status,
+                address,
+                notes,
                 job_id,
+                cid,
             ),
         )
 
-        ensure_job_cost_ledger(conn, item_id)
-        recalc_job(conn, job_id)
         conn.commit()
         conn.close()
 
-        flash("Job item updated.")
+        flash("Job updated.")
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     customer_opts = "".join(
@@ -4864,7 +4850,7 @@ def edit_job(job_id):
     edit_job_csrf = generate_csrf()
 
     recurring_note = ""
-    if job["recurring_schedule_id"]:
+    if "recurring_schedule_id" in job.keys() and job["recurring_schedule_id"]:
         recurring_note = f"""
         <div class="card" style="margin-bottom:16px;">
             <strong>This job was generated from recurring schedule #{job["recurring_schedule_id"]}.</strong><br>
@@ -4936,6 +4922,7 @@ def edit_job(job_id):
         </form>
     </div>
     """
+
     conn.close()
     return render_page(content, f"Edit Job #{job['id']}")
 
