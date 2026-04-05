@@ -1765,15 +1765,26 @@ def view_invoice(invoice_id):
     """
 
     email_invoice_btn = f"""
-    <form method='post' action='{url_for("invoices.send_invoice_email", invoice_id=invoice_id)}'>
-        <input type="hidden" name="csrf_token" value="{generate_csrf()}">
-        <button class='btn success'>Email Invoice</button>
-    </form>
-    """
+        <form method='post' action='{url_for("invoices.send_invoice_email", invoice_id=invoice_id)}'>
+            <input type="hidden" name="csrf_token" value="{generate_csrf()}">
+            <button class='btn success'>Email Invoice</button>
+        </form>
+        """
+
+    preview_invoice_btn = f"""
+        <a class='btn secondary' href='{url_for("invoices.email_invoice_preview", invoice_id=invoice_id)}'>Email Preview</a>
+        """
 
     add_payment_btn = f"""
-    <a class='btn warning' href='{url_for("invoices.add_invoice_payment", invoice_id=invoice_id)}'>Add Payment</a>
-    """
+        <a class='btn warning' href='{url_for("invoices.add_invoice_payment", invoice_id=invoice_id)}'>Add Payment</a>
+        """
+
+    delete_invoice_btn = f"""
+        <form method='post' action='{url_for("invoices.delete_invoice", invoice_id=invoice_id)}' onsubmit="return confirm('Delete this invoice, its items, and its payments?');">
+            <input type="hidden" name="csrf_token" value="{generate_csrf()}">
+            <button class='btn danger'>Delete Invoice</button>
+        </form>
+        """
 
     # ---------- PAGE ----------
     content = f"""
@@ -1836,8 +1847,10 @@ def view_invoice(invoice_id):
             <div class='row-actions'>
                 <a class='btn secondary' href='{url_for("invoices.invoices")}'>Back</a>
                 {email_invoice_btn}
+                {preview_invoice_btn}
                 {add_payment_btn}
                 {toggle_btn}
+                {delete_invoice_btn}
             </div>
         </div>
 
@@ -1979,11 +1992,12 @@ def toggle_invoice_paid(invoice_id):
     return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
 
-@invoices_bp.route("/invoices/<int:invoice_id>/email")
+@invoices_bp.route("/invoices/<int:invoice_id>/email_preview")
 @login_required
 @subscription_required
 @require_permission("can_manage_invoices")
 def email_invoice_preview(invoice_id):
+    ensure_document_number_columns()
     ensure_invoice_payment_table()
 
     conn = get_db_connection()
@@ -1993,7 +2007,7 @@ def email_invoice_preview(invoice_id):
         """
         SELECT i.*, c.name AS customer_name, c.email AS customer_email
         FROM invoices i
-        JOIN customers c ON i.customer_id = c.id
+        LEFT JOIN customers c ON i.customer_id = c.id
         WHERE i.id = %s AND i.company_id = %s
         """,
         (invoice_id, cid),
@@ -2002,87 +2016,10 @@ def email_invoice_preview(invoice_id):
     if not invoice:
         conn.close()
         abort(404)
-
-    recipient = (invoice["customer_email"] or "").strip()
-    conn.close()
-
-    preview_url = url_for("invoices.preview_invoice_pdf", invoice_id=invoice_id)
-    send_url = url_for("invoices.send_invoice_email", invoice_id=invoice_id)
-    preview_csrf = generate_csrf()
-
-    content = f"""
-    <div class='card'>
-        <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
-            <div>
-                <h1 style='margin-bottom:6px;'>Email Invoice #{invoice['invoice_number'] or invoice['id']}</h1>
-                <p style='margin:0;'>
-                    <strong>Customer:</strong> {escape(invoice['customer_name'] or '-')}<br>
-                    <strong>Email:</strong> {escape(recipient or 'No email on file')}<br>
-                    <strong>Total:</strong> ${_safe_float(invoice['total']):.2f}<br>
-                    <strong>Balance Due:</strong> ${_safe_float(invoice['balance_due']):.2f}
-                </p>
-            </div>
-            <div class='row-actions'>
-                <a class='btn secondary' href='{url_for("invoices.view_invoice", invoice_id=invoice_id)}'>Back to Invoice</a>
-                <a class='btn secondary' href='{preview_url}' target='_blank'>Open PDF Preview</a>
-            </div>
-        </div>
-    </div>
-
-    <div class='card'>
-        <h2>Preview</h2>
-        <div style='margin-bottom:14px;'>
-            <iframe src='{preview_url}' style='width:100%; height:820px; border:1px solid #dbe2ea; border-radius:12px; background:#fff;'></iframe>
-        </div>
-
-        {"<div class='notice warning'>This customer does not have an email address yet. Add one before sending.</div>" if not recipient else ""}
-
-        <form method='post' action='{send_url}' onsubmit="return confirm('Send this invoice by email now?');">
-            <input type="hidden" name="csrf_token" value="{preview_csrf}">
-            <button class='btn' type='submit' {"disabled" if not recipient else ""}>Send Email Now</button>
-        </form>
-    </div>
-    """
-    return render_page(content, f"Email Invoice #{invoice['invoice_number'] or invoice_id}")
-
-
-@invoices_bp.route("/invoices/<int:invoice_id>/preview_pdf")
-@login_required
-@subscription_required
-@require_permission("can_manage_invoices")
-def preview_invoice_pdf(invoice_id):
-    ensure_invoice_payment_table()
-
-    conn = get_db_connection()
-    cid = session["company_id"]
-
-    invoice = conn.execute(
-        """
-        SELECT i.*, c.name AS customer_name, c.email AS customer_email
-        FROM invoices i
-        JOIN customers c ON i.customer_id = c.id
-        WHERE i.id = %s AND i.company_id = %s
-        """,
-        (invoice_id, cid),
-    ).fetchone()
-
-    if not invoice:
-        conn.close()
-        abort(404)
-
-    items = conn.execute(
-        """
-        SELECT *
-        FROM invoice_items
-        WHERE invoice_id = %s
-        ORDER BY id
-        """,
-        (invoice_id,),
-    ).fetchall()
 
     company = conn.execute(
         """
-        SELECT name, email, phone, website, address_line_1, address_line_2, city, state, zip_code
+        SELECT name, email
         FROM companies
         WHERE id = %s
         """,
@@ -2091,7 +2028,7 @@ def preview_invoice_pdf(invoice_id):
 
     profile = conn.execute(
         """
-        SELECT display_name, legal_name, logo_url, invoice_header_name, invoice_footer_note, email
+        SELECT display_name, invoice_header_name
         FROM company_profile
         WHERE company_id = %s
         """,
@@ -2100,13 +2037,67 @@ def preview_invoice_pdf(invoice_id):
 
     conn.close()
 
-    pdf_data = build_invoice_pdf(invoice, items, company, profile)
+    invoice_number = invoice["invoice_number"] or invoice["id"]
+    customer_name = _clean_text(invoice["customer_name"]) or "Customer"
 
-    response = make_response(pdf_data)
-    response.headers["Content-Type"] = "application/pdf"
-    response.headers["Content-Disposition"] = f"inline; filename=Invoice_{invoice['invoice_number'] or invoice_id}.pdf"
-    return response
+    company_name = "Your Company"
+    if profile and "invoice_header_name" in profile.keys() and profile["invoice_header_name"]:
+        company_name = profile["invoice_header_name"]
+    elif profile and "display_name" in profile.keys() and profile["display_name"]:
+        company_name = profile["display_name"]
+    elif company and "name" in company.keys() and company["name"]:
+        company_name = company["name"]
 
+    payment_url = None
+    try:
+        payment_url = create_invoice_checkout_session(invoice, cid)
+    except Exception:
+        payment_url = None
+
+    payment_html = ""
+    if payment_url:
+        payment_html = f"""
+        <p style="margin:16px 0;">
+            Pay your invoice securely online:<br>
+            <a href="{payment_url}">{payment_url}</a>
+        </p>
+        """
+
+    preview_csrf = generate_csrf()
+
+    content = f"""
+    <div class='card'>
+        <h1>Email Preview - Invoice #{escape(str(invoice_number))}</h1>
+
+        <div class='card' style='margin-top:14px; background:#fafafa;'>
+            <div style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222;">
+                <p>Hello {escape(customer_name)},</p>
+
+                <p>Please find attached Invoice #{escape(str(invoice_number))} from {escape(company_name)}.</p>
+
+                <p>
+                    <strong>Total:</strong> ${_safe_float(invoice['total']):.2f}<br>
+                    <strong>Amount Paid:</strong> ${_safe_float(invoice['amount_paid']):.2f}<br>
+                    <strong>Balance Due:</strong> ${_safe_float(invoice['balance_due']):.2f}
+                </p>
+
+                {payment_html}
+
+                <p>Thank you.</p>
+            </div>
+        </div>
+
+        <div class='row-actions' style='margin-top:16px;'>
+            <a class='btn secondary' href='{url_for("invoices.view_invoice", invoice_id=invoice_id)}'>Back to Invoice</a>
+
+            <form method='post' action='{url_for("invoices.send_invoice_email", invoice_id=invoice_id)}' style='margin:0;'>
+                <input type="hidden" name="csrf_token" value="{preview_csrf}">
+                <button class='btn success' type='submit'>Send Invoice Email</button>
+            </form>
+        </div>
+    </div>
+    """
+    return render_page(content, f"Email Preview - Invoice #{invoice_number}")
 
 @invoices_bp.route("/invoices/<int:invoice_id>/send_email", methods=["POST"])
 @login_required
@@ -2272,6 +2263,8 @@ def send_invoice_email(invoice_id):
 @subscription_required
 @require_permission("can_manage_invoices")
 def delete_invoice(invoice_id):
+    ensure_invoice_payment_table()
+
     conn = get_db_connection()
     cid = session["company_id"]
 
@@ -2288,24 +2281,29 @@ def delete_invoice(invoice_id):
         conn.close()
         abort(404)
 
-    conn.execute("DELETE FROM invoice_payments WHERE invoice_id = %s AND company_id = %s", (invoice_id, cid))
-    conn.execute("DELETE FROM invoice_items WHERE invoice_id = %s", (invoice_id,))
-    conn.execute("DELETE FROM invoices WHERE id = %s AND company_id = %s", (invoice_id, cid))
+    conn.execute(
+        """
+        DELETE FROM invoice_payments
+        WHERE invoice_id = %s AND company_id = %s
+        """,
+        (invoice_id, cid),
+    )
 
-    ledger_tables = {
-        row[0] if not hasattr(row, "keys") else row["table_name"]
-        for row in conn.execute(
-            """
-            SELECT table_name
-            FROM information_schema.tables
-            WHERE table_schema = 'public'
-            """
-        ).fetchall()
-    }
-    if "ledger_entries" in ledger_tables:
-        ledger_cols = _table_columns(conn, "ledger_entries")
-        if "invoice_id" in ledger_cols:
-            conn.execute("DELETE FROM ledger_entries WHERE invoice_id = %s", (invoice_id,))
+    conn.execute(
+        """
+        DELETE FROM invoice_items
+        WHERE invoice_id = %s
+        """,
+        (invoice_id,),
+    )
+
+    conn.execute(
+        """
+        DELETE FROM invoices
+        WHERE id = %s AND company_id = %s
+        """,
+        (invoice_id, cid),
+    )
 
     conn.commit()
     conn.close()
@@ -2314,60 +2312,133 @@ def delete_invoice(invoice_id):
     return redirect(url_for("invoices.invoices"))
 
 
-@invoices_bp.route("/invoices/<int:invoice_id>/add_payment", methods=["POST"])
+@invoices_bp.route("/invoices/<int:invoice_id>/add_payment", methods=["GET", "POST"])
 @login_required
 @subscription_required
 @require_permission("can_manage_invoices")
 def add_invoice_payment(invoice_id):
+    ensure_invoice_payment_table()
+
     conn = get_db_connection()
     cid = session["company_id"]
 
     invoice = conn.execute(
         """
-        SELECT id, total, balance_due, customer_id, invoice_number
-        FROM invoices
-        WHERE id = %s AND company_id = %s
+        SELECT i.*, c.name AS customer_name
+        FROM invoices i
+        LEFT JOIN customers c ON i.customer_id = c.id
+        WHERE i.id = %s AND i.company_id = %s
         """,
         (invoice_id, cid),
     ).fetchone()
 
     if not invoice:
         conn.close()
-        flash("Invoice not found.")
-        return redirect(url_for("invoices.invoices"))
+        abort(404)
 
-    amount = request.form.get("amount", type=float) or 0
-    payment_date = request.form.get("payment_date") or date.today().isoformat()
-    payment_method = _clean_text(request.form.get("payment_method"))
-    reference = _clean_text(request.form.get("reference"))
-    notes = _clean_text(request.form.get("notes"))
+    if request.method == "POST":
+        payment_date = request.form.get("payment_date") or date.today().isoformat()
+        amount = _safe_float(request.form.get("amount"))
+        payment_method = _clean_text(request.form.get("payment_method"))
+        reference = _clean_text(request.form.get("reference"))
+        notes = _clean_text(request.form.get("notes"))
 
-    if amount <= 0:
+        if amount <= 0:
+            conn.close()
+            flash("Payment amount must be greater than 0.")
+            return redirect(url_for("invoices.add_invoice_payment", invoice_id=invoice_id))
+        
+        current_paid = _safe_float(invoice["amount_paid"])
+        invoice_total = _safe_float(invoice["total"])
+
+        if current_paid + amount > invoice_total:
+            conn.close()
+            flash("Payment total cannot exceed the invoice total.")
+            return redirect(url_for("invoices.add_invoice_payment", invoice_id=invoice_id))
+
+        conn.execute(
+            """
+            INSERT INTO invoice_payments (
+                company_id,
+                invoice_id,
+                payment_date,
+                amount,
+                payment_method,
+                reference,
+                notes
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                cid,
+                invoice_id,
+                payment_date,
+                amount,
+                payment_method,
+                reference,
+                notes,
+            ),
+        )
+
+        conn.commit()
         conn.close()
-        flash("Payment amount must be greater than 0.")
+
+        _sync_invoice_status_and_bookkeeping(invoice_id)
+
+        flash("Payment added.")
         return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
-    if amount > _safe_float(invoice["balance_due"]):
-        conn.close()
-        flash("Payment cannot exceed the remaining balance.")
-        return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
+    add_payment_csrf = generate_csrf()
 
-    conn.execute(
-        """
-        INSERT INTO invoice_payments
-        (company_id, invoice_id, payment_date, amount, payment_method, reference, notes)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """,
-        (cid, invoice_id, payment_date, amount, payment_method, reference, notes),
-    )
+    content = f"""
+    <div class='card'>
+        <h1>Add Payment - Invoice #{escape(str(invoice["invoice_number"] or invoice["id"]))}</h1>
+        <p class='muted'>
+            Customer: {escape(_clean_display(invoice["customer_name"]))}<br>
+            Total: ${_safe_float(invoice["total"]):.2f}<br>
+            Amount Paid: ${_safe_float(invoice["amount_paid"]):.2f}<br>
+            Balance Due: ${_safe_float(invoice["balance_due"]):.2f}
+        </p>
 
-    conn.commit()
+        <form method='post'>
+            <input type="hidden" name="csrf_token" value="{add_payment_csrf}">
+
+            <div class='grid'>
+                <div>
+                    <label>Payment Date</label>
+                    <input type='date' name='payment_date' value='{date.today().isoformat()}' required>
+                </div>
+
+                <div>
+                    <label>Amount</label>
+                    <input type='number' step='0.01' name='amount' min='0.01' required>
+                </div>
+
+                <div>
+                    <label>Payment Method</label>
+                    <input name='payment_method' placeholder='Cash, Card, Check, ACH'>
+                </div>
+
+                <div>
+                    <label>Reference</label>
+                    <input name='reference' placeholder='Check #, transaction ID, etc.'>
+                </div>
+            </div>
+
+            <br>
+            <label>Notes</label>
+            <textarea name='notes'></textarea>
+
+            <br>
+            <div class='row-actions'>
+                <button class='btn success' type='submit'>Save Payment</button>
+                <a class='btn secondary' href='{url_for("invoices.view_invoice", invoice_id=invoice_id)}'>Cancel</a>
+            </div>
+        </form>
+    </div>
+    """
     conn.close()
-
-    _sync_invoice_status_and_bookkeeping(invoice_id)
-
-    flash("Payment recorded.")
-    return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
+    return render_page(content, f"Add Payment - Invoice #{invoice['id']}")
 
 
 @invoices_bp.route("/invoices/<int:invoice_id>/payments/<int:payment_id>/edit", methods=["GET", "POST"])
@@ -2500,42 +2571,78 @@ def edit_invoice_payment(invoice_id, payment_id):
     return render_page(content, "Edit Payment")
 
 
-@invoices_bp.route("/invoices/<int:invoice_id>/payments/<int:payment_id>/delete", methods=["POST"])
+@invoices_bp.route("/invoices/<int:invoice_id>/delete", methods=["POST"])
 @login_required
 @subscription_required
 @require_permission("can_manage_invoices")
-def delete_invoice_payment(invoice_id, payment_id):
+def delete_invoice(invoice_id):
+    ensure_invoice_payment_table()
+
     conn = get_db_connection()
     cid = session["company_id"]
 
-    payment = conn.execute(
+    invoice = conn.execute(
         """
         SELECT *
-        FROM invoice_payments
-        WHERE id = %s AND invoice_id = %s AND company_id = %s
+        FROM invoices
+        WHERE id = %s AND company_id = %s
         """,
-        (payment_id, invoice_id, cid),
+        (invoice_id, cid),
     ).fetchone()
 
-    if not payment:
+    if not invoice:
         conn.close()
-        flash("Payment not found.")
-        return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
+        abort(404)
+
+    if "job_id" in invoice.keys() and invoice["job_id"]:
+        conn.execute(
+            """
+            UPDATE jobs
+            SET status = 'Scheduled'
+            WHERE id = %s AND company_id = %s
+            """,
+            (invoice["job_id"], cid),
+        )
+
+    if "quote_id" in invoice.keys() and invoice["quote_id"]:
+        conn.execute(
+            """
+            UPDATE quotes
+            SET status = 'Approved'
+            WHERE id = %s AND company_id = %s
+            """,
+            (invoice["quote_id"], cid),
+        )
 
     conn.execute(
         """
         DELETE FROM invoice_payments
-        WHERE id = %s AND invoice_id = %s AND company_id = %s
+        WHERE invoice_id = %s AND company_id = %s
         """,
-        (payment_id, invoice_id, cid),
+        (invoice_id, cid),
     )
+
+    conn.execute(
+        """
+        DELETE FROM invoice_items
+        WHERE invoice_id = %s
+        """,
+        (invoice_id,),
+    )
+
+    conn.execute(
+        """
+        DELETE FROM invoices
+        WHERE id = %s AND company_id = %s
+        """,
+        (invoice_id, cid),
+    )
+
     conn.commit()
     conn.close()
 
-    _sync_invoice_status_and_bookkeeping(invoice_id)
-
-    flash("Payment deleted.")
-    return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
+    flash("Invoice deleted.")
+    return redirect(url_for("invoices.invoices"))
 
 
 @invoices_bp.route("/stripe/webhook", methods=["POST"])
