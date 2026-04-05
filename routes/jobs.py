@@ -55,6 +55,28 @@ def ensure_job_schedule_columns():
         cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS service_type TEXT")
         cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS recurring_schedule_id INTEGER")
         cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS generated_from_schedule BOOLEAN DEFAULT FALSE")
+
+        try:
+            cur.execute(
+                """
+                ALTER TABLE jobs
+                ALTER COLUMN generated_from_schedule TYPE BOOLEAN
+                USING CASE
+                    WHEN generated_from_schedule IN (1, '1', TRUE, 'true', 't', 'yes', 'on') THEN TRUE
+                    ELSE FALSE
+                END
+                """
+            )
+        except Exception:
+            conn.rollback()
+            cur = conn.cursor()
+            cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_start_time TIME")
+            cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_end_time TIME")
+            cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS assigned_to TEXT")
+            cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS service_type TEXT")
+            cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS recurring_schedule_id INTEGER")
+            cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS generated_from_schedule BOOLEAN DEFAULT FALSE")
+
         conn.commit()
     finally:
         conn.close()
@@ -143,6 +165,21 @@ def ensure_recurring_mowing_tables():
             "ALTER TABLE recurring_mowing_schedule_items ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
         )
 
+        try:
+            cur.execute(
+                """
+                ALTER TABLE recurring_mowing_schedule_items
+                ALTER COLUMN billable TYPE BOOLEAN
+                USING CASE
+                    WHEN billable IN (1, '1', TRUE, 'true', 't', 'yes', 'on') THEN TRUE
+                    ELSE FALSE
+                END
+                """
+            )
+        except Exception:
+            conn.rollback()
+            cur = conn.cursor()
+
         cur.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_recurring_mowing_schedules_company
@@ -208,6 +245,21 @@ def ensure_recurring_mowing_tables():
         cur.execute(
             "ALTER TABLE recurring_mowing_schedules ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
         )
+
+        try:
+            cur.execute(
+                """
+                ALTER TABLE recurring_mowing_schedules
+                ALTER COLUMN active TYPE BOOLEAN
+                USING CASE
+                    WHEN active IN (1, '1', TRUE, 'true', 't', 'yes', 'on') THEN TRUE
+                    ELSE FALSE
+                END
+                """
+            )
+        except Exception:
+            conn.rollback()
+            cur = conn.cursor()
 
         conn.commit()
     finally:
@@ -651,7 +703,7 @@ def copy_recurring_schedule_items_to_job(conn, schedule_id, company_id, job_id):
                 qty = 1
             unit_cost = 0.0
 
-        line_total = qty * sale_price
+        line_total = qty * sale_price if billable else 0.0
         cost_amount = qty * unit_cost
 
         cur = conn.cursor()
@@ -3382,7 +3434,7 @@ def convert_recurring_schedule_to_invoice(schedule_id):
                 COALESCE(
                     SUM(
                         CASE
-                            WHEN COALESCE(ji.billable, 1) = 1
+                            WHEN COALESCE(ji.billable, TRUE) = TRUE
                                 THEN COALESCE(
                                     ji.line_total,
                                     COALESCE(ji.quantity, 0) * COALESCE(ji.unit_price, COALESCE(ji.sale_price, 0)),
@@ -3728,7 +3780,7 @@ def view_job(job_id):
                 qty = 1
             unit_cost = 0.0
 
-        line_total = qty * sale_price
+        line_total = qty * sale_price if billable else 0.0
         cost_amount = qty * unit_cost
 
         cur = conn.cursor()
@@ -4758,7 +4810,7 @@ def send_custom_email(job_id):
 @login_required
 @subscription_required
 @require_permission("can_manage_jobs")
-def edit_job(job_id):
+def edit_job(job_id, item_id):
     ensure_job_schedule_columns()
 
     conn = get_db_connection()
@@ -4784,74 +4836,84 @@ def edit_job(job_id):
     ).fetchall()
 
     if request.method == "POST":
-        customer_id = request.form.get("customer_id", type=int)
-        title = clean_text_input(request.form.get("title", ""))
-        service_type = normalize_service_type(request.form.get("service_type", "other"))
-        scheduled_date = clean_text_input(request.form.get("scheduled_date", ""))
-        scheduled_start_time = clean_text_input(request.form.get("scheduled_start_time", ""))
-        scheduled_end_time = clean_text_input(request.form.get("scheduled_end_time", ""))
-        assigned_to = clean_text_input(request.form.get("assigned_to", ""))
-        status = clean_text_input(request.form.get("status", ""))
-        address = clean_text_input(request.form.get("address", ""))
-        notes = clean_text_input(request.form.get("notes", ""))
+        item_type = clean_text_input(request.form.get("item_type", "")).lower()
+        description = clean_text_input(request.form.get("description", ""))
+        unit = clean_text_input(request.form.get("unit", ""))
+        qty = safe_float(request.form.get("quantity"))
+        sale_price = safe_float(request.form.get("sale_price"))
+        unit_cost = safe_float(request.form.get("unit_cost"))
+        billable = request.form.get("billable") == "1"
 
-        if not customer_id or not title:
+        if not description:
             conn.close()
-            flash("Customer and title are required.")
-            return redirect(url_for("jobs.edit_job", job_id=job_id))
+            flash("Description is required.")
+            return redirect(url_for("jobs.edit_job_item", job_id=job_id, item_id=item_id))
 
-        conflict = check_schedule_conflict(
-            conn,
-            cid,
-            scheduled_date,
-            scheduled_start_time,
-            scheduled_end_time,
-            assigned_to,
-            exclude_job_id=job_id,
-        )
+        if item_type == "mulch" and not unit:
+            unit = "Yards"
+        elif item_type == "stone" and not unit:
+            unit = "Tons"
+        elif item_type == "soil" and not unit:
+            unit = "Yards"
+        elif item_type == "hardscape_material" and not unit:
+            unit = "Tons"
+        elif item_type == "fuel" and not unit:
+            unit = "Gallons"
+        elif item_type == "delivery" and not unit:
+            unit = "Miles"
+        elif item_type == "labor" and not unit:
+            unit = "Hours"
+        elif item_type == "equipment" and not unit:
+            unit = "Rentals"
+        elif item_type in ["plants", "trees", "misc", "dump_fee"]:
+            unit = ""
 
-        if conflict:
-            conn.close()
-            flash(
-                f"Schedule conflict: '{conflict['title']}' already scheduled for {assigned_to} "
-                f"from {conflict['start']} to {conflict['end']}."
-            )
-            return redirect(url_for("jobs.edit_job", job_id=job_id))
+        if item_type == "dump_fee":
+            unit = ""
+            if qty <= 0:
+                qty = 1
+            unit_cost = 0.0
+
+        line_total = qty * sale_price if billable else 0.0
+        cost_amount = qty * unit_cost
 
         conn.execute(
             """
-            UPDATE jobs
-            SET customer_id = %s,
-                title = %s,
-                service_type = %s,
-                scheduled_date = %s,
-                scheduled_start_time = %s,
-                scheduled_end_time = %s,
-                assigned_to = %s,
-                status = %s,
-                address = %s,
-                notes = %s
-            WHERE id = %s AND company_id = %s
+            UPDATE job_items
+            SET item_type = %s,
+                description = %s,
+                quantity = %s,
+                unit = %s,
+                unit_cost = %s,
+                unit_price = %s,
+                sale_price = %s,
+                cost_amount = %s,
+                line_total = %s,
+                billable = %s
+            WHERE id = %s AND job_id = %s
             """,
             (
-                customer_id,
-                title,
-                service_type,
-                scheduled_date or None,
-                scheduled_start_time or None,
-                scheduled_end_time or None,
-                assigned_to or None,
-                status,
-                address,
-                notes,
+                item_type,
+                description,
+                qty,
+                unit,
+                unit_cost,
+                sale_price,
+                sale_price,
+                cost_amount,
+                line_total,
+                billable,
+                item_id,
                 job_id,
-                cid,
             ),
         )
+
+        ensure_job_cost_ledger(conn, item_id)
+        recalc_job(conn, job_id)
         conn.commit()
         conn.close()
 
-        flash("Job updated.")
+        flash("Job item updated.")
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     customer_opts = "".join(
@@ -5013,7 +5075,7 @@ def edit_job_item(job_id, item_id):
                 qty = 1
             unit_cost = 0.0
 
-        line_total = qty * sale_price
+        line_total = qty * sale_price if billable else 0.0
         cost_amount = qty * unit_cost
 
         conn.execute(
@@ -5179,9 +5241,9 @@ def edit_job_item(job_id, item_id):
         }} else if (type === 'labor') {{
             quantityLabel.innerText = 'Billable Hours';
             salePriceLabel.innerText = 'Hourly Rate';
+            costLabel.innerText = 'Hourly Cost';
             unitInput.value = 'Hours';
-            if (unitCostWrap) unitCostWrap.style.display = 'none';
-            if (unitCostInput) unitCostInput.value = '0';
+            if (unitCostWrap) unitCostWrap.style.display = 'block';
         }} else if (type === 'equipment') {{
             quantityLabel.innerText = 'Rentals';
             unitInput.value = 'Rentals';
@@ -5285,7 +5347,8 @@ def convert_job_to_invoice(job_id):
             """
             SELECT *
             FROM job_items
-            WHERE job_id = %s AND COALESCE(billable, 1) = 1
+            WHERE job_id = %s
+              AND COALESCE(billable, TRUE) = TRUE
             ORDER BY id
             """,
             (job_id,),
