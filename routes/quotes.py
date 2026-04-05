@@ -26,6 +26,7 @@ from page_helpers import *
 from helpers import *
 from calculations import *
 from utils.emailing import send_company_email
+from jobs import auto_generate_recurring_jobs
 
 quotes_bp = Blueprint("quotes", __name__)
 
@@ -95,6 +96,12 @@ def _default_unit_for_quote_item_type(item_type):
         return ""
 
     return ""
+
+def is_mowing_quote(items):
+    for i in items:
+        if (i["item_type"] or "").lower() == "mowing":
+            return True
+    return False
 
 
 def ensure_quote_item_columns():
@@ -890,6 +897,13 @@ def view_quote(quote_id):
         if item_type == "labor":
             unit_cost = 0.0
 
+        if item_type == "mowing":
+            # 🔥 enforce per-cut logic
+            if quantity <= 0:
+                quantity = 1
+            if not unit:
+                unit = "Cuts"
+
         if item_type == "dump_fee":
             unit = ""
             if quantity <= 0:
@@ -1615,14 +1629,13 @@ def convert_quote_to_job(quote_id):
             SELECT id
             FROM jobs
             WHERE quote_id = %s AND company_id = %s
-            ORDER BY id DESC
             LIMIT 1
             """,
             (quote_id, cid),
         ).fetchone()
 
         if existing_job:
-            flash("This quote has already been converted to a job.")
+            flash("This quote has already been converted.")
             return redirect(url_for("jobs.view_job", job_id=existing_job["id"]))
 
         items = conn.execute(
@@ -1636,23 +1649,106 @@ def convert_quote_to_job(quote_id):
         ).fetchall()
 
         if not items:
-            flash("This quote has no items to convert.")
+            flash("No items to convert.")
             return redirect(url_for("quotes.view_quote", quote_id=quote_id))
+
+        # Detect mowing / recurring
+        service_type = None
+        is_recurring = False
+
+        for i in items:
+            item_type_check = (i["item_type"] or "").strip().lower()
+            if item_type_check == "mowing":
+                service_type = "mowing"
+                is_recurring = True
+                break
 
         quote_number = quote["quote_number"] or quote_id
         quote_title = (quote["title"] or "").strip() if "title" in quote.keys() and quote["title"] else ""
         quote_notes = (quote["notes"] or "").strip() if "notes" in quote.keys() and quote["notes"] else ""
         job_title = quote_title or f"Job from Quote {quote_number}"
 
-        quote_service_type = ""
-        for i in items:
-            raw_item_type = ((i["item_type"] or "").strip().lower() if "item_type" in i.keys() and i["item_type"] else "")
-            if raw_item_type == "mowing":
-                quote_service_type = "mowing"
-                break
+        # Optional recurring values if you later add them to quotes
+        recurring_interval_weeks = 1
+        recurring_start_date = date.today().isoformat()
+        recurring_end_date = None
+        recurring_start_time = None
+        recurring_end_time = None
+        recurring_assigned_to = None
+        recurring_schedule_title = job_title
+        recurring_generate_until_days = 42
+
+        if "recurring_interval_weeks" in quote.keys() and quote["recurring_interval_weeks"]:
+            try:
+                recurring_interval_weeks = max(1, int(quote["recurring_interval_weeks"]))
+            except Exception:
+                recurring_interval_weeks = 1
+
+        if "recurring_start_date" in quote.keys() and quote["recurring_start_date"]:
+            recurring_start_date = str(quote["recurring_start_date"])
+
+        if "recurring_end_date" in quote.keys() and quote["recurring_end_date"]:
+            recurring_end_date = str(quote["recurring_end_date"])
+
+        if "recurring_scheduled_start_time" in quote.keys() and quote["recurring_scheduled_start_time"]:
+            recurring_start_time = str(quote["recurring_scheduled_start_time"])
+
+        if "recurring_scheduled_end_time" in quote.keys() and quote["recurring_scheduled_end_time"]:
+            recurring_end_time = str(quote["recurring_scheduled_end_time"])
+
+        if "recurring_assigned_to" in quote.keys() and quote["recurring_assigned_to"]:
+            recurring_assigned_to = str(quote["recurring_assigned_to"])
+
+        if "recurring_schedule_title" in quote.keys() and quote["recurring_schedule_title"]:
+            recurring_schedule_title = str(quote["recurring_schedule_title"]).strip() or job_title
+
+        if "recurring_generate_until_days" in quote.keys() and quote["recurring_generate_until_days"]:
+            try:
+                recurring_generate_until_days = max(1, int(quote["recurring_generate_until_days"]))
+            except Exception:
+                recurring_generate_until_days = 42
 
         cur = conn.cursor()
+
+        # Create the first job
         try:
+            cur.execute(
+                """
+                INSERT INTO jobs (
+                    company_id,
+                    customer_id,
+                    quote_id,
+                    title,
+                    scheduled_date,
+                    scheduled_start_time,
+                    scheduled_end_time,
+                    assigned_to,
+                    status,
+                    notes,
+                    service_type,
+                    is_recurring
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    cid,
+                    quote["customer_id"],
+                    quote_id,
+                    job_title,
+                    recurring_start_date,
+                    recurring_start_time,
+                    recurring_end_time,
+                    recurring_assigned_to,
+                    "Scheduled",
+                    quote_notes,
+                    service_type,
+                    is_recurring,
+                ),
+            )
+        except Exception:
+            conn.rollback()
+            cur = conn.cursor()
             cur.execute(
                 """
                 INSERT INTO jobs (
@@ -1669,80 +1765,162 @@ def convert_quote_to_job(quote_id):
                 RETURNING id
                 """,
                 (
-                    quote["company_id"],
+                    cid,
                     quote["customer_id"],
                     quote_id,
                     job_title,
-                    date.today(),
+                    recurring_start_date,
                     "Scheduled",
                     quote_notes,
-                    quote_service_type or None,
+                    service_type,
                 ),
             )
-        except Exception:
-            conn.rollback()
-            cur = conn.cursor()
-            cur.execute(
-                """
-                INSERT INTO jobs (
-                    company_id,
-                    customer_id,
-                    quote_id,
-                    title,
-                    scheduled_date,
-                    status,
-                    notes
+
+        job_row = cur.fetchone()
+        if not job_row or "id" not in job_row:
+            raise Exception("Failed to create job.")
+
+        job_id = job_row["id"]
+
+        recurring_schedule_id = None
+
+        # Create recurring mowing schedule if mowing quote
+        if is_recurring:
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO recurring_mowing_schedules (
+                        company_id,
+                        customer_id,
+                        title,
+                        service_type,
+                        interval_weeks,
+                        start_date,
+                        next_run_date,
+                        end_date,
+                        scheduled_start_time,
+                        scheduled_end_time,
+                        assigned_to,
+                        status_default,
+                        address,
+                        notes,
+                        active,
+                        auto_generate_until_days,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    RETURNING id
+                    """,
+                    (
+                        cid,
+                        quote["customer_id"],
+                        recurring_schedule_title,
+                        "mowing",
+                        recurring_interval_weeks,
+                        recurring_start_date,
+                        recurring_start_date,
+                        recurring_end_date,
+                        recurring_start_time,
+                        recurring_end_time,
+                        recurring_assigned_to,
+                        "Scheduled",
+                        quote["address"] if "address" in quote.keys() and quote["address"] else None,
+                        quote_notes or None,
+                        True,
+                        recurring_generate_until_days,
+                    ),
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-                """,
-                (
-                    quote["company_id"],
-                    quote["customer_id"],
-                    quote_id,
-                    job_title,
-                    date.today(),
-                    "Scheduled",
-                    quote_notes,
-                ),
-            )
 
-        row = cur.fetchone()
-        if not row or "id" not in row:
-            raise Exception("Failed to create job record.")
+                schedule_row = cur.fetchone()
+                if not schedule_row or "id" not in schedule_row:
+                    raise Exception("Failed to create recurring mowing schedule.")
 
-        job_id = row["id"]
+                recurring_schedule_id = schedule_row["id"]
 
+                try:
+                    conn.execute(
+                        """
+                        UPDATE jobs
+                        SET recurring_schedule_id = %s,
+                            generated_from_schedule = FALSE
+                        WHERE id = %s AND company_id = %s
+                        """,
+                        (recurring_schedule_id, job_id, cid),
+                    )
+                except Exception:
+                    # In case one of these columns does not exist yet
+                    try:
+                        conn.execute(
+                            """
+                            UPDATE jobs
+                            SET recurring_schedule_id = %s
+                            WHERE id = %s AND company_id = %s
+                            """,
+                            (recurring_schedule_id, job_id, cid),
+                        )
+                    except Exception:
+                        pass
+
+            except Exception as e:
+                raise Exception(f"Failed creating recurring schedule: {e}")
+
+        # Copy quote items into first job
+        # If recurring mowing, convert mowing lines to per-visit math for the job + schedule
         for i in items:
-            qty = float(i["quantity"] or 0)
-            sale_price = float(i["unit_price"] or 0)
-            unit_cost = float(i["unit_cost"] or 0)
-            raw_item_type = ((i["item_type"] or "").strip().lower() if "item_type" in i.keys() and i["item_type"] else "")
+            raw_qty = float(i["quantity"] or 0)
+            price = float(i["unit_price"] or 0)
+            cost = float(i["unit_cost"] or 0)
+            item_type = (i["item_type"] or "material").strip().lower()
             desc = (i["description"] or "").strip()
             unit = (i["unit"] or "").strip()
 
-            item_type = raw_item_type or "mowing"
+            qty = raw_qty if raw_qty > 0 else 1.0
 
-            default_unit = _default_unit_for_quote_item_type(item_type)
             if item_type == "dump_fee":
+                qty = 1.0
                 unit = ""
-            elif default_unit and not unit:
-                unit = default_unit
+                cost = 0.0
+
+            elif item_type == "labor":
+                if not unit:
+                    unit = "Hours"
+                cost = 0.0
+
+            elif item_type == "mulch" and not unit:
+                unit = "Yards"
+
+            elif item_type == "stone" and not unit:
+                unit = "Tons"
+
+            elif item_type == "soil" and not unit:
+                unit = "Yards"
+
+            elif item_type == "hardscape_material" and not unit:
+                unit = "Tons"
+
+            elif item_type == "fuel" and not unit:
+                unit = "Gallons"
+
+            elif item_type == "delivery" and not unit:
+                unit = "Miles"
+
+            elif item_type == "equipment" and not unit:
+                unit = "Rentals"
+
+            elif item_type == "fertilizer" and not unit:
+                unit = "Bags"
+
             elif item_type in ["plants", "trees", "misc"]:
                 unit = ""
 
-            if item_type == "labor":
-                unit_cost = 0.0
+            # For recurring mowing, each generated visit should be one cut at the quoted per-cut price
+            if is_recurring and item_type == "mowing":
+                qty = 1.0
+                unit = "Cut"
 
-            if item_type == "dump_fee":
-                unit = ""
-                if qty <= 0:
-                    qty = 1
-                unit_cost = 0.0
-
-            line_total = qty * sale_price
-            cost_amount = qty * unit_cost
-            billable = True
+            line_total = qty * price
+            cost_amount = qty * cost
 
             cur.execute(
                 """
@@ -1768,12 +1946,12 @@ def convert_quote_to_job(quote_id):
                     desc,
                     qty,
                     unit,
-                    unit_cost,
-                    sale_price,
-                    sale_price,
+                    cost,
+                    price,
+                    price,
                     cost_amount,
                     line_total,
-                    billable,
+                    True,
                 ),
             )
 
@@ -1781,27 +1959,83 @@ def convert_quote_to_job(quote_id):
             if not item_row or "id" not in item_row:
                 raise Exception(f"Failed to create job item for quote item {i['id']}.")
 
-            job_item_id = item_row["id"]
-            ensure_job_cost_ledger(conn, job_item_id)
+            ensure_job_cost_ledger(conn, item_row["id"])
+
+            # Also create recurring schedule items
+            if recurring_schedule_id:
+                recurring_qty = raw_qty if raw_qty > 0 else 1.0
+                recurring_unit = unit
+                recurring_cost = cost
+                recurring_price = price
+                recurring_billable = True
+
+                if item_type == "mowing":
+                    recurring_qty = 1.0
+                    recurring_unit = "Cut"
+
+                elif item_type == "dump_fee":
+                    recurring_qty = 1.0
+                    recurring_unit = ""
+                    recurring_cost = 0.0
+
+                cur.execute(
+                    """
+                    INSERT INTO recurring_mowing_schedule_items (
+                        company_id,
+                        schedule_id,
+                        item_type,
+                        description,
+                        quantity,
+                        unit,
+                        unit_cost,
+                        sale_price,
+                        billable
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        cid,
+                        recurring_schedule_id,
+                        item_type,
+                        desc,
+                        recurring_qty,
+                        recurring_unit,
+                        recurring_cost,
+                        recurring_price,
+                        recurring_billable,
+                    ),
+                )
 
         recalc_job(conn, job_id)
 
-        cur.execute(
+        conn.execute(
             """
             UPDATE quotes
-            SET status = %s
+            SET status = 'Converted'
             WHERE id = %s AND company_id = %s
             """,
-            ("Converted", quote_id, cid),
+            (quote_id, cid),
         )
 
+        # If the helper exists in scope, generate upcoming jobs now
+        if recurring_schedule_id and "auto_generate_recurring_jobs" in globals():
+            try:
+                auto_generate_recurring_jobs(conn, cid)
+            except Exception:
+                pass
+
         conn.commit()
-        flash("Quote converted to job.")
+
+        if recurring_schedule_id:
+            flash("Quote converted to job and recurring schedule created.")
+        else:
+            flash("Quote converted to job successfully.")
+
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     except Exception as e:
         conn.rollback()
-        flash(f"Could not convert quote to job: {e}")
+        flash(f"Conversion failed: {e}")
         return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
     finally:
