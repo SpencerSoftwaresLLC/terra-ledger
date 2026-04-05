@@ -1771,10 +1771,6 @@ def view_invoice(invoice_id):
     </form>
     """
 
-    pdf_btn = f"""
-    <a class='btn secondary' href='{url_for("invoices.download_invoice_pdf", invoice_id=invoice_id)}'>Download PDF</a>
-    """
-
     add_payment_btn = f"""
     <a class='btn warning' href='{url_for("invoices.add_invoice_payment", invoice_id=invoice_id)}'>Add Payment</a>
     """
