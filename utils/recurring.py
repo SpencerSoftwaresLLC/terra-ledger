@@ -1,5 +1,4 @@
 from datetime import date, datetime, timedelta
-from routes.jobs import create_job_from_recurring_schedule
 
 
 def safe_int(value, default=0):
@@ -44,6 +43,8 @@ def date_to_iso(value):
 
 
 def auto_generate_recurring_jobs(conn, company_id, through_date=None):
+    from routes.jobs import create_job_from_recurring_schedule
+
     today = date.today()
     if through_date is None:
         through_date = today + timedelta(days=42)
