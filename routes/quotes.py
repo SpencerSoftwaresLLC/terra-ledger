@@ -26,7 +26,7 @@ from page_helpers import *
 from helpers import *
 from calculations import *
 from utils.emailing import send_company_email
-from jobs import auto_generate_recurring_jobs
+from utils.recurring import auto_generate_recurring_jobs
 
 quotes_bp = Blueprint("quotes", __name__)
 
