@@ -182,13 +182,17 @@ def recalc_all_recurring_jobs(conn, company_id):
         FROM jobs
         WHERE company_id = %s
           AND recurring_schedule_id IS NOT NULL
-        ORDER BY id ASC
+        ORDER BY id
         """,
         (company_id,),
     ).fetchall()
 
+    count = 0
     for row in rows:
         recalc_job(conn, row["id"])
+        count += 1
+
+    return count
 
 def get_pay_periods_per_year(pay_frequency: str) -> int:
     value = (pay_frequency or "Biweekly").strip().lower()

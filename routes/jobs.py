@@ -1145,25 +1145,22 @@ def jobs():
             COALESCE(stats.total_profit, 0) AS total_profit
         FROM recurring_mowing_schedules rms
         JOIN customers c
-        ON rms.customer_id = c.id
+          ON rms.customer_id = c.id
         LEFT JOIN (
             SELECT
                 j.company_id,
                 j.recurring_schedule_id,
                 COUNT(DISTINCT j.id) AS generated_jobs_count,
                 COUNT(DISTINCT CASE WHEN COALESCE(j.status, '') != 'Finished' THEN j.id END) AS active_jobs_count,
-                COALESCE(SUM(COALESCE(ji.line_total, COALESCE(ji.quantity, 0) * COALESCE(ji.unit_price, 0), 0)), 0) AS total_revenue,
-                COALESCE(SUM(COALESCE(ji.cost_amount, COALESCE(ji.quantity, 0) * COALESCE(ji.unit_cost, 0), 0)), 0) AS total_cost,
-                COALESCE(SUM(COALESCE(ji.line_total, COALESCE(ji.quantity, 0) * COALESCE(ji.unit_price, 0), 0)), 0)
-                - COALESCE(SUM(COALESCE(ji.cost_amount, COALESCE(ji.quantity, 0) * COALESCE(ji.unit_cost, 0), 0)), 0) AS total_profit
+                COALESCE(SUM(COALESCE(j.revenue, 0)), 0) AS total_revenue,
+                COALESCE(SUM(COALESCE(j.cost_total, 0)), 0) AS total_cost,
+                COALESCE(SUM(COALESCE(j.profit, 0)), 0) AS total_profit
             FROM jobs j
-            LEFT JOIN job_items ji
-            ON ji.job_id = j.id
             WHERE j.recurring_schedule_id IS NOT NULL
             GROUP BY j.company_id, j.recurring_schedule_id
         ) stats
-        ON stats.company_id = rms.company_id
-        AND stats.recurring_schedule_id = rms.id
+          ON stats.company_id = rms.company_id
+         AND stats.recurring_schedule_id = rms.id
         WHERE rms.company_id = %s
         ORDER BY COALESCE(rms.active, TRUE) DESC, rms.id DESC
         """,
