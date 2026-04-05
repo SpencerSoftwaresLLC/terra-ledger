@@ -4750,7 +4750,7 @@ def send_custom_email(job_id):
 @login_required
 @subscription_required
 @require_permission("can_manage_jobs")
-def edit_job(job_id, item_id):
+def edit_job(job_id):
     ensure_job_schedule_columns()
 
     conn = get_db_connection()
