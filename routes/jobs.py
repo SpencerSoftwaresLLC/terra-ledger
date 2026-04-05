@@ -2209,26 +2209,15 @@ def create_recurring_schedule():
     row = cur.fetchone()
     schedule_id = row["id"] if row and "id" in row else None
 
-    if schedule_id:
-        add_default_recurring_mowing_items(conn, cid, schedule_id)
-
-    try:
-        auto_generate_recurring_jobs(conn, cid)
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        conn.close()
-        flash(f"Could not create recurring mowing schedule: {e}")
-        return redirect(url_for("jobs.jobs"))
-
+    conn.commit()
     conn.close()
 
-    if schedule_id:
-        flash("Recurring mowing schedule created and upcoming jobs generated.")
-        return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+    if not schedule_id:
+        flash("Could not create recurring mowing schedule.")
+        return redirect(url_for("jobs.jobs"))
 
-    flash("Recurring mowing schedule created.")
-    return redirect(url_for("jobs.jobs"))
+    flash("Recurring mowing schedule created. Add your recurring items first, then click Generate Upcoming Jobs Now.")
+    return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
 @jobs_bp.route("/jobs/recurring/<int:schedule_id>/generate", methods=["POST"])
 @login_required
