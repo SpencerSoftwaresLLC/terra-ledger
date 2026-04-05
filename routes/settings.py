@@ -4224,31 +4224,48 @@ def fix_billable_column():
     cur = conn.cursor()
 
     try:
-        # Fix recurring mowing items
+        # recurring_mowing_schedule_items.billable
+        cur.execute("""
+            ALTER TABLE recurring_mowing_schedule_items
+            ALTER COLUMN billable DROP DEFAULT
+        """)
         cur.execute("""
             ALTER TABLE recurring_mowing_schedule_items
             ALTER COLUMN billable TYPE BOOLEAN
             USING CASE
-                WHEN billable::text IN ('1','true','t','yes','on') THEN TRUE
+                WHEN COALESCE(billable::text, '') IN ('1', 'true', 't', 'yes', 'on') THEN TRUE
                 ELSE FALSE
             END
         """)
+        cur.execute("""
+            ALTER TABLE recurring_mowing_schedule_items
+            ALTER COLUMN billable SET DEFAULT TRUE
+        """)
 
+        # job_items.billable
+        cur.execute("""
+            ALTER TABLE job_items
+            ALTER COLUMN billable DROP DEFAULT
+        """)
         cur.execute("""
             ALTER TABLE job_items
             ALTER COLUMN billable TYPE BOOLEAN
             USING CASE
-                WHEN billable::text IN ('1','true','t','yes','on') THEN TRUE
+                WHEN COALESCE(billable::text, '') IN ('1', 'true', 't', 'yes', 'on') THEN TRUE
                 ELSE FALSE
             END
         """)
+        cur.execute("""
+            ALTER TABLE job_items
+            ALTER COLUMN billable SET DEFAULT TRUE
+        """)
 
         conn.commit()
-        return "Billable columns fixed ✅"
+        return "Billable columns fixed successfully ✅"
 
     except Exception as e:
         conn.rollback()
-        return f"Error: {str(e)}"
+        return f"Error: {e}"
 
     finally:
         conn.close()
