@@ -2386,6 +2386,43 @@ def add_invoice_payment(invoice_id):
     conn.close()
     return render_page(content, f"Add Payment - Invoice #{invoice['id']}")
 
+@invoices_bp.route("/invoices/<int:invoice_id>/payments/<int:payment_id>/delete", methods=["POST"])
+@login_required
+@subscription_required
+@require_permission("can_manage_invoices")
+def delete_invoice_payment(invoice_id, payment_id):
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    payment = conn.execute(
+        """
+        SELECT *
+        FROM invoice_payments
+        WHERE id = %s AND invoice_id = %s AND company_id = %s
+        """,
+        (payment_id, invoice_id, cid),
+    ).fetchone()
+
+    if not payment:
+        conn.close()
+        flash("Payment not found.")
+        return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
+
+    conn.execute(
+        """
+        DELETE FROM invoice_payments
+        WHERE id = %s AND invoice_id = %s AND company_id = %s
+        """,
+        (payment_id, invoice_id, cid),
+    )
+    conn.commit()
+    conn.close()
+
+    _sync_invoice_status_and_bookkeeping(invoice_id)
+
+    flash("Payment deleted.")
+    return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
+
 
 @invoices_bp.route("/invoices/<int:invoice_id>/payments/<int:payment_id>/edit", methods=["GET", "POST"])
 @login_required
