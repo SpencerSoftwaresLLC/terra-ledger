@@ -4229,17 +4229,16 @@ def fix_billable_column():
             ALTER TABLE recurring_mowing_schedule_items
             ALTER COLUMN billable TYPE BOOLEAN
             USING CASE
-                WHEN billable IN (1, '1', TRUE, 'true', 't', 'yes', 'on') THEN TRUE
+                WHEN billable::text IN ('1','true','t','yes','on') THEN TRUE
                 ELSE FALSE
             END
         """)
 
-        # Fix job_items
         cur.execute("""
             ALTER TABLE job_items
             ALTER COLUMN billable TYPE BOOLEAN
             USING CASE
-                WHEN billable IN (1, '1', TRUE, 'true', 't', 'yes', 'on') THEN TRUE
+                WHEN billable::text IN ('1','true','t','yes','on') THEN TRUE
                 ELSE FALSE
             END
         """)
