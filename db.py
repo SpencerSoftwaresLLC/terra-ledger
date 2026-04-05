@@ -737,7 +737,7 @@ def ensure_job_item_columns():
         "sale_price": "DOUBLE PRECISION DEFAULT 0",
         "cost_amount": "DOUBLE PRECISION DEFAULT 0",
         "line_total": "DOUBLE PRECISION DEFAULT 0",
-        "billable": "INTEGER DEFAULT 1",
+        "billable": "BOOLEAN DEFAULT TRUE",
         "ledger_entry_id": "INTEGER",
         "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
     }
@@ -745,9 +745,21 @@ def ensure_job_item_columns():
     for col, col_type in needed.items():
         safe_add_column(cur, "job_items", col, col_type)
 
+    try:
+        cur.execute("""
+            ALTER TABLE job_items
+            ALTER COLUMN billable TYPE BOOLEAN
+            USING CASE
+                WHEN billable IN (1, '1', TRUE, 'true', 't', 'yes', 'on') THEN TRUE
+                ELSE FALSE
+            END
+        """)
+    except Exception:
+        conn.rollback()
+        cur = conn.cursor()
+
     conn.commit()
     conn.close()
-
 
 def ensure_password_reset_table():
     conn = get_db_connection()
@@ -868,22 +880,22 @@ def init_db():
     """)
 
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS job_items (
-        id SERIAL PRIMARY KEY,
-        job_id INTEGER NOT NULL,
-        item_type TEXT DEFAULT 'material',
-        description TEXT NOT NULL,
-        quantity DOUBLE PRECISION DEFAULT 0,
-        unit TEXT,
-        unit_cost DOUBLE PRECISION DEFAULT 0,
-        unit_price DOUBLE PRECISION DEFAULT 0,
-        sale_price DOUBLE PRECISION DEFAULT 0,
-        cost_amount DOUBLE PRECISION DEFAULT 0,
-        line_total DOUBLE PRECISION DEFAULT 0,
-        billable BOOLEAN DEFAULT TRUE,
-        ledger_entry_id INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
+        CREATE TABLE IF NOT EXISTS job_items (
+            id SERIAL PRIMARY KEY,
+            job_id INTEGER NOT NULL,
+            item_type TEXT DEFAULT 'material',
+            description TEXT NOT NULL,
+            quantity DOUBLE PRECISION DEFAULT 0,
+            unit TEXT,
+            unit_cost DOUBLE PRECISION DEFAULT 0,
+            unit_price DOUBLE PRECISION DEFAULT 0,
+            sale_price DOUBLE PRECISION DEFAULT 0,
+            cost_amount DOUBLE PRECISION DEFAULT 0,
+            line_total DOUBLE PRECISION DEFAULT 0,
+            billable BOOLEAN DEFAULT TRUE,
+            ledger_entry_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
     """)
 
     try:
@@ -896,7 +908,8 @@ def init_db():
             END
         """)
     except Exception:
-        pass
+        conn.rollback()
+        cur = conn.cursor()
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS invoices (
@@ -1358,14 +1371,13 @@ def ensure_job_schedule_columns():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # -------------------------------
-    # JOBS TABLE
-    # -------------------------------
     cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_start_time TIME")
     cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_end_time TIME")
     cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS assigned_to TEXT")
+    cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS service_type TEXT")
+    cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS recurring_schedule_id INTEGER")
+    cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS generated_from_schedule BOOLEAN DEFAULT FALSE")
 
-    # Ensure boolean for generated_from_schedule
     try:
         cur.execute("""
             ALTER TABLE jobs
@@ -1376,26 +1388,15 @@ def ensure_job_schedule_columns():
             END
         """)
     except Exception:
-        pass
+        conn.rollback()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_start_time TIME")
+        cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_end_time TIME")
+        cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS assigned_to TEXT")
+        cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS service_type TEXT")
+        cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS recurring_schedule_id INTEGER")
+        cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS generated_from_schedule BOOLEAN DEFAULT FALSE")
 
-    # -------------------------------
-    # JOB ITEMS TABLE
-    # -------------------------------
-    try:
-        cur.execute("""
-            ALTER TABLE job_items
-            ALTER COLUMN billable TYPE BOOLEAN
-            USING CASE
-                WHEN billable IN (1, '1', TRUE, 'true', 't', 'yes', 'on') THEN TRUE
-                ELSE FALSE
-            END
-        """)
-    except Exception:
-        pass
-
-    # -------------------------------
-    # RECURRING ITEMS TABLE
-    # -------------------------------
     try:
         cur.execute("""
             ALTER TABLE recurring_mowing_schedule_items
@@ -1406,11 +1407,9 @@ def ensure_job_schedule_columns():
             END
         """)
     except Exception:
-        pass
+        conn.rollback()
+        cur = conn.cursor()
 
-    # -------------------------------
-    # RECURRING SCHEDULE TABLE
-    # -------------------------------
     try:
         cur.execute("""
             ALTER TABLE recurring_mowing_schedules
@@ -1421,7 +1420,21 @@ def ensure_job_schedule_columns():
             END
         """)
     except Exception:
-        pass
+        conn.rollback()
+        cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            ALTER TABLE job_items
+            ALTER COLUMN billable TYPE BOOLEAN
+            USING CASE
+                WHEN billable IN (1, '1', TRUE, 'true', 't', 'yes', 'on') THEN TRUE
+                ELSE FALSE
+            END
+        """)
+    except Exception:
+        conn.rollback()
+        cur = conn.cursor()
 
     conn.commit()
     conn.close()
