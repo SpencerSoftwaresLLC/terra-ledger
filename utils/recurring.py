@@ -1,6 +1,47 @@
-from datetime import date, timedelta
-from helpers import safe_int, parse_iso_date, date_to_iso
+from datetime import date, datetime, timedelta
 from routes.jobs import create_job_from_recurring_schedule
+
+
+def safe_int(value, default=0):
+    try:
+        return int(value or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def parse_iso_date(value):
+    if not value:
+        return None
+
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+
+    try:
+        return datetime.fromisoformat(text).date()
+    except Exception:
+        return None
+
+
+def date_to_iso(value):
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    parsed = parse_iso_date(value)
+    return parsed.isoformat() if parsed else None
+
 
 def auto_generate_recurring_jobs(conn, company_id, through_date=None):
     today = date.today()
