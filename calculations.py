@@ -133,7 +133,7 @@ def recalc_job(conn, job_id):
             COALESCE(
                 SUM(
                     CASE
-                        WHEN COALESCE(billable, 1) = 1
+                        WHEN COALESCE(billable, TRUE) = TRUE
                             THEN COALESCE(
                                 line_total,
                                 COALESCE(quantity, 0) * COALESCE(unit_price, COALESCE(sale_price, 0)),
@@ -160,14 +160,16 @@ def recalc_job(conn, job_id):
         (job_id,),
     ).fetchone()
 
-    revenue = _safe_float(row["revenue"] if row else 0)
-    cost_total = _safe_float(row["cost_total"] if row else 0)
+    revenue = float(row["revenue"] or 0) if row else 0.0
+    cost_total = float(row["cost_total"] or 0) if row else 0.0
     profit = revenue - cost_total
 
     conn.execute(
         """
         UPDATE jobs
-        SET revenue = %s, cost_total = %s, profit = %s
+        SET revenue = %s,
+            cost_total = %s,
+            profit = %s
         WHERE id = %s
         """,
         (revenue, cost_total, profit, job_id),
