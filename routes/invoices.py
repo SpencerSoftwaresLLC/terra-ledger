@@ -2258,60 +2258,6 @@ def send_invoice_email(invoice_id):
     return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
 
-@invoices_bp.route("/invoices/<int:invoice_id>/delete", methods=["POST"])
-@login_required
-@subscription_required
-@require_permission("can_manage_invoices")
-def delete_invoice(invoice_id):
-    ensure_invoice_payment_table()
-
-    conn = get_db_connection()
-    cid = session["company_id"]
-
-    invoice = conn.execute(
-        """
-        SELECT *
-        FROM invoices
-        WHERE id = %s AND company_id = %s
-        """,
-        (invoice_id, cid),
-    ).fetchone()
-
-    if not invoice:
-        conn.close()
-        abort(404)
-
-    conn.execute(
-        """
-        DELETE FROM invoice_payments
-        WHERE invoice_id = %s AND company_id = %s
-        """,
-        (invoice_id, cid),
-    )
-
-    conn.execute(
-        """
-        DELETE FROM invoice_items
-        WHERE invoice_id = %s
-        """,
-        (invoice_id,),
-    )
-
-    conn.execute(
-        """
-        DELETE FROM invoices
-        WHERE id = %s AND company_id = %s
-        """,
-        (invoice_id, cid),
-    )
-
-    conn.commit()
-    conn.close()
-
-    flash("Invoice deleted.")
-    return redirect(url_for("invoices.invoices"))
-
-
 @invoices_bp.route("/invoices/<int:invoice_id>/add_payment", methods=["GET", "POST"])
 @login_required
 @subscription_required
