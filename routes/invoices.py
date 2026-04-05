@@ -661,6 +661,59 @@ def build_invoice_pdf(invoice, items, company, profile):
         if os.path.exists(pdf_temp.name):
             os.remove(pdf_temp.name)
 
+def get_invoice_email_context(invoice_id, company_id):
+    conn = get_db_connection()
+    try:
+        invoice = conn.execute(
+            """
+            SELECT
+                i.*,
+                c.name AS customer_name,
+                c.email AS customer_email
+            FROM invoices i
+            LEFT JOIN customers c
+              ON i.customer_id = c.id
+            WHERE i.id = %s
+              AND i.company_id = %s
+            """,
+            (invoice_id, company_id),
+        ).fetchone()
+
+        if not invoice:
+            return None, None, None, None
+
+        items = conn.execute(
+            """
+            SELECT *
+            FROM invoice_items
+            WHERE invoice_id = %s
+            ORDER BY id ASC
+            """,
+            (invoice_id,),
+        ).fetchall()
+
+        company = conn.execute(
+            """
+            SELECT *
+            FROM companies
+            WHERE id = %s
+            """,
+            (company_id,),
+        ).fetchone()
+
+        profile = conn.execute(
+            """
+            SELECT *
+            FROM company_profile
+            WHERE company_id = %s
+            """,
+            (company_id,),
+        ).fetchone()
+
+        return invoice, items, company, profile
+    finally:
+        conn.close()
+
 
 def get_stripe_settings_for_company(company_id):
     conn = get_db_connection()
@@ -1588,6 +1641,7 @@ def new_invoice():
 @subscription_required
 @require_permission("can_manage_invoices")
 def view_invoice(invoice_id):
+    ensure_document_number_columns()
     ensure_invoice_payment_table()
 
     conn = get_db_connection()
@@ -1654,6 +1708,9 @@ def view_invoice(invoice_id):
     if not item_rows:
         item_rows = "<tr><td colspan='5' class='muted'>No invoice items found.</td></tr>"
 
+    if not item_mobile_cards:
+        item_mobile_cards = "<div class='mobile-list-card muted'>No invoice items found.</div>"
+
     # ---------- PAYMENTS ----------
     payment_rows = ""
     payment_mobile_cards = ""
@@ -1691,6 +1748,9 @@ def view_invoice(invoice_id):
     if not payment_rows:
         payment_rows = "<tr><td colspan='5' class='muted'>No payments recorded.</td></tr>"
 
+    if not payment_mobile_cards:
+        payment_mobile_cards = "<div class='mobile-list-card muted'>No payments recorded.</div>"
+
     # ---------- META ----------
     invoice_number = _clean_display(invoice["invoice_number"] or invoice["id"])
     is_paid = str(invoice["status"]).lower() == "paid"
@@ -1702,6 +1762,21 @@ def view_invoice(invoice_id):
             {"Mark Unpaid" if is_paid else "Mark Paid"}
         </button>
     </form>
+    """
+
+    email_invoice_btn = f"""
+    <form method='post' action='{url_for("invoices.send_invoice_email", invoice_id=invoice_id)}'>
+        <input type="hidden" name="csrf_token" value="{generate_csrf()}">
+        <button class='btn success'>Email Invoice</button>
+    </form>
+    """
+
+    pdf_btn = f"""
+    <a class='btn secondary' href='{url_for("invoices.download_invoice_pdf", invoice_id=invoice_id)}'>Download PDF</a>
+    """
+
+    add_payment_btn = f"""
+    <a class='btn warning' href='{url_for("invoices.add_invoice_payment", invoice_id=invoice_id)}'>Add Payment</a>
     """
 
     # ---------- PAGE ----------
@@ -1728,10 +1803,31 @@ def view_invoice(invoice_id):
             padding:12px;
         }}
 
+        .invoice-card span {{
+            display:block;
+            font-size:.8rem;
+            color:#64748b;
+            margin-bottom:4px;
+        }}
+
+        .invoice-card strong {{
+            display:block;
+            color:#0f172a;
+            line-height:1.3;
+            word-break:break-word;
+        }}
+
+        .invoice-summary-grid {{
+            display:grid;
+            grid-template-columns:repeat(3,1fr);
+            gap:12px;
+        }}
+
         .mobile-only {{ display:none; }}
 
         @media (max-width:700px){{
             .invoice-grid {{ grid-template-columns:1fr; }}
+            .invoice-summary-grid {{ grid-template-columns:1fr; }}
             .mobile-only {{ display:block; }}
             .desktop-only {{ display:none; }}
         }}
@@ -1743,6 +1839,9 @@ def view_invoice(invoice_id):
             <h1>Invoice #{invoice_number}</h1>
             <div class='row-actions'>
                 <a class='btn secondary' href='{url_for("invoices.invoices")}'>Back</a>
+                {pdf_btn}
+                {email_invoice_btn}
+                {add_payment_btn}
                 {toggle_btn}
             </div>
         </div>
@@ -1750,7 +1849,13 @@ def view_invoice(invoice_id):
         <div class='invoice-grid'>
             <div class='invoice-card'><span>Customer</span><strong>{escape(_clean_display(invoice["customer_name"]))}</strong></div>
             <div class='invoice-card'><span>Date</span><strong>{escape(str(invoice["invoice_date"] or "-"))}</strong></div>
-            <div class='invoice-card'><span>Status</span><strong>{escape(invoice["status"])}</strong></div>
+            <div class='invoice-card'><span>Status</span><strong>{escape(_clean_display(invoice["status"]))}</strong></div>
+        </div>
+
+        <div class='invoice-summary-grid'>
+            <div class='invoice-card'><span>Total</span><strong>${_safe_float(invoice["total"]):.2f}</strong></div>
+            <div class='invoice-card'><span>Amount Paid</span><strong>${_safe_float(invoice["amount_paid"]):.2f}</strong></div>
+            <div class='invoice-card'><span>Balance Due</span><strong>${_safe_float(invoice["balance_due"]):.2f}</strong></div>
         </div>
 
         <div class='card'>
@@ -2013,6 +2118,7 @@ def preview_invoice_pdf(invoice_id):
 @subscription_required
 @require_permission("can_manage_invoices")
 def send_invoice_email(invoice_id):
+    ensure_document_number_columns()
     ensure_invoice_payment_table()
 
     conn = get_db_connection()
@@ -2021,10 +2127,15 @@ def send_invoice_email(invoice_id):
 
     invoice = conn.execute(
         """
-        SELECT i.*, c.name AS customer_name, c.email AS customer_email
+        SELECT
+            i.*,
+            c.name AS customer_name,
+            c.email AS customer_email
         FROM invoices i
-        JOIN customers c ON i.customer_id = c.id
-        WHERE i.id = %s AND i.company_id = %s
+        LEFT JOIN customers c
+          ON i.customer_id = c.id
+        WHERE i.id = %s
+          AND i.company_id = %s
         """,
         (invoice_id, cid),
     ).fetchone()
@@ -2045,7 +2156,16 @@ def send_invoice_email(invoice_id):
 
     company = conn.execute(
         """
-        SELECT name, email, phone, website, address_line_1, address_line_2, city, state, zip_code
+        SELECT
+            name,
+            email,
+            phone,
+            website,
+            address_line_1,
+            address_line_2,
+            city,
+            state,
+            zip_code
         FROM companies
         WHERE id = %s
         """,
@@ -2054,7 +2174,13 @@ def send_invoice_email(invoice_id):
 
     profile = conn.execute(
         """
-        SELECT display_name, legal_name, logo_url, invoice_header_name, invoice_footer_note, email
+        SELECT
+            display_name,
+            legal_name,
+            logo_url,
+            invoice_header_name,
+            invoice_footer_note,
+            email
         FROM company_profile
         WHERE company_id = %s
         """,
@@ -2066,14 +2192,27 @@ def send_invoice_email(invoice_id):
     recipient = (invoice["customer_email"] or "").strip()
     if not recipient:
         flash("This customer does not have an email address.")
-        return redirect(url_for("invoices.email_invoice_preview", invoice_id=invoice_id))
+        return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
     invoice_number = invoice["invoice_number"] or invoice["id"]
+    customer_name = (invoice["customer_name"] or "Customer").strip()
+
+    company_name = "Your Company"
+    if profile and "invoice_header_name" in profile.keys() and profile["invoice_header_name"]:
+        company_name = profile["invoice_header_name"]
+    elif profile and "display_name" in profile.keys() and profile["display_name"]:
+        company_name = profile["display_name"]
+    elif company and "name" in company.keys() and company["name"]:
+        company_name = company["name"]
 
     try:
         pdf_data = build_invoice_pdf(invoice, items, company, profile)
 
-        payment_url = create_invoice_checkout_session(invoice, cid)
+        payment_url = None
+        try:
+            payment_url = create_invoice_checkout_session(invoice, cid)
+        except Exception:
+            payment_url = None
 
         payment_text_section = ""
         payment_html_section = ""
@@ -2087,9 +2226,10 @@ def send_invoice_email(invoice_id):
             """
 
         text_body = (
-            f"Hello {invoice['customer_name']},\n\n"
-            f"Please find attached Invoice #{invoice_number}.\n\n"
+            f"Hello {customer_name},\n\n"
+            f"Please find attached Invoice #{invoice_number} from {company_name}.\n\n"
             f"Total: ${_safe_float(invoice['total']):.2f}\n"
+            f"Amount Paid: ${_safe_float(invoice['amount_paid']):.2f}\n"
             f"Balance Due: ${_safe_float(invoice['balance_due']):.2f}"
             f"{payment_text_section}\n"
             f"Thank you."
@@ -2097,12 +2237,13 @@ def send_invoice_email(invoice_id):
 
         html_body = f"""
             <div style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222;">
-                <p>Hello {invoice['customer_name']},</p>
+                <p>Hello {escape(customer_name)},</p>
 
-                <p>Please find attached Invoice #{invoice_number}.</p>
+                <p>Please find attached Invoice #{escape(str(invoice_number))} from {escape(company_name)}.</p>
 
                 <p>
                     <strong>Total:</strong> ${_safe_float(invoice['total']):.2f}<br>
+                    <strong>Amount Paid:</strong> ${_safe_float(invoice['amount_paid']):.2f}<br>
                     <strong>Balance Due:</strong> ${_safe_float(invoice['balance_due']):.2f}
                 </p>
 
