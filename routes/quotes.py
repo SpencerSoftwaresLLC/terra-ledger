@@ -1742,6 +1742,7 @@ def convert_quote_to_job(quote_id):
 
             line_total = qty * sale_price
             cost_amount = qty * unit_cost
+            billable = True
 
             cur.execute(
                 """
@@ -1772,7 +1773,7 @@ def convert_quote_to_job(quote_id):
                     sale_price,
                     cost_amount,
                     line_total,
-                    1,
+                    billable,
                 ),
             )
 
