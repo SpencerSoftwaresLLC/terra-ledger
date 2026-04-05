@@ -36,6 +36,7 @@ from routes.payment_setup import payment_setup_bp
 from routes.bookkeeping import bookkeeping_bp, _ensure_bookkeeping_check_structure
 from routes.help_assistant import help_assistant_bp
 from routes.mobile import mobile_bp
+from admin.admin_routes import admin_bp
 from routes.legal import legal_bp
 from reports.material_usage import material_usage_bp
 
@@ -169,6 +170,7 @@ def create_app():
     app.register_blueprint(help_assistant_bp)
     app.register_blueprint(mobile_bp)
     app.register_blueprint(calendar_bp)
+    app.register_blueprint(admin_bp)
     app.register_blueprint(messages_bp)
     app.register_blueprint(notifications_bp)
     app.register_blueprint(legal_bp)
