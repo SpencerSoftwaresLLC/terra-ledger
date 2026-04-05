@@ -1835,7 +1835,6 @@ def view_invoice(invoice_id):
             <h1>Invoice #{invoice_number}</h1>
             <div class='row-actions'>
                 <a class='btn secondary' href='{url_for("invoices.invoices")}'>Back</a>
-                {pdf_btn}
                 {email_invoice_btn}
                 {add_payment_btn}
                 {toggle_btn}
