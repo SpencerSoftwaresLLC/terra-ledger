@@ -610,6 +610,37 @@ def ensure_customer_name_columns():
     conn.commit()
     conn.close()
 
+def ensure_customer_sms_consent_columns():
+    conn = get_db_connection()
+
+    conn.execute("""
+        ALTER TABLE customers
+        ADD COLUMN IF NOT EXISTS sms_opt_in BOOLEAN NOT NULL DEFAULT FALSE
+    """)
+
+    conn.execute("""
+        ALTER TABLE customers
+        ADD COLUMN IF NOT EXISTS sms_opt_in_at TIMESTAMP NULL
+    """)
+
+    conn.execute("""
+        ALTER TABLE customers
+        ADD COLUMN IF NOT EXISTS sms_opt_in_method TEXT
+    """)
+
+    conn.execute("""
+        ALTER TABLE customers
+        ADD COLUMN IF NOT EXISTS sms_opt_in_ip TEXT
+    """)
+
+    conn.execute("""
+        ALTER TABLE customers
+        ADD COLUMN IF NOT EXISTS sms_opt_out_at TIMESTAMP NULL
+    """)
+
+    conn.commit()
+    conn.close()
+
 
 def ensure_invoice_payments_table():
     conn = get_db_connection()

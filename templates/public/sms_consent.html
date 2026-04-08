@@ -1,0 +1,179 @@
+<!-- templates/public/sms_consent.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SMS Consent | TerraLedger</title>
+    <style>
+        :root {
+            --bg: #f7f7f5;
+            --panel: #ffffff;
+            --border: #d8e2d0;
+            --text: #1f2933;
+            --text-soft: #5b6470;
+            --green-dark: #2f4f1f;
+            --green: #4f7f2b;
+            --orange: #f08c4a;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .wrap {
+            max-width: 860px;
+            margin: 40px auto;
+            padding: 0 18px;
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 28px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.06);
+        }
+
+        h1, h2 {
+            margin-top: 0;
+            color: var(--green-dark);
+        }
+
+        .brand {
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: .04em;
+            text-transform: uppercase;
+            color: var(--orange);
+            margin-bottom: 10px;
+        }
+
+        .example-box {
+            margin-top: 22px;
+            padding: 18px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: #fbfcfa;
+        }
+
+        .consent-row {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            margin: 14px 0;
+        }
+
+        .consent-row input[type="checkbox"] {
+            margin-top: 4px;
+            transform: scale(1.15);
+        }
+
+        .muted {
+            color: var(--text-soft);
+        }
+
+        a {
+            color: var(--green);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        ul {
+            padding-left: 20px;
+        }
+
+        .footer-note {
+            margin-top: 20px;
+            font-size: 14px;
+            color: var(--text-soft);
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="card">
+            <div class="brand">TerraLedger</div>
+            <h1>SMS Notifications Opt-In</h1>
+
+            <p>
+                TerraLedger is a business management platform used by service companies to communicate with customers
+                about active services and account-related updates.
+            </p>
+
+            <p>
+                Customers may choose to receive SMS messages related to:
+            </p>
+
+            <ul>
+                <li>job scheduling updates</li>
+                <li>appointment reminders</li>
+                <li>on-the-way notifications</li>
+                <li>job started / job completed alerts</li>
+                <li>invoice reminders and account notifications</li>
+            </ul>
+
+            <h2>How consent is collected</h2>
+            <p>
+                During customer intake or profile setup, the customer provides their mobile number and may optionally
+                check a dedicated SMS consent box agreeing to receive text messages from TerraLedger-powered businesses.
+                The checkbox is not preselected.
+            </p>
+
+            <div class="example-box">
+                <h2 style="margin-bottom: 10px;">Example web opt-in</h2>
+
+                <label for="example-phone">Mobile phone number</label><br>
+                <input
+                    id="example-phone"
+                    type="text"
+                    value="(555) 555-1234"
+                    disabled
+                    style="width: 100%; max-width: 360px; padding: 10px 12px; margin-top: 6px; border: 1px solid #cfd8cc; border-radius: 10px;"
+                >
+
+                <div class="consent-row">
+                    <input type="checkbox" id="sms_opt_in_example">
+                    <label for="sms_opt_in_example">
+                        I agree to receive SMS notifications from TerraLedger regarding scheduling updates, service alerts,
+                        and invoice reminders. Message frequency may vary. Message and data rates may apply.
+                        Reply STOP to opt out and HELP for help.
+                    </label>
+                </div>
+
+                <p class="muted" style="margin-bottom: 0;">
+                    The checkbox above is shown as an example of the consent language used in the platform.
+                </p>
+            </div>
+
+            <h2>Message details</h2>
+            <p>
+                Message frequency may vary. Message and data rates may apply. Consent is not a condition of purchase.
+                Customers can opt out at any time by replying <strong>STOP</strong> and can reply
+                <strong>HELP</strong> for assistance.
+            </p>
+
+            <p>
+                For more information, see our
+                <a href="/privacy">Privacy Policy</a>
+                and
+                <a href="/terms">Terms of Service</a>.
+            </p>
+
+            <div class="footer-note">
+                Public compliance page for messaging verification.
+            </div>
+        </div>
+    </div>
+</body>
+</html>

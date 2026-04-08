@@ -27,6 +27,9 @@ from routes.notifications import create_notification
 messages_bp = Blueprint("messages", __name__)
 
 MAX_MESSAGE_LENGTH = 1600
+STOP_WORDS = {"stop", "stopall", "unsubscribe", "cancel", "end", "quit"}
+HELP_WORDS = {"help", "info"}
+START_WORDS = {"start", "unstop", "yes"}
 
 
 def _safe_text(value, default=""):
@@ -220,6 +223,17 @@ def _get_customer_phone_column(conn):
     return None
 
 
+def _customer_sms_columns_exist(conn):
+    cols = set(table_columns(conn, "customers") or [])
+    return {
+        "sms_opt_in",
+        "sms_opt_in_at",
+        "sms_opt_in_method",
+        "sms_opt_in_ip",
+        "sms_opt_out_at",
+    }.issubset(cols)
+
+
 def _build_conversation_key(company_id, phone_number):
     normalized = _normalize_phone(phone_number)
     if not company_id or not normalized:
@@ -227,7 +241,37 @@ def _build_conversation_key(company_id, phone_number):
     return f"{int(company_id)}:{normalized}"
 
 
+def ensure_customer_sms_consent_columns():
+    conn = get_db_connection()
+    try:
+        conn.execute("""
+            ALTER TABLE customers
+            ADD COLUMN IF NOT EXISTS sms_opt_in BOOLEAN NOT NULL DEFAULT FALSE
+        """)
+        conn.execute("""
+            ALTER TABLE customers
+            ADD COLUMN IF NOT EXISTS sms_opt_in_at TIMESTAMP NULL
+        """)
+        conn.execute("""
+            ALTER TABLE customers
+            ADD COLUMN IF NOT EXISTS sms_opt_in_method TEXT
+        """)
+        conn.execute("""
+            ALTER TABLE customers
+            ADD COLUMN IF NOT EXISTS sms_opt_in_ip TEXT
+        """)
+        conn.execute("""
+            ALTER TABLE customers
+            ADD COLUMN IF NOT EXISTS sms_opt_out_at TIMESTAMP NULL
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def ensure_messaging_tables():
+    ensure_customer_sms_consent_columns()
+
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -521,14 +565,34 @@ def get_customers_for_messages(company_id):
 
         if not phone_col:
             return conn.execute("""
-                SELECT id, name, NULL AS phone
+                SELECT id, name, NULL AS phone, FALSE AS sms_opt_in
+                FROM customers
+                WHERE company_id = %s
+                ORDER BY name ASC
+            """, (company_id,)).fetchall()
+
+        if _customer_sms_columns_exist(conn):
+            return conn.execute(f"""
+                SELECT
+                    id,
+                    name,
+                    {phone_col} AS phone,
+                    sms_opt_in,
+                    sms_opt_in_at,
+                    sms_opt_out_at
                 FROM customers
                 WHERE company_id = %s
                 ORDER BY name ASC
             """, (company_id,)).fetchall()
 
         return conn.execute(f"""
-            SELECT id, name, {phone_col} AS phone
+            SELECT
+                id,
+                name,
+                {phone_col} AS phone,
+                FALSE AS sms_opt_in,
+                NULL AS sms_opt_in_at,
+                NULL AS sms_opt_out_at
             FROM customers
             WHERE company_id = %s
             ORDER BY name ASC
@@ -546,17 +610,44 @@ def find_customer_by_phone(company_id, phone_number):
         if not phone_col:
             return None
 
+        sms_cols_exist = _customer_sms_columns_exist(conn)
         search_digits = _digits_only(phone_number)
         if not search_digits:
             return None
 
+        if sms_cols_exist:
+            sql = f"""
+                SELECT
+                    id,
+                    name,
+                    {phone_col} AS phone,
+                    sms_opt_in,
+                    sms_opt_in_at,
+                    sms_opt_in_method,
+                    sms_opt_in_ip,
+                    sms_opt_out_at
+                FROM customers
+                WHERE company_id = %s
+                ORDER BY id DESC
+            """
+        else:
+            sql = f"""
+                SELECT
+                    id,
+                    name,
+                    {phone_col} AS phone,
+                    FALSE AS sms_opt_in,
+                    NULL AS sms_opt_in_at,
+                    NULL AS sms_opt_in_method,
+                    NULL AS sms_opt_in_ip,
+                    NULL AS sms_opt_out_at
+                FROM customers
+                WHERE company_id = %s
+                ORDER BY id DESC
+            """
+
         cur = conn.cursor()
-        cur.execute(f"""
-            SELECT id, name, {phone_col} AS phone
-            FROM customers
-            WHERE company_id = %s
-            ORDER BY id DESC
-        """, (company_id,))
+        cur.execute(sql, (company_id,))
         rows = cur.fetchall()
 
         for row in rows:
@@ -573,6 +664,120 @@ def find_customer_by_phone(company_id, phone_number):
         return None
     finally:
         conn.close()
+
+
+def get_customer_by_id(company_id, customer_id):
+    if not company_id or not customer_id:
+        return None
+
+    conn = get_db_connection()
+    try:
+        phone_col = _get_customer_phone_column(conn)
+        if not phone_col:
+            return None
+
+        if _customer_sms_columns_exist(conn):
+            sql = f"""
+                SELECT
+                    id,
+                    name,
+                    {phone_col} AS phone,
+                    sms_opt_in,
+                    sms_opt_in_at,
+                    sms_opt_in_method,
+                    sms_opt_in_ip,
+                    sms_opt_out_at
+                FROM customers
+                WHERE company_id = %s AND id = %s
+                LIMIT 1
+            """
+        else:
+            sql = f"""
+                SELECT
+                    id,
+                    name,
+                    {phone_col} AS phone,
+                    FALSE AS sms_opt_in,
+                    NULL AS sms_opt_in_at,
+                    NULL AS sms_opt_in_method,
+                    NULL AS sms_opt_in_ip,
+                    NULL AS sms_opt_out_at
+                FROM customers
+                WHERE company_id = %s AND id = %s
+                LIMIT 1
+            """
+
+        return conn.execute(sql, (company_id, customer_id)).fetchone()
+    finally:
+        conn.close()
+
+
+def customer_has_sms_consent(customer_row):
+    if not customer_row:
+        return False
+
+    phone_number = _normalize_phone(customer_row.get("phone"))
+    if not _is_reasonable_phone(phone_number):
+        return False
+
+    if not _to_bool(customer_row.get("sms_opt_in")):
+        return False
+
+    if customer_row.get("sms_opt_out_at"):
+        return False
+
+    return True
+
+
+def set_customer_sms_consent(company_id, phone_number, is_opted_in, method=None):
+    if not company_id or not phone_number:
+        return None
+
+    normalized_phone = _normalize_phone(phone_number)
+    if not normalized_phone:
+        return None
+
+    customer = find_customer_by_phone(company_id, normalized_phone)
+    if not customer:
+        return None
+
+    conn = get_db_connection()
+    try:
+        conn.execute("""
+            UPDATE customers
+            SET sms_opt_in = %s,
+                sms_opt_in_at = CASE
+                    WHEN %s = TRUE AND sms_opt_in = FALSE THEN CURRENT_TIMESTAMP
+                    WHEN %s = TRUE AND sms_opt_in_at IS NULL THEN CURRENT_TIMESTAMP
+                    ELSE sms_opt_in_at
+                END,
+                sms_opt_in_method = CASE
+                    WHEN %s = TRUE THEN COALESCE(%s, sms_opt_in_method, 'sms_reply')
+                    ELSE sms_opt_in_method
+                END,
+                sms_opt_out_at = CASE
+                    WHEN %s = FALSE THEN CURRENT_TIMESTAMP
+                    WHEN %s = TRUE THEN NULL
+                    ELSE sms_opt_out_at
+                END
+            WHERE company_id = %s
+              AND id = %s
+        """, (
+            is_opted_in,
+            is_opted_in,
+            is_opted_in,
+            is_opted_in,
+            method,
+            is_opted_in,
+            is_opted_in,
+            company_id,
+            customer["id"],
+        ))
+        conn.commit()
+    finally:
+        conn.close()
+
+    return customer["id"]
 
 
 def get_last_conversation_for_phone(phone_number):
@@ -762,7 +967,8 @@ def _render_job_reminder_message(template, job_row):
 
     message = template or (
         "Hello {{customer_name}} — this is a reminder from {{company_name}} "
-        "about {{job_title}} scheduled for {{scheduled_date}}."
+        "about {{job_title}} scheduled for {{scheduled_date}}. "
+        "Reply STOP to opt out, HELP for help. Msg&data rates may apply."
     )
 
     replacements = {
@@ -788,7 +994,7 @@ def _render_invoice_late_message(template, invoice_row):
     message = template or (
         "Hello {{customer_name}} — this is a reminder from {{company_name}} that "
         "invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. "
-        "Due date: {{due_date}}."
+        "Due date: {{due_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply."
     )
 
     replacements = {
@@ -836,6 +1042,8 @@ def process_job_reminders():
                 {status_expr} AS job_status,
                 c.name AS customer_name,
                 c.{phone_col} AS customer_phone,
+                c.sms_opt_in,
+                c.sms_opt_out_at,
                 cp.name AS company_name,
                 ms.messaging_enabled,
                 ms.send_job_updates,
@@ -854,6 +1062,8 @@ def process_job_reminders():
               AND ms.enable_job_reminders = TRUE
               AND j.customer_id IS NOT NULL
               AND j.scheduled_date IS NOT NULL
+              AND c.sms_opt_in = TRUE
+              AND c.sms_opt_out_at IS NULL
             ORDER BY j.scheduled_date ASC
         """)
         rows = cur.fetchall()
@@ -981,6 +1191,8 @@ def process_late_invoice_reminders():
                 {status_expr} AS invoice_status,
                 c.name AS customer_name,
                 c.{phone_col} AS customer_phone,
+                c.sms_opt_in,
+                c.sms_opt_out_at,
                 cp.name AS company_name,
                 ms.messaging_enabled,
                 ms.send_invoice_reminders,
@@ -999,6 +1211,8 @@ def process_late_invoice_reminders():
               AND ms.enable_late_invoice_reminders = TRUE
               AND i.customer_id IS NOT NULL
               AND i.due_date IS NOT NULL
+              AND c.sms_opt_in = TRUE
+              AND c.sms_opt_out_at IS NULL
             ORDER BY i.due_date ASC
         """)
         rows = cur.fetchall()
@@ -1278,6 +1492,27 @@ def messages_page():
             color: #40307a;
         }
 
+        .consent-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4px 9px;
+            border-radius: 999px;
+            font-size: .78rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .consent-pill.yes {
+            background: #dff3d2;
+            color: #254314;
+        }
+
+        .consent-pill.no {
+            background: #f6d5d2;
+            color: #7a1f17;
+        }
+
         @media (max-width: 900px) {
             .messages-top-grid {
                 grid-template-columns: 1fr;
@@ -1323,13 +1558,20 @@ def messages_page():
                     <div style="margin-bottom:14px;">
                         <label>Customer</label>
                         <select id="customerSelect" onchange="fillCustomerPhoneFromDropdown()">
-                            <option value="">Select customer (optional)</option>
+                            <option value="">Select customer (required for consent-safe sending)</option>
                             {% for customer in customers %}
                                 <option
                                     value="{{ customer['id'] }}"
                                     data-phone="{{ customer['phone'] or '' }}"
+                                    data-opt-in="{{ 'yes' if customer['sms_opt_in'] else 'no' }}"
                                 >
-                                    {{ customer['name'] }}{% if customer['phone'] %} — {{ customer['phone'] }}{% endif %}
+                                    {{ customer['name'] }}
+                                    {% if customer['phone'] %} — {{ customer['phone'] }}{% endif %}
+                                    {% if customer['sms_opt_in'] %}
+                                        — SMS Opted In
+                                    {% else %}
+                                        — No SMS Consent
+                                    {% endif %}
                                 </option>
                             {% endfor %}
                         </select>
@@ -1337,7 +1579,7 @@ def messages_page():
 
                     <input type="hidden" name="customer_id" id="customerIdField">
 
-                    <div style="margin-bottom:14px;">
+                    <div style="margin-bottom:10px;">
                         <label>Phone Number</label>
                         <input
                             type="text"
@@ -1348,26 +1590,30 @@ def messages_page():
                         >
                     </div>
 
+                    <div id="customerConsentStatus" class="muted" style="margin-bottom:14px;">
+                        Select a customer to verify SMS consent.
+                    </div>
+
                     <div style="margin-bottom:14px;">
                         <label>Template</label>
                         <select id="templateSelect" onchange="applyMessageTemplate()">
                             <option value="">Choose a template (optional)</option>
-                            <option value="{{ settings['default_on_the_way_template'] if settings and settings['default_on_the_way_template'] else 'Hello from TerraLedger — we are on the way to your job site.' }}">
+                            <option value="{{ settings['default_on_the_way_template'] if settings and settings['default_on_the_way_template'] else 'Hello from TerraLedger — we are on the way to your job site. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">
                                 On The Way
                             </option>
-                            <option value="{{ settings['default_job_started_template'] if settings and settings['default_job_started_template'] else 'Hello from TerraLedger — we have started your scheduled job.' }}">
+                            <option value="{{ settings['default_job_started_template'] if settings and settings['default_job_started_template'] else 'Hello from TerraLedger — we have started your scheduled job. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">
                                 Job Started
                             </option>
-                            <option value="{{ settings['default_job_completed_template'] if settings and settings['default_job_completed_template'] else 'Hello from TerraLedger — your job has been completed. Thank you.' }}">
+                            <option value="{{ settings['default_job_completed_template'] if settings and settings['default_job_completed_template'] else 'Hello from TerraLedger — your job has been completed. Thank you. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">
                                 Job Completed
                             </option>
-                            <option value="{{ settings['default_invoice_reminder_template'] if settings and settings['default_invoice_reminder_template'] else 'Hello from TerraLedger — this is a reminder that your invoice is still outstanding.' }}">
+                            <option value="{{ settings['default_invoice_reminder_template'] if settings and settings['default_invoice_reminder_template'] else 'Hello from TerraLedger — this is a reminder that your invoice is still outstanding. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">
                                 Invoice Reminder
                             </option>
-                            <option value="{{ settings['default_job_reminder_template'] if settings and settings['default_job_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} about {{job_title}} scheduled for {{scheduled_date}}.' }}">
+                            <option value="{{ settings['default_job_reminder_template'] if settings and settings['default_job_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} about {{job_title}} scheduled for {{scheduled_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">
                                 Job Reminder
                             </option>
-                            <option value="{{ settings['default_late_invoice_reminder_template'] if settings and settings['default_late_invoice_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} that invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. Due date: {{due_date}}.' }}">
+                            <option value="{{ settings['default_late_invoice_reminder_template'] if settings and settings['default_late_invoice_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} that invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. Due date: {{due_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">
                                 Late Invoice Reminder
                             </option>
                         </select>
@@ -1381,6 +1627,10 @@ def messages_page():
                             placeholder="Type your message here..."
                             required
                         ></textarea>
+                    </div>
+
+                    <div class="muted small" style="margin-bottom:14px;">
+                        Manual messages only send to customers with recorded SMS consent.
                     </div>
 
                     <div class="row-actions">
@@ -1587,17 +1837,30 @@ def messages_page():
         const select = document.getElementById("customerSelect");
         const phoneField = document.getElementById("phoneNumberField");
         const customerIdField = document.getElementById("customerIdField");
+        const consentStatus = document.getElementById("customerConsentStatus");
 
-        if (!select || !phoneField || !customerIdField) return;
+        if (!select || !phoneField || !customerIdField || !consentStatus) return;
 
         const selected = select.options[select.selectedIndex];
         const phone = selected.getAttribute("data-phone") || "";
         const customerId = selected.value || "";
+        const optIn = selected.getAttribute("data-opt-in") || "no";
 
         customerIdField.value = customerId;
 
         if (phone) {
             phoneField.value = phone;
+        }
+
+        if (!customerId) {
+            consentStatus.innerHTML = "Select a customer to verify SMS consent.";
+            return;
+        }
+
+        if (optIn === "yes") {
+            consentStatus.innerHTML = '<span class="consent-pill yes">SMS Opted In</span>';
+        } else {
+            consentStatus.innerHTML = '<span class="consent-pill no">No SMS Consent On File</span>';
         }
     }
 
@@ -1645,12 +1908,30 @@ def send_message():
     phone_number = _normalize_phone(request.form.get("phone_number"))
     message_body = _safe_text(request.form.get("message_body"))
 
+    if not customer_id:
+        flash("Please select a customer so SMS consent can be verified.")
+        return redirect(url_for("messages.messages_page"))
+
+    customer = get_customer_by_id(company_id, customer_id)
+    if not customer:
+        flash("Customer not found.")
+        return redirect(url_for("messages.messages_page"))
+
     if not phone_number:
         flash("Phone number is required.")
         return redirect(url_for("messages.messages_page"))
 
     if not _is_reasonable_phone(phone_number):
         flash("Please enter a valid phone number.")
+        return redirect(url_for("messages.messages_page"))
+
+    customer_phone = _normalize_phone(customer.get("phone"))
+    if customer_phone != phone_number:
+        flash("The phone number must match the selected customer's saved phone number.")
+        return redirect(url_for("messages.messages_page"))
+
+    if not customer_has_sms_consent(customer):
+        flash("This customer has not opted in to SMS notifications.")
         return redirect(url_for("messages.messages_page"))
 
     if not message_body:
@@ -1770,13 +2051,11 @@ def incoming_message_webhook():
     matched_company_id = None
     matched_customer_id = None
 
-    # Primary routing: use the most recent conversation for this phone number.
     last_conversation = get_last_conversation_for_phone(from_number)
     if last_conversation:
         matched_company_id = last_conversation["company_id"]
         matched_customer_id = last_conversation["customer_id"]
 
-    # Fallback only if this phone number has never had a conversation before.
     if not matched_company_id:
         conn = get_db_connection()
         try:
@@ -1791,13 +2070,11 @@ def incoming_message_webhook():
         finally:
             conn.close()
 
-        matched_customer = None
         for row in enabled_rows:
             company_id = row["company_id"]
             customer = find_customer_by_phone(company_id, from_number)
             if customer:
                 matched_company_id = company_id
-                matched_customer = customer
                 matched_customer_id = customer["id"]
                 break
 
@@ -1812,6 +2089,25 @@ def incoming_message_webhook():
             provider="twilio",
             provider_message_id=provider_message_id,
         )
+
+        normalized_body = _safe_text(body).strip().lower()
+        first_word = normalized_body.split()[0] if normalized_body else ""
+
+        if first_word in STOP_WORDS:
+            set_customer_sms_consent(
+                company_id=matched_company_id,
+                phone_number=from_number,
+                is_opted_in=False,
+                method="sms_reply_stop",
+            )
+
+        elif first_word in START_WORDS:
+            set_customer_sms_consent(
+                company_id=matched_company_id,
+                phone_number=from_number,
+                is_opted_in=True,
+                method="sms_reply_start",
+            )
 
         customer_name = ""
         if matched_customer_id:
@@ -1829,6 +2125,20 @@ def incoming_message_webhook():
         )
 
     resp = MessagingResponse()
+
+    normalized_body = _safe_text(body).strip().lower()
+    first_word = normalized_body.split()[0] if normalized_body else ""
+
+    if first_word in STOP_WORDS:
+        resp.message("You have been opted out of SMS messages from TerraLedger. Reply START to opt back in.")
+    elif first_word in HELP_WORDS:
+        resp.message("TerraLedger support: Reply STOP to opt out. Reply START to opt back in.")
+    elif first_word in START_WORDS:
+        resp.message("You have been opted back in to SMS messages from TerraLedger.")
+    else:
+        # No auto-reply for regular messages.
+        pass
+
     return Response(str(resp), mimetype="application/xml")
 
 
@@ -2023,13 +2333,19 @@ def messaging_configuration():
                     <span class="muted">{{ from_number if from_number else 'Platform number not configured yet' }}</span>
                 </div>
 
-                <div style="margin-bottom:0;">
+                <div style="margin-bottom:10px;">
                     <strong>Inbound Webhook:</strong>
                     <span class="muted">/messages/webhook</span>
                 </div>
 
+                <div style="margin-bottom:0;">
+                    <strong>Status Callback:</strong>
+                    <span class="muted">/messages/status-callback</span>
+                </div>
+
                 <div class="muted small" style="margin-top:12px;">
                     Messaging is provided by TerraLedger. Customers do not need to connect their own Twilio account.
+                    Only customers with recorded SMS consent will receive outbound messages.
                 </div>
             </div>
 
@@ -2084,32 +2400,32 @@ def messaging_configuration():
 
                 <div style="margin-bottom:14px;">
                     <label>On The Way Template</label>
-                    <textarea name="default_on_the_way_template">{{ settings['default_on_the_way_template'] if settings and settings['default_on_the_way_template'] else 'Hello from TerraLedger — we are on the way to your job site.' }}</textarea>
+                    <textarea name="default_on_the_way_template">{{ settings['default_on_the_way_template'] if settings and settings['default_on_the_way_template'] else 'Hello from TerraLedger — we are on the way to your job site. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}</textarea>
                 </div>
 
                 <div style="margin-bottom:14px;">
                     <label>Job Started Template</label>
-                    <textarea name="default_job_started_template">{{ settings['default_job_started_template'] if settings and settings['default_job_started_template'] else 'Hello from TerraLedger — we have started your scheduled job.' }}</textarea>
+                    <textarea name="default_job_started_template">{{ settings['default_job_started_template'] if settings and settings['default_job_started_template'] else 'Hello from TerraLedger — we have started your scheduled job. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}</textarea>
                 </div>
 
                 <div style="margin-bottom:14px;">
                     <label>Job Completed Template</label>
-                    <textarea name="default_job_completed_template">{{ settings['default_job_completed_template'] if settings and settings['default_job_completed_template'] else 'Hello from TerraLedger — your job has been completed. Thank you.' }}</textarea>
+                    <textarea name="default_job_completed_template">{{ settings['default_job_completed_template'] if settings and settings['default_job_completed_template'] else 'Hello from TerraLedger — your job has been completed. Thank you. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}</textarea>
                 </div>
 
                 <div style="margin-bottom:14px;">
                     <label>Invoice Reminder Template</label>
-                    <textarea name="default_invoice_reminder_template">{{ settings['default_invoice_reminder_template'] if settings and settings['default_invoice_reminder_template'] else 'Hello from TerraLedger — this is a reminder that your invoice is still outstanding.' }}</textarea>
+                    <textarea name="default_invoice_reminder_template">{{ settings['default_invoice_reminder_template'] if settings and settings['default_invoice_reminder_template'] else 'Hello from TerraLedger — this is a reminder that your invoice is still outstanding. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}</textarea>
                 </div>
 
                 <div style="margin-bottom:14px;">
                     <label>Job Reminder Template</label>
-                    <textarea name="default_job_reminder_template">{{ settings['default_job_reminder_template'] if settings and settings['default_job_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} about {{job_title}} scheduled for {{scheduled_date}}.' }}</textarea>
+                    <textarea name="default_job_reminder_template">{{ settings['default_job_reminder_template'] if settings and settings['default_job_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} about {{job_title}} scheduled for {{scheduled_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}</textarea>
                 </div>
 
                 <div style="margin-bottom:0;">
                     <label>Late Invoice Reminder Template</label>
-                    <textarea name="default_late_invoice_reminder_template">{{ settings['default_late_invoice_reminder_template'] if settings and settings['default_late_invoice_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} that invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. Due date: {{due_date}}.' }}</textarea>
+                    <textarea name="default_late_invoice_reminder_template">{{ settings['default_late_invoice_reminder_template'] if settings and settings['default_late_invoice_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} that invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. Due date: {{due_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}</textarea>
                 </div>
             </div>
 
