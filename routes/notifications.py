@@ -1,4 +1,5 @@
 from flask import Blueprint, session, redirect, url_for, flash, request, jsonify
+from flask_wtf.csrf import generate_csrf
 from db import get_db_connection
 from decorators import login_required, subscription_required
 from page_helpers import render_page
@@ -72,7 +73,7 @@ def create_notification(company_id, title, message, link=None, user_id=None, not
         conn.close()
 
 
-def get_recent_notifications(company_id, limit=12):
+def get_recent_notifications(company_id, user_id=None, limit=12):
     ensure_notifications_table()
 
     conn = get_db_connection()
@@ -81,15 +82,16 @@ def get_recent_notifications(company_id, limit=12):
             SELECT id, type, title, message, link, is_read, created_at
             FROM notifications
             WHERE company_id = %s
+              AND (user_id IS NULL OR user_id = %s)
             ORDER BY created_at DESC, id DESC
             LIMIT %s
-        """, (company_id, limit)).fetchall()
+        """, (company_id, user_id, limit)).fetchall()
         return rows
     finally:
         conn.close()
 
 
-def get_unread_notification_count(company_id):
+def get_unread_notification_count(company_id, user_id=None):
     ensure_notifications_table()
 
     conn = get_db_connection()
@@ -98,9 +100,17 @@ def get_unread_notification_count(company_id):
             SELECT COUNT(*) AS count
             FROM notifications
             WHERE company_id = %s
+              AND (user_id IS NULL OR user_id = %s)
               AND is_read = FALSE
-        """, (company_id,)).fetchone()
-        return int((row or {}).get("count", 0) or 0)
+        """, (company_id, user_id)).fetchone()
+
+        if not row:
+            return 0
+
+        try:
+            return int(row["count"] or 0)
+        except Exception:
+            return 0
     finally:
         conn.close()
 
@@ -110,13 +120,16 @@ def get_unread_notification_count(company_id):
 @subscription_required
 def notifications_page():
     company_id = session.get("company_id")
+    user_id = session.get("user_id")
+
     if not company_id:
         flash("Company session not found.")
         return redirect(url_for("dashboard.dashboard"))
 
     ensure_notifications_table()
 
-    rows = get_recent_notifications(company_id, limit=100)
+    rows = get_recent_notifications(company_id, user_id=user_id, limit=100)
+    page_csrf = generate_csrf()
 
     cards = ""
     for row in rows:
@@ -127,7 +140,7 @@ def notifications_page():
         if not row["is_read"]:
             actions += f"""
             <form method="post" action="{url_for('notifications.mark_notification_read', notification_id=row['id'])}" class="inline-form">
-                <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
+                <input type="hidden" name="csrf_token" value="{page_csrf}">
                 <button class="btn secondary small" type="submit">Mark Read</button>
             </form>
             """
@@ -138,7 +151,7 @@ def notifications_page():
             """
 
         cards += f"""
-        <div class="notification-card">
+        <div class="notification-card {'notification-card-unread' if not row['is_read'] else ''}">
             <div class="notification-top">
                 <div>
                     <div class="notification-title">{row["title"]}</div>
@@ -173,6 +186,11 @@ def notifications_page():
             padding: 14px;
             background: #fff;
             box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }}
+
+        .notification-card-unread {{
+            border-color: #bbf7d0;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 0 0 1px rgba(34, 197, 94, 0.05) inset;
         }}
 
         .notification-top {{
@@ -218,6 +236,13 @@ def notifications_page():
             background: #f1f5f9;
             color: #334155;
         }}
+
+        @media (max-width: 640px) {{
+            .notification-top {{
+                flex-direction: column;
+                align-items: flex-start;
+            }}
+        }}
     </style>
 
     <div class="notifications-page">
@@ -229,7 +254,7 @@ def notifications_page():
                 </div>
                 <div class="row-actions">
                     <form method="post" action="{url_for('notifications.mark_all_notifications_read')}" class="inline-form">
-                        <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
+                        <input type="hidden" name="csrf_token" value="{page_csrf}">
                         <button class="btn secondary" type="submit">Mark All Read</button>
                     </form>
                 </div>
@@ -251,6 +276,8 @@ def notifications_page():
 @subscription_required
 def mark_notification_read(notification_id):
     company_id = session.get("company_id")
+    user_id = session.get("user_id")
+
     if not company_id:
         flash("Company session not found.")
         return redirect(url_for("dashboard.dashboard"))
@@ -262,13 +289,16 @@ def mark_notification_read(notification_id):
         conn.execute("""
             UPDATE notifications
             SET is_read = TRUE
-            WHERE id = %s AND company_id = %s
-        """, (notification_id, company_id))
+            WHERE id = %s
+              AND company_id = %s
+              AND (user_id IS NULL OR user_id = %s)
+        """, (notification_id, company_id, user_id))
         conn.commit()
     finally:
         conn.close()
 
-    return redirect(url_for("notifications.notifications_page"))
+    flash("Notification marked as read.")
+    return redirect(request.referrer or url_for("notifications.notifications_page"))
 
 
 @notifications_bp.route("/notifications/mark-all-read", methods=["POST"])
@@ -276,6 +306,8 @@ def mark_notification_read(notification_id):
 @subscription_required
 def mark_all_notifications_read():
     company_id = session.get("company_id")
+    user_id = session.get("user_id")
+
     if not company_id:
         flash("Company session not found.")
         return redirect(url_for("dashboard.dashboard"))
@@ -288,14 +320,15 @@ def mark_all_notifications_read():
             UPDATE notifications
             SET is_read = TRUE
             WHERE company_id = %s
+              AND (user_id IS NULL OR user_id = %s)
               AND is_read = FALSE
-        """, (company_id,))
+        """, (company_id, user_id))
         conn.commit()
     finally:
         conn.close()
 
     flash("Notifications marked as read.")
-    return redirect(url_for("notifications.notifications_page"))
+    return redirect(request.referrer or url_for("notifications.notifications_page"))
 
 
 @notifications_bp.route("/notifications/dropdown")
@@ -303,13 +336,15 @@ def mark_all_notifications_read():
 @subscription_required
 def notifications_dropdown():
     company_id = session.get("company_id")
+    user_id = session.get("user_id")
+
     if not company_id:
         return jsonify({"ok": False, "items": [], "unread_count": 0})
 
     ensure_notifications_table()
 
-    rows = get_recent_notifications(company_id, limit=8)
-    unread_count = get_unread_notification_count(company_id)
+    rows = get_recent_notifications(company_id, user_id=user_id, limit=8)
+    unread_count = get_unread_notification_count(company_id, user_id=user_id)
 
     items = []
     for row in rows:

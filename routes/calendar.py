@@ -600,11 +600,11 @@ def calendar_page():
     finally:
         conn.close()
 
-    today_jobs = [
-        _job_payload(row)
-        for row in today_jobs_raw
-        if _job_matches_filters(_job_payload(row), status_filter, service_filter, crew_filter)
-    ]
+    today_jobs = []
+    for row in today_jobs_raw:
+        payload = _job_payload(row)
+        if _job_matches_filters(payload, status_filter, service_filter, crew_filter):
+            today_jobs.append(payload)
 
     jobs_by_day = {}
     for raw in month_jobs_raw:
@@ -624,13 +624,17 @@ def calendar_page():
         week_cells = []
         for day in week:
             iso_day = day.isoformat()
+            day_jobs = sorted(
+                jobs_by_day.get(iso_day, []),
+                key=lambda j: (j["start_minutes"], j["end_minutes"], j["id"])
+            )
             week_cells.append({
                 "date": day,
                 "iso": iso_day,
                 "day_num": day.day,
                 "in_month": day.month == month,
                 "is_today": day == today,
-                "jobs": jobs_by_day.get(iso_day, []),
+                "jobs": day_jobs,
             })
         weeks.append(week_cells)
 
@@ -1068,6 +1072,10 @@ def calendar_page():
                 box-shadow: inset 0 0 0 2px var(--today-ring);
             }
 
+            .day-jobs {
+                display: block;
+            }
+
             .job-card {
                 border-radius: 10px;
                 padding: 8px 9px;
@@ -1489,6 +1497,73 @@ def calendar_page():
                 .filter-grid {
                     grid-template-columns: repeat(2, minmax(0, 1fr));
                 }
+
+                /* Month grid compact mode for tablets / larger phones */
+                .day-cell {
+                    height: 170px;
+                    min-height: 170px;
+                    overflow: hidden;
+                }
+
+                .day-top {
+                    margin-bottom: 8px;
+                }
+
+                .day-jobs {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 4px;
+                    align-content: flex-start;
+                    max-height: calc(100% - 30px);
+                    overflow-y: auto;
+                    padding-right: 2px;
+                }
+
+                .day-jobs .job-link {
+                    flex: 1 1 calc(50% - 4px);
+                    min-width: 0;
+                }
+
+                .day-jobs .job-card {
+                    margin-bottom: 0;
+                    min-height: 54px;
+                    padding: 6px 7px;
+                }
+
+                .day-jobs .job-time {
+                    font-size: 10px;
+                    margin-bottom: 2px;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+
+                .day-jobs .job-label {
+                    font-size: 11px;
+                    margin-bottom: 2px;
+                    display: -webkit-box;
+                    -webkit-line-clamp: 2;
+                    -webkit-box-orient: vertical;
+                    overflow: hidden;
+                }
+
+                .day-jobs .job-meta {
+                    font-size: 10px;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+
+                .day-jobs .job-tools {
+                    display: none;
+                }
+
+                .day-jobs .service-pill,
+                .day-jobs .status-pill {
+                    font-size: 9px;
+                    padding: 3px 6px;
+                    margin-right: 0;
+                }
             }
 
             @media (max-width: 980px) {
@@ -1708,28 +1783,30 @@ def calendar_page():
                                         </div>
 
                                         {% if cell.jobs %}
-                                            {% for job in cell.jobs %}
-                                                <a class="job-link" href="{{ job.url }}" data-job-search="{{ job.search_text }}">
-                                                    <div class="job-card {{ job.status_class }} {{ job.service_class }}">
-                                                        <div style="display:flex; justify-content:space-between; gap:8px; align-items:flex-start; margin-bottom:4px; flex-wrap:wrap;">
-                                                            <div class="job-time">{{ job.time_label }}</div>
-                                                            {% if job.service_label %}
-                                                                <span class="service-pill {{ job.service_class }}">{{ job.service_label }}</span>
+                                            <div class="day-jobs">
+                                                {% for job in cell.jobs %}
+                                                    <a class="job-link" href="{{ job.url }}" data-job-search="{{ job.search_text }}">
+                                                        <div class="job-card {{ job.status_class }} {{ job.service_class }}">
+                                                            <div style="display:flex; justify-content:space-between; gap:8px; align-items:flex-start; margin-bottom:4px; flex-wrap:wrap;">
+                                                                <div class="job-time">{{ job.time_label }}</div>
+                                                                {% if job.service_label %}
+                                                                    <span class="service-pill {{ job.service_class }}">{{ job.service_label }}</span>
+                                                                {% endif %}
+                                                            </div>
+                                                            <div class="job-label">{{ job.label }}</div>
+                                                            {% if job.assigned_to %}
+                                                                <div class="job-meta">Assigned: {{ job.assigned_to }}</div>
                                                             {% endif %}
-                                                        </div>
-                                                        <div class="job-label">{{ job.label }}</div>
-                                                        {% if job.assigned_to %}
-                                                            <div class="job-meta">Assigned: {{ job.assigned_to }}</div>
-                                                        {% endif %}
-                                                        <div class="job-meta">{{ job.status or "No Status" }}</div>
+                                                            <div class="job-meta">{{ job.status or "No Status" }}</div>
 
-                                                        <div class="job-tools">
-                                                            <span class="mini-link">View</span>
-                                                            <span class="mini-link">Edit</span>
+                                                            <div class="job-tools">
+                                                                <span class="mini-link">View</span>
+                                                                <span class="mini-link">Edit</span>
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                </a>
-                                            {% endfor %}
+                                                    </a>
+                                                {% endfor %}
+                                            </div>
                                         {% else %}
                                             <div class="empty-note">No scheduled jobs</div>
                                         {% endif %}

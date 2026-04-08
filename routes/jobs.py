@@ -1015,6 +1015,8 @@ def jobs():
         (cid,),
     ).fetchall()
 
+    today = date.today().isoformat()
+
     recurring_rows = conn.execute(
         """
         SELECT
@@ -1024,7 +1026,17 @@ def jobs():
             COALESCE(stats.active_jobs_count, 0) AS active_jobs_count,
             COALESCE(stats.total_revenue, 0) AS total_revenue,
             COALESCE(stats.total_cost, 0) AS total_cost,
-            COALESCE(stats.total_profit, 0) AS total_profit
+            COALESCE(stats.total_profit, 0) AS total_profit,
+            (
+                SELECT j2.scheduled_date
+                FROM jobs j2
+                WHERE j2.company_id = rms.company_id
+                  AND j2.recurring_schedule_id = rms.id
+                  AND j2.scheduled_date IS NOT NULL
+                  AND j2.scheduled_date >= %s
+                ORDER BY j2.scheduled_date ASC, j2.id ASC
+                LIMIT 1
+            ) AS computed_next_run
         FROM recurring_mowing_schedules rms
         JOIN customers c
           ON rms.customer_id = c.id
@@ -1046,7 +1058,7 @@ def jobs():
         WHERE rms.company_id = %s
         ORDER BY COALESCE(rms.active, TRUE) DESC, rms.id DESC
         """,
-        (cid,),
+        (today, cid),
     ).fetchall()
 
     conn.close()
@@ -1166,8 +1178,10 @@ def jobs():
         convert_csrf = generate_csrf()
         delete_csrf = generate_csrf()
 
+        effective_next_run = r["computed_next_run"] or r["next_run_date"] or r["start_date"]
+
         next_preview = upcoming_schedule_preview(
-            r["next_run_date"] or r["start_date"],
+            effective_next_run,
             r["interval_weeks"],
             3,
             r["end_date"],
@@ -1186,7 +1200,7 @@ def jobs():
                 <td><span class='service-chip mowing'>Mowing</span></td>
                 <td class='wrap'>{escape(clean_text_display(r['customer_name']))}</td>
                 <td>{escape(interval_label(r['interval_weeks']))}</td>
-                <td>{escape(clean_text_display(r['next_run_date']))}</td>
+                <td>{escape(clean_text_display(r['computed_next_run'] or r['next_run_date']))}</td>
                 <td class='wrap'>{escape(clean_text_display(r['assigned_to']))}</td>
                 <td>{active_chip}</td>
                 <td class='center'>{safe_int(r['generated_jobs_count'], 0)}</td>
@@ -1242,7 +1256,7 @@ def jobs():
 
                 <div class='mobile-list-grid'>
                     <div><span>Customer</span><strong>{escape(clean_text_display(r['customer_name']))}</strong></div>
-                    <div><span>Next Run</span><strong>{escape(clean_text_display(r['next_run_date']))}</strong></div>
+                    <div><span>Next Run</span><strong>{escape(clean_text_display(r['computed_next_run'] or r['next_run_date']))}</strong></div>
                     <div><span>Assigned To</span><strong>{escape(clean_text_display(r['assigned_to']))}</strong></div>
                     <div><span>Jobs Generated</span><strong>{safe_int(r['generated_jobs_count'], 0)}</strong></div>
                     <div><span>Total Revenue</span><strong>${safe_float(r['total_revenue']):.2f}</strong></div>
@@ -2211,8 +2225,33 @@ def edit_recurring_schedule(schedule_id):
         flash("Recurring mowing schedule not found.")
         return redirect(url_for("jobs.jobs"))
 
+    computed_next_run_row = conn.execute(
+        """
+        SELECT scheduled_date
+        FROM jobs
+        WHERE company_id = %s
+          AND recurring_schedule_id = %s
+          AND scheduled_date IS NOT NULL
+          AND scheduled_date >= %s
+        ORDER BY scheduled_date ASC, id ASC
+        LIMIT 1
+        """,
+        (cid, schedule_id, date.today().isoformat()),
+    ).fetchone()
+
+    computed_next_run = (
+        computed_next_run_row["scheduled_date"]
+        if computed_next_run_row and computed_next_run_row["scheduled_date"]
+        else None
+    )
+
     customers = conn.execute(
-        "SELECT id, name FROM customers WHERE company_id = %s ORDER BY name",
+        """
+        SELECT id, name
+        FROM customers
+        WHERE company_id = %s
+        ORDER BY name
+        """,
         (cid,),
     ).fetchall()
 
@@ -2255,15 +2294,36 @@ def edit_recurring_schedule(schedule_id):
             flash("End date cannot be before start date.")
             return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
-        new_next_run = old_next_run
-        if not new_next_run:
-            new_next_run = start_date_value
+        upcoming_generated_row = conn.execute(
+            """
+            SELECT scheduled_date
+            FROM jobs
+            WHERE company_id = %s
+              AND recurring_schedule_id = %s
+              AND scheduled_date IS NOT NULL
+              AND scheduled_date >= %s
+            ORDER BY scheduled_date ASC, id ASC
+            LIMIT 1
+            """,
+            (cid, schedule_id, date.today().isoformat()),
+        ).fetchone()
+
+        upcoming_generated_date = (
+            parse_iso_date(upcoming_generated_row["scheduled_date"])
+            if upcoming_generated_row and upcoming_generated_row["scheduled_date"]
+            else None
+        )
+
+        new_next_run = upcoming_generated_date or old_next_run or start_date_value
 
         if old_start_date and start_date_value and old_next_run == old_start_date:
             new_next_run = start_date_value
 
         if new_next_run and new_next_run < start_date_value:
             new_next_run = start_date_value
+
+        if end_date_value and new_next_run and new_next_run > end_date_value:
+            new_next_run = end_date_value
 
         conn.execute(
             """
@@ -2339,11 +2399,15 @@ def edit_recurring_schedule(schedule_id):
         (cid, schedule_id),
     ).fetchall()
 
-    customer_opts = "".join(
-        f"<option value='{c['id']}' {'selected' if c['id'] == schedule['customer_id'] else ''}>{escape(clean_text_display(c['name'], 'Customer #' + str(c['id'])))}</option>"
-        for c in customers
-    )
+    customer_option_list = []
+    for c in customers:
+        selected_attr = "selected" if c["id"] == schedule["customer_id"] else ""
+        label = escape(clean_text_display(c["name"], "Customer #" + str(c["id"])))
+        customer_option_list.append(
+            f"<option value='{c['id']}' {selected_attr}>{label}</option>"
+        )
 
+    customer_opts = "".join(customer_option_list)
     edit_csrf = generate_csrf()
     generate_csrf_token = generate_csrf()
     toggle_csrf = generate_csrf()
@@ -2639,7 +2703,7 @@ def edit_recurring_schedule(schedule_id):
 
                 <div>
                     <label>Next Run Date</label>
-                    <input type='date' value="{escape(date_to_iso(schedule['next_run_date']))}" disabled>
+                    <input type='date' value="{escape(date_to_iso(computed_next_run or schedule['next_run_date']))}" disabled>
                     <div class='muted small' style='margin-top:4px;'>Auto-managed after generation.</div>
                 </div>
 
