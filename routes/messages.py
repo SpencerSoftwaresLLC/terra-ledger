@@ -1,6 +1,7 @@
 import os
 import re
 from datetime import datetime, date, time, timedelta
+from urllib.parse import urlparse
 
 from flask import (
     Blueprint,
@@ -52,7 +53,7 @@ def _safe_float(value, default=0.0):
     try:
         if value is None or str(value).strip() == "":
             return default
-        return float(value)
+        return default if value is None else float(value)
     except (TypeError, ValueError):
         return default
 
@@ -177,25 +178,93 @@ def _get_from_number():
     return _normalize_phone(os.environ.get("TWILIO_FROM_NUMBER"))
 
 
+def _get_app_base_url():
+    base = _safe_text(os.environ.get("APP_BASE_URL"))
+    if not base:
+        return ""
+    return base.rstrip("/")
+
+
+def _get_external_base_url_from_request(req):
+    forwarded_proto = _safe_text(req.headers.get("X-Forwarded-Proto"))
+    forwarded_host = _safe_text(req.headers.get("X-Forwarded-Host"))
+    host = forwarded_host or _safe_text(req.host)
+
+    if not host:
+        return _get_app_base_url()
+
+    scheme = forwarded_proto or req.scheme or "https"
+    return f"{scheme}://{host}".rstrip("/")
+
+
+def _candidate_request_urls(req):
+    """
+    Twilio validates against the exact URL it requested.
+    Behind proxies like Render, req.url may not exactly match.
+    So generate multiple reasonable candidates.
+    """
+    candidates = []
+
+    # Raw Flask URL
+    try:
+        if req.url:
+            candidates.append(req.url)
+    except Exception:
+        pass
+
+    # Reconstructed from forwarded headers
+    external_base = _get_external_base_url_from_request(req)
+    if external_base and req.path:
+        candidates.append(f"{external_base}{req.path}")
+
+    # APP_BASE_URL fallback
+    app_base = _get_app_base_url()
+    if app_base and req.path:
+        candidates.append(f"{app_base}{req.path}")
+
+    # Deduplicate while preserving order
+    seen = set()
+    final = []
+    for url in candidates:
+        url = _safe_text(url)
+        if not url:
+            continue
+        if url not in seen:
+            seen.add(url)
+            final.append(url)
+    return final
+
+
 def _validate_twilio_request(req):
     auth_token = _safe_text(os.environ.get("TWILIO_AUTH_TOKEN"))
     if not auth_token:
         return False
 
-    signature = req.headers.get("X-Twilio-Signature", "")
+    signature = _safe_text(req.headers.get("X-Twilio-Signature"))
     if not signature:
         return False
 
     validator = RequestValidator(auth_token)
+    form_data = req.form
 
-    try:
-        return validator.validate(
-            req.url,
-            req.form,
-            signature,
-        )
-    except Exception:
-        return False
+    for candidate_url in _candidate_request_urls(req):
+        try:
+            if validator.validate(candidate_url, form_data, signature):
+                return True
+        except Exception:
+            continue
+
+    # Final fallback: compare only by APP_BASE_URL + path if hosts differ
+    app_base = _get_app_base_url()
+    if app_base and req.path:
+        try:
+            fallback_url = f"{app_base}{req.path}"
+            if validator.validate(fallback_url, form_data, signature):
+                return True
+        except Exception:
+            pass
+
+    return False
 
 
 def _validate_automation_request(req):
@@ -239,6 +308,24 @@ def _build_conversation_key(company_id, phone_number):
     if not company_id or not normalized:
         return None
     return f"{int(company_id)}:{normalized}"
+
+
+def _get_full_inbound_webhook_url():
+    base = _get_app_base_url()
+    if not base:
+        return "/messages/webhook"
+    return f"{base}/messages/webhook"
+
+
+def _get_full_status_callback_url():
+    env_url = _safe_text(os.environ.get("TWILIO_STATUS_CALLBACK_URL"))
+    if env_url:
+        return env_url
+
+    base = _get_app_base_url()
+    if not base:
+        return ""
+    return f"{base}/messages/status-callback"
 
 
 def ensure_customer_sms_consent_columns():
@@ -499,6 +586,10 @@ def ensure_messaging_tables():
         cur.execute("""
             CREATE INDEX IF NOT EXISTS idx_message_log_conversation_key
             ON message_log (conversation_key)
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_message_log_provider_message_id
+            ON message_log (provider_message_id)
         """)
 
         conn.commit()
@@ -938,7 +1029,7 @@ def send_text_message(to_number, message_body, settings_row=None):
     if client_error:
         return False, None, client_error
 
-    status_callback_url = _safe_text(os.environ.get("TWILIO_STATUS_CALLBACK_URL"))
+    status_callback_url = _get_full_status_callback_url()
 
     try:
         create_kwargs = {
@@ -2026,10 +2117,13 @@ def run_message_automations():
     return Response(summary, status=200, mimetype="text/plain")
 
 
-@messages_bp.route("/messages/webhook", methods=["POST"])
+@messages_bp.route("/messages/webhook", methods=["GET", "POST"])
 @csrf.exempt
 def incoming_message_webhook():
     ensure_messaging_tables()
+
+    if request.method == "GET":
+        return Response("Twilio SMS webhook is live.", status=200, mimetype="text/plain")
 
     if not _validate_twilio_request(request):
         return Response("Forbidden", status=403)
@@ -2039,23 +2133,27 @@ def incoming_message_webhook():
     body = _safe_text(request.form.get("Body"))
     provider_message_id = _safe_text(request.form.get("MessageSid"))
 
-    if not from_number or not body:
-        resp = MessagingResponse()
+    resp = MessagingResponse()
+
+    if not from_number:
         return Response(str(resp), mimetype="application/xml")
 
     platform_number = _get_from_number()
-    if not platform_number or to_number != platform_number:
-        resp = MessagingResponse()
+    if platform_number and to_number and to_number != platform_number:
         return Response(str(resp), mimetype="application/xml")
 
     matched_company_id = None
     matched_customer_id = None
+    conversation_key = None
 
+    # Best match: previously messaged thread
     last_conversation = get_last_conversation_for_phone(from_number)
     if last_conversation:
         matched_company_id = last_conversation["company_id"]
         matched_customer_id = last_conversation["customer_id"]
+        conversation_key = last_conversation.get("conversation_key")
 
+    # Fallback: search enabled companies for matching customer phone
     if not matched_company_id:
         conn = get_db_connection()
         try:
@@ -2076,22 +2174,24 @@ def incoming_message_webhook():
             if customer:
                 matched_company_id = company_id
                 matched_customer_id = customer["id"]
+                conversation_key = _build_conversation_key(company_id, from_number)
                 break
+
+    normalized_body = _safe_text(body).strip().lower()
+    first_word = normalized_body.split()[0] if normalized_body else ""
 
     if matched_company_id:
         insert_message_log(
             company_id=matched_company_id,
             customer_id=matched_customer_id,
             phone_number=from_number,
-            message_body=body,
+            message_body=body or "",
             direction="inbound",
             status="received",
             provider="twilio",
             provider_message_id=provider_message_id,
+            conversation_key=conversation_key,
         )
-
-        normalized_body = _safe_text(body).strip().lower()
-        first_word = normalized_body.split()[0] if normalized_body else ""
 
         if first_word in STOP_WORDS:
             set_customer_sms_consent(
@@ -2100,7 +2200,6 @@ def incoming_message_webhook():
                 is_opted_in=False,
                 method="sms_reply_stop",
             )
-
         elif first_word in START_WORDS:
             set_customer_sms_consent(
                 company_id=matched_company_id,
@@ -2115,19 +2214,18 @@ def incoming_message_webhook():
             if customer:
                 customer_name = _safe_text(customer.get("name"))
 
+        preview = (body or "").strip()
+        if len(preview) > 120:
+            preview = preview[:117] + "..."
+
         create_notification(
             company_id=matched_company_id,
             user_id=None,
             notif_type="message",
             title="New inbound message",
-            message=f"{customer_name or from_number}: {body[:120]}",
+            message=f"{customer_name or from_number}: {preview}",
             link=url_for("messages.messages_page"),
         )
-
-    resp = MessagingResponse()
-
-    normalized_body = _safe_text(body).strip().lower()
-    first_word = normalized_body.split()[0] if normalized_body else ""
 
     if first_word in STOP_WORDS:
         resp.message("You have been opted out of SMS messages from TerraLedger. Reply START to opt back in.")
@@ -2135,16 +2233,16 @@ def incoming_message_webhook():
         resp.message("TerraLedger support: Reply STOP to opt out. Reply START to opt back in.")
     elif first_word in START_WORDS:
         resp.message("You have been opted back in to SMS messages from TerraLedger.")
-    else:
-        # No auto-reply for regular messages.
-        pass
 
     return Response(str(resp), mimetype="application/xml")
 
 
-@messages_bp.route("/messages/status-callback", methods=["POST"])
+@messages_bp.route("/messages/status-callback", methods=["GET", "POST"])
 @csrf.exempt
 def message_status_callback():
+    if request.method == "GET":
+        return Response("Twilio status callback is live.", status=200, mimetype="text/plain")
+
     if not _validate_twilio_request(request):
         return Response("Forbidden", status=403)
 
@@ -2302,6 +2400,8 @@ def messaging_configuration():
 
     settings = get_messaging_settings(company_id)
     from_number = _get_from_number()
+    inbound_webhook_url = _get_full_inbound_webhook_url()
+    status_callback_url = _get_full_status_callback_url() or "/messages/status-callback"
 
     page_html = """
     <div class="card">
@@ -2335,12 +2435,12 @@ def messaging_configuration():
 
                 <div style="margin-bottom:10px;">
                     <strong>Inbound Webhook:</strong>
-                    <span class="muted">/messages/webhook</span>
+                    <span class="muted">{{ inbound_webhook_url }}</span>
                 </div>
 
                 <div style="margin-bottom:0;">
                     <strong>Status Callback:</strong>
-                    <span class="muted">/messages/status-callback</span>
+                    <span class="muted">{{ status_callback_url }}</span>
                 </div>
 
                 <div class="muted small" style="margin-top:12px;">
@@ -2442,6 +2542,8 @@ def messaging_configuration():
             page_html,
             settings=settings,
             from_number=from_number,
+            inbound_webhook_url=inbound_webhook_url,
+            status_callback_url=status_callback_url,
         ),
         "Messaging Configuration"
     )
