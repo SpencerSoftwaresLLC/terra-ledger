@@ -998,12 +998,17 @@ def jobs():
         SELECT
             j.*,
             c.name AS customer_name,
-            rms.title AS recurring_title
+            rms.title AS recurring_title,
+            i.id AS invoice_id,
+            i.invoice_number
         FROM jobs j
         JOIN customers c ON j.customer_id = c.id
         LEFT JOIN recurring_mowing_schedules rms
           ON j.recurring_schedule_id = rms.id
          AND rms.company_id = j.company_id
+        LEFT JOIN invoices i
+          ON i.job_id = j.id
+         AND i.company_id = j.company_id
         WHERE j.company_id = %s
           AND COALESCE(j.status, '') != 'Finished'
           AND COALESCE(j.generated_from_schedule, FALSE) = FALSE
@@ -1079,6 +1084,19 @@ def jobs():
                 f"Schedule #{r['recurring_schedule_id']}</a></div>"
             )
 
+        invoice_action_html = ""
+        if r["invoice_id"]:
+            invoice_label = clean_text_input(r["invoice_number"]) or f"Invoice #{r['invoice_id']}"
+            invoice_action_html = (
+                f"<a class='btn secondary small' href='{url_for('invoices.view_invoice', invoice_id=r['invoice_id'])}'>"
+                f"View {escape(invoice_label)}</a>"
+            )
+        else:
+            invoice_action_html = (
+                f"<a class='btn success small' href='{url_for('jobs.convert_job_to_invoice', job_id=r['id'])}'>"
+                f"Convert to Invoice</a>"
+            )
+
         job_row_list.append(
             f"""
             <tr>
@@ -1101,7 +1119,7 @@ def jobs():
                     <div class='static-actions'>
                         <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
                         <a class='btn warning small' href='{url_for("jobs.edit_job", job_id=r["id"])}'>Edit Job</a>
-                        <a class='btn success small' href='{url_for("jobs.convert_job_to_invoice", job_id=r["id"])}'>Convert to Invoice</a>
+                        {invoice_action_html}
                         <form method='post'
                               action='{url_for("jobs.delete_job", job_id=r["id"])}'
                               style='margin:0;'
@@ -1121,6 +1139,19 @@ def jobs():
                 f"<div style='margin-top:6px;' class='muted small'>"
                 f"Recurring: <a href='/jobs/recurring/{r['recurring_schedule_id']}/edit'>"
                 f"Schedule #{r['recurring_schedule_id']}</a></div>"
+            )
+
+        mobile_invoice_action_html = ""
+        if r["invoice_id"]:
+            invoice_label = clean_text_input(r["invoice_number"]) or f"Invoice #{r['invoice_id']}"
+            mobile_invoice_action_html = (
+                f"<a class='btn secondary small' href='{url_for('invoices.view_invoice', invoice_id=r['invoice_id'])}'>"
+                f"View {escape(invoice_label)}</a>"
+            )
+        else:
+            mobile_invoice_action_html = (
+                f"<a class='btn success small' href='{url_for('jobs.convert_job_to_invoice', job_id=r['id'])}'>"
+                f"Convert to Invoice</a>"
             )
 
         job_mobile_card_list.append(
@@ -1150,7 +1181,7 @@ def jobs():
                 <div class='mobile-list-actions'>
                     <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
                     <a class='btn warning small' href='{url_for("jobs.edit_job", job_id=r["id"])}'>Edit Job</a>
-                    <a class='btn success small' href='{url_for("jobs.convert_job_to_invoice", job_id=r["id"])}'>Convert to Invoice</a>
+                    {mobile_invoice_action_html}
                     <form method='post'
                           action='{url_for("jobs.delete_job", job_id=r["id"])}'
                           style='margin:0;'
@@ -1170,12 +1201,10 @@ def jobs():
         edit_url = f"/jobs/recurring/{r['id']}/edit"
         toggle_url = f"/jobs/recurring/{r['id']}/toggle"
         generate_url = f"/jobs/recurring/{r['id']}/generate"
-        convert_url = f"/jobs/recurring/{r['id']}/convert_to_invoice"
         delete_url = f"/jobs/recurring/{r['id']}/delete"
 
         toggle_csrf = generate_csrf()
         generate_now_csrf = generate_csrf()
-        convert_csrf = generate_csrf()
         delete_csrf = generate_csrf()
 
         is_active = bool(r["active"])
@@ -1215,11 +1244,6 @@ def jobs():
                         <form method='post' action='{generate_url}' style='margin:0;'>
                             <input type="hidden" name="csrf_token" value="{generate_now_csrf}">
                             <button class='btn success small' type='submit' {"disabled" if not is_active else ""}>Generate Now</button>
-                        </form>
-
-                        <form method='post' action='{convert_url}' style='margin:0;'>
-                            <input type="hidden" name="csrf_token" value="{convert_csrf}">
-                            <button class='btn success small' type='submit'>Convert to Invoice</button>
                         </form>
 
                         <form method='post' action='{toggle_url}' style='margin:0;'>
@@ -1272,11 +1296,6 @@ def jobs():
                     <form method='post' action='{generate_url}' style='margin:0;'>
                         <input type="hidden" name="csrf_token" value="{generate_now_csrf}">
                         <button class='btn success small' type='submit' {"disabled" if not is_active else ""}>Generate</button>
-                    </form>
-
-                    <form method='post' action='{convert_url}' style='margin:0;'>
-                        <input type="hidden" name="csrf_token" value="{convert_csrf}">
-                        <button class='btn success small' type='submit'>Convert Invoice</button>
                     </form>
 
                     <form method='post' action='{toggle_url}' style='margin:0;'>
@@ -1724,7 +1743,7 @@ def jobs():
             </div>
 
             <div class='recurring-default-note'>
-                Recurring mowing schedules default to <strong>Mowing</strong>, create future jobs automatically, and each generated job links back to its parent recurring schedule. End date is optional. Leave it blank to keep generating until paused.
+                Recurring mowing schedules default to <strong>Mowing</strong>, create future jobs automatically, and each generated job links back to its parent recurring schedule. End date is optional. Leave it blank to keep generating until paused. Generated visits should be invoiced one visit at a time from the visit job itself.
             </div>
 
             <form method='post' action='{url_for("jobs.create_recurring_schedule")}' style='margin-top:16px;'>
@@ -2386,11 +2405,22 @@ def edit_recurring_schedule(schedule_id):
 
     generated_jobs = conn.execute(
         """
-        SELECT id, title, scheduled_date, scheduled_start_time, scheduled_end_time, status
-        FROM jobs
-        WHERE company_id = %s
-          AND recurring_schedule_id = %s
-        ORDER BY scheduled_date DESC, id DESC
+        SELECT
+            j.id,
+            j.title,
+            j.scheduled_date,
+            j.scheduled_start_time,
+            j.scheduled_end_time,
+            j.status,
+            i.id AS invoice_id,
+            i.invoice_number
+        FROM jobs j
+        LEFT JOIN invoices i
+          ON i.job_id = j.id
+         AND i.company_id = j.company_id
+        WHERE j.company_id = %s
+          AND j.recurring_schedule_id = %s
+        ORDER BY j.scheduled_date DESC NULLS LAST, j.id DESC
         LIMIT 25
         """,
         (cid, schedule_id),
@@ -2419,24 +2449,81 @@ def edit_recurring_schedule(schedule_id):
     edit_csrf = generate_csrf()
     generate_csrf_token = generate_csrf()
     toggle_csrf = generate_csrf()
-    convert_csrf = generate_csrf()
 
     jobs_rows = []
+    jobs_mobile_cards = []
+
     for j in generated_jobs:
+        invoice_button_html = ""
+        mobile_invoice_button_html = ""
+
+        if j["invoice_id"]:
+            invoice_label = clean_text_input(j["invoice_number"]) or f"Invoice #{j['invoice_id']}"
+            invoice_button_html = (
+                f"<a class='btn secondary small' href='{url_for('invoices.view_invoice', invoice_id=j['invoice_id'])}'>"
+                f"View {escape(invoice_label)}</a>"
+            )
+            mobile_invoice_button_html = invoice_button_html
+        elif clean_text_input(j["status"]) != "Invoiced":
+            invoice_button_html = (
+                f"<a class='btn success small' href='{url_for('jobs.convert_job_to_invoice', job_id=j['id'])}'>"
+                f"Invoice This Visit</a>"
+            )
+            mobile_invoice_button_html = invoice_button_html
+
         jobs_rows.append(
             f"""
             <tr>
                 <td>#{j['id']}</td>
-                <td class='wrap'><a href='{url_for("jobs.view_job", job_id=j["id"])}'>{escape(clean_text_display(j['title']))}</a></td>
+                <td class='wrap'>
+                    <a href='{url_for("jobs.view_job", job_id=j["id"])}'>{escape(clean_text_display(j['title']))}</a>
+                </td>
                 <td>{escape(clean_text_display(j['scheduled_date']))}</td>
                 <td>{escape(clean_text_display(j['scheduled_start_time']))}</td>
                 <td>{escape(clean_text_display(j['scheduled_end_time']))}</td>
                 <td>{escape(clean_text_display(j['status']))}</td>
+                <td class='wrap'>
+                    <div style='display:flex; gap:6px; flex-wrap:wrap;'>
+                        <a class='btn warning small' href='{url_for("jobs.edit_job", job_id=j["id"])}'>Edit</a>
+                        {invoice_button_html or "<span class='muted small'>—</span>"}
+                    </div>
+                </td>
             </tr>
             """
         )
 
+        invoice_meta_html = ""
+        if j["invoice_id"]:
+            invoice_label = clean_text_input(j["invoice_number"]) or f"Invoice #{j['invoice_id']}"
+            invoice_meta_html = f"<div><span>Invoice</span><strong>{escape(invoice_label)}</strong></div>"
+
+        jobs_mobile_cards.append(
+            f"""
+            <div class='mobile-list-card'>
+                <div class='mobile-list-top'>
+                    <div class='mobile-list-title'>
+                        <a href='{url_for("jobs.view_job", job_id=j["id"])}'>#{j['id']} - {escape(clean_text_display(j['title']))}</a>
+                    </div>
+                    <div class='mobile-badge'>{escape(clean_text_display(j['status']))}</div>
+                </div>
+
+                <div class='mobile-list-grid'>
+                    <div><span>Date</span><strong>{escape(clean_text_display(j['scheduled_date']))}</strong></div>
+                    <div><span>Start</span><strong>{escape(clean_text_display(j['scheduled_start_time']))}</strong></div>
+                    <div><span>End</span><strong>{escape(clean_text_display(j['scheduled_end_time']))}</strong></div>
+                    {invoice_meta_html}
+                </div>
+
+                <div class='mobile-list-actions'>
+                    <a class='btn warning small' href='{url_for("jobs.edit_job", job_id=j["id"])}'>Edit</a>
+                    {mobile_invoice_button_html or ""}
+                </div>
+            </div>
+            """
+        )
+
     generated_jobs_table = "".join(jobs_rows)
+    generated_jobs_mobile_html = "".join(jobs_mobile_cards)
 
     recurring_item_rows = []
     recurring_item_mobile_cards = []
@@ -2661,11 +2748,6 @@ def edit_recurring_schedule(schedule_id):
                 </button>
             </form>
 
-            <form method='post' action='{url_for("jobs.convert_recurring_schedule_to_invoice", schedule_id=schedule["id"])}' style='margin:0;'>
-                <input type="hidden" name="csrf_token" value="{convert_csrf}">
-                <button class='btn success' type='submit'>Convert Schedule to Invoice</button>
-            </form>
-
             <form method='post' action='{url_for("jobs.toggle_recurring_schedule", schedule_id=schedule["id"])}' style='margin:0;'>
                 <input type="hidden" name="csrf_token" value="{toggle_csrf}">
                 <button class='btn warning' type='submit'>{"Pause Schedule" if schedule_is_active else "Resume Schedule"}</button>
@@ -2874,25 +2956,37 @@ def edit_recurring_schedule(schedule_id):
 
     <div class='card'>
         <h2>Generated Jobs Linked to This Schedule</h2>
-        <table class='static-table'>
-            <colgroup>
-                <col style='width:10%;'>
-                <col style='width:30%;'>
-                <col style='width:16%;'>
-                <col style='width:14%;'>
-                <col style='width:14%;'>
-                <col style='width:16%;'>
-            </colgroup>
-            <tr>
-                <th>ID</th>
-                <th class='wrap'>Title</th>
-                <th>Date</th>
-                <th>Start</th>
-                <th>End</th>
-                <th>Status</th>
-            </tr>
-            {generated_jobs_table or '<tr><td colspan="6" class="muted">No generated jobs yet.</td></tr>'}
-        </table>
+        <p class='muted' style='margin-top:0;'>Recurring schedules are now invoiced one visit at a time. Use the button on each generated job row.</p>
+
+        <div class='desktop-only'>
+            <table class='static-table'>
+                <colgroup>
+                    <col style='width:8%;'>
+                    <col style='width:24%;'>
+                    <col style='width:14%;'>
+                    <col style='width:12%;'>
+                    <col style='width:12%;'>
+                    <col style='width:12%;'>
+                    <col style='width:18%;'>
+                </colgroup>
+                <tr>
+                    <th>ID</th>
+                    <th class='wrap'>Title</th>
+                    <th>Date</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th>Status</th>
+                    <th class='wrap'>Actions</th>
+                </tr>
+                {generated_jobs_table or '<tr><td colspan="7" class="muted">No generated jobs yet.</td></tr>'}
+            </table>
+        </div>
+
+        <div class='mobile-only'>
+            <div class='mobile-list'>
+                {generated_jobs_mobile_html or "<div class='mobile-list-card'>No generated jobs yet.</div>"}
+            </div>
+        </div>
     </div>
 
     <script>
@@ -3334,280 +3428,14 @@ def toggle_recurring_schedule(schedule_id):
     flash("Recurring mowing schedule resumed." if new_active else "Recurring mowing schedule paused.")
     return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
+
 @jobs_bp.route("/jobs/recurring/<int:schedule_id>/convert_to_invoice", methods=["POST"])
 @login_required
 @subscription_required
 @require_permission("can_manage_jobs")
 def convert_recurring_schedule_to_invoice(schedule_id):
-    conn = get_db_connection()
-    cid = session["company_id"]
-
-    try:
-        schedule = conn.execute(
-            """
-            SELECT
-                rms.*,
-                c.name AS customer_name,
-                c.email AS customer_email
-            FROM recurring_mowing_schedules rms
-            JOIN customers c
-              ON rms.customer_id = c.id
-             AND c.company_id = rms.company_id
-            WHERE rms.id = %s
-              AND rms.company_id = %s
-            """,
-            (schedule_id, cid),
-        ).fetchone()
-
-        if not schedule:
-            flash("Recurring mowing schedule not found.")
-            return redirect(url_for("jobs.jobs"))
-
-        recurring_job_rows = conn.execute(
-            """
-            SELECT id
-            FROM jobs
-            WHERE company_id = %s
-              AND recurring_schedule_id = %s
-              AND COALESCE(generated_from_schedule, FALSE) = TRUE
-              AND COALESCE(status, '') != 'Invoiced'
-            ORDER BY scheduled_date ASC, id ASC
-            """,
-            (cid, schedule_id),
-        ).fetchall()
-
-        if not recurring_job_rows:
-            flash("There are no eligible recurring jobs to invoice for this schedule.")
-            return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
-
-        for row in recurring_job_rows:
-            recalc_job(conn, row["id"])
-
-        jobs = conn.execute(
-            """
-            SELECT
-                j.id,
-                j.customer_id,
-                j.title,
-                j.service_type,
-                j.scheduled_date,
-                j.status,
-                j.address,
-                COALESCE(
-                    SUM(
-                        CASE
-                            WHEN COALESCE(ji.billable, TRUE) = TRUE
-                                THEN COALESCE(
-                                    ji.line_total,
-                                    COALESCE(ji.quantity, 0) * COALESCE(ji.unit_price, COALESCE(ji.sale_price, 0)),
-                                    0
-                                )
-                            ELSE 0
-                        END
-                    ),
-                    0
-                ) AS billable_total
-            FROM jobs j
-            LEFT JOIN job_items ji
-              ON ji.job_id = j.id
-            WHERE j.company_id = %s
-              AND j.recurring_schedule_id = %s
-              AND COALESCE(j.generated_from_schedule, FALSE) = TRUE
-              AND COALESCE(j.status, '') != 'Invoiced'
-            GROUP BY
-                j.id,
-                j.customer_id,
-                j.title,
-                j.service_type,
-                j.scheduled_date,
-                j.status,
-                j.address
-            ORDER BY j.scheduled_date ASC, j.id ASC
-            """,
-            (cid, schedule_id),
-        ).fetchall()
-
-        if not jobs:
-            flash("There are no eligible recurring jobs to invoice for this schedule.")
-            return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
-
-        invoice_lines = []
-        invoiced_job_ids = []
-        billed_dates = []
-
-        for job in jobs:
-            line_total = safe_float(job["billable_total"], 0)
-
-            if line_total <= 0:
-                continue
-
-            scheduled_date = clean_text_input(job["scheduled_date"])
-            title = clean_text_input(job["title"]) or clean_text_input(schedule["title"]) or "Recurring Service"
-            service_label = display_service_type(
-                job["service_type"] or schedule["service_type"] or "mowing"
-            )
-
-            desc_parts = [title]
-            if scheduled_date:
-                desc_parts.append(f"({scheduled_date})")
-            if service_label:
-                desc_parts.append(f"- {service_label}")
-
-            invoice_lines.append(
-                {
-                    "description": " ".join(desc_parts).strip(),
-                    "quantity": 1,
-                    "unit": "visit",
-                    "unit_price": line_total,
-                    "line_total": line_total,
-                    "job_id": job["id"],
-                }
-            )
-            invoiced_job_ids.append(job["id"])
-
-            if scheduled_date:
-                billed_dates.append(scheduled_date)
-
-        if not invoice_lines:
-            flash("No billable recurring job totals were found to invoice.")
-            return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
-
-        invoice_date = date.today().isoformat()
-        due_date = invoice_date
-        invoice_number = f"INV-{int(datetime.now().timestamp())}"
-
-        schedule_title = clean_text_input(schedule["title"]) or "Recurring Mowing"
-        schedule_address = clean_text_input(schedule["address"])
-        service_type = clean_text_input(schedule["service_type"]).lower() or "mowing"
-
-        notes_lines = [
-            f"Recurring schedule invoice for Schedule #{schedule_id} - {schedule_title}"
-        ]
-
-        if billed_dates:
-            notes_lines.append(f"Service dates: {billed_dates[0]} to {billed_dates[-1]}")
-
-        notes_lines.append(f"Included visits: {len(invoice_lines)}")
-        invoice_notes = "\n".join(notes_lines)
-
-        if billed_dates:
-            if len(billed_dates) == 1:
-                date_phrase = billed_dates[0]
-            else:
-                date_phrase = f"{billed_dates[0]} to {billed_dates[-1]}"
-        else:
-            date_phrase = ""
-
-        if service_type == "mowing":
-            summary_parts = [f"Recurring mowing service"]
-        else:
-            summary_parts = [f"Recurring {service_type.replace('_', ' ')} service"]
-
-        if schedule_address:
-            summary_parts.append(f"at {schedule_address}")
-
-        if date_phrase:
-            summary_parts.append(f"for service dates {date_phrase}")
-
-        summary_sentence = " ".join(summary_parts).strip()
-        if not summary_sentence.endswith("."):
-            summary_sentence += "."
-
-        summary_description = f"{summary_sentence} Included {len(invoice_lines)} visit(s)."
-
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO invoices (
-                company_id,
-                customer_id,
-                job_id,
-                quote_id,
-                invoice_number,
-                invoice_date,
-                due_date,
-                status,
-                notes,
-                amount_paid,
-                balance_due,
-                display_mode,
-                summary_description
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-            """,
-            (
-                cid,
-                schedule["customer_id"],
-                None,
-                None,
-                invoice_number,
-                invoice_date,
-                due_date,
-                "Unpaid",
-                invoice_notes,
-                0,
-                0,
-                "summary_only",
-                summary_description,
-            ),
-        )
-
-        row = cur.fetchone()
-        if not row or "id" not in row:
-            raise Exception("Failed to create invoice record.")
-
-        invoice_id = row["id"]
-
-        for line in invoice_lines:
-            cur.execute(
-                """
-                INSERT INTO invoice_items (
-                    invoice_id,
-                    description,
-                    quantity,
-                    unit,
-                    unit_price,
-                    line_total
-                )
-                VALUES (%s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    invoice_id,
-                    line["description"],
-                    line["quantity"],
-                    line["unit"],
-                    line["unit_price"],
-                    line["line_total"],
-                ),
-            )
-
-        recalc_invoice(conn, invoice_id)
-
-        cur.execute(
-            """
-            UPDATE jobs
-            SET status = 'Invoiced'
-            WHERE company_id = %s
-              AND recurring_schedule_id = %s
-              AND COALESCE(generated_from_schedule, FALSE) = TRUE
-              AND COALESCE(status, '') != 'Invoiced'
-              AND id = ANY(%s)
-            """,
-            (cid, schedule_id, invoiced_job_ids),
-        )
-
-        conn.commit()
-        flash(f"Recurring mowing schedule converted to invoice. {len(invoice_lines)} visit(s) included.")
-        return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
-
-    except Exception as e:
-        conn.rollback()
-        flash(f"Could not convert recurring mowing schedule to invoice: {e}")
-        return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
-
-    finally:
-        conn.close()
+    flash("Recurring schedules are now invoiced one visit at a time. Open a generated job and use Convert to Invoice for that visit only.")
+    return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
 
 @jobs_bp.route("/jobs/export")
