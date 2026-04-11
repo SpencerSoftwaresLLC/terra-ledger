@@ -17,6 +17,7 @@ from db import (
 from decorators import login_required, require_permission, subscription_required
 from page_helpers import render_page
 from utils.time_clock_emailing import send_pay_period_summary_emails_for_company
+from utils.time_clock import get_previous_pay_period, get_company_time_clock_start_day
 
 
 employees_bp = Blueprint("employees", __name__)
@@ -1954,7 +1955,7 @@ def time_clock():
 
     pay_period_start_day = _get_company_time_clock_start_day(cid)
     pay_period_start, pay_period_end = _get_current_pay_period(pay_period_start_day)
-    previous_pay_period_start, previous_pay_period_end = _get_previous_pay_period(pay_period_start_day)
+    previous_pay_period_start, previous_pay_period_end = get_previous_pay_period(pay_period_start_day)
     pay_period_end_day = (pay_period_start_day - 1) % 7
 
     selected_period = (request.args.get("period") or "current").strip().lower()
