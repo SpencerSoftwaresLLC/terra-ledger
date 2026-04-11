@@ -827,11 +827,22 @@ def create_invoice_checkout_session(invoice, company_id):
         return None
 
     amount = int(round(_safe_float(invoice["balance_due"]) * 100))
-
     if amount <= 0:
         return None
 
+    stripe_account_id = (settings["stripe_account_id"] or "").strip()
+    if not stripe_account_id:
+        return None
+
     base_url = _get_public_base_url()
+
+    # 🔥 YOUR PLATFORM FEE
+    platform_fee_percent = _safe_float(os.environ.get("STRIPE_PLATFORM_FEE_PERCENT"), 3.0)
+    application_fee_amount = int(round(amount * (platform_fee_percent / 100.0)))
+
+    # Never allow the fee to equal or exceed the full charge
+    if application_fee_amount >= amount:
+        application_fee_amount = max(amount - 1, 0)
 
     session_kwargs = {
         "payment_method_types": ["card"],
@@ -852,21 +863,23 @@ def create_invoice_checkout_session(invoice, company_id):
             "invoice_id": str(invoice["id"]),
             "company_id": str(company_id),
         },
+
+        # ✅ THIS IS WHAT MAKES YOU MONEY
+        "payment_intent_data": {
+            "transfer_data": {
+                "destination": stripe_account_id,
+            },
+            "application_fee_amount": application_fee_amount,
+        },
+
         "success_url": f"{base_url}/payment-success",
         "cancel_url": f"{base_url}/payment-cancel",
     }
 
-    stripe_account_id = (settings["stripe_account_id"] or "").strip()
-    if stripe_account_id:
-        checkout_session = stripe.checkout.Session.create(
-            **session_kwargs,
-            stripe_account=stripe_account_id,
-        )
-    else:
-        checkout_session = stripe.checkout.Session.create(**session_kwargs)
+    # ❌ DO NOT USE stripe_account= anymore
+    checkout_session = stripe.checkout.Session.create(**session_kwargs)
 
     return checkout_session.url
-
 
 # =========================================================
 # Routes
