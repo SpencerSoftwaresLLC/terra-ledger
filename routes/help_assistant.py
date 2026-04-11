@@ -3,7 +3,9 @@
 from flask import Blueprint, request, jsonify, session
 from decorators import login_required
 from ai.client import ask_terraledger_help
-from ai.knowledge import calculate_material
+from ai.knowledge import calculate_material, get_help_knowledge
+from ai.context_builder import should_include_business_insights
+from ai.insights import format_sales_snapshot_for_ai
 from extensions import csrf
 
 help_assistant_bp = Blueprint("help_assistant", __name__)
@@ -67,6 +69,51 @@ def _save_chat_history(history):
     session.modified = True
 
 
+def _format_list(lines):
+    if not lines:
+        return "- None"
+    return "\n".join(f"- {line}" for line in lines)
+
+
+def _knowledge_summary_block():
+    knowledge = get_help_knowledge()
+
+    modules = knowledge.get("modules", {})
+    module_lines = []
+    for module_name, module_data in modules.items():
+        summary = _safe_text(module_data.get("summary", ""))
+        if summary:
+            module_lines.append(f"- {module_name}: {summary}")
+
+    return f"""
+TerraLedger product knowledge:
+
+App Name:
+{_safe_text(knowledge.get("app_name", "TerraLedger"))}
+
+Summary:
+{_safe_text(knowledge.get("summary", ""))}
+
+Core Workflow:
+{_format_list(knowledge.get("core_workflow", []))}
+
+Workflow Notes:
+{_format_list(knowledge.get("workflow_notes", []))}
+
+Important Rules:
+{_format_list(knowledge.get("important_rules", []))}
+
+Response Rules:
+{_format_list(knowledge.get("response_rules", []))}
+
+Supported Help Topics:
+{_format_list(knowledge.get("supported_help_topics", []))}
+
+Known Modules:
+{chr(10).join(module_lines) if module_lines else "- None listed"}
+""".strip()
+
+
 def _recent_terraledger_context():
     return """
 Recent TerraLedger capabilities and updates to keep in mind:
@@ -76,11 +123,11 @@ Recent TerraLedger capabilities and updates to keep in mind:
 - Payroll supports payroll entries, payroll previews, printable payroll checks, and payroll check stubs.
 - Payroll includes federal, state, Social Security, Medicare, and local tax handling.
 - Quotes support quote creation, quote items, emailing quote PDFs, and conversion from quote to job.
-- Jobs support billable and cost-based job items and job-to-invoice workflows.
-- Invoices support invoice creation, invoice items, payments, partial payments, and payment tracking.
+- Jobs support billable and cost-based job items, calendar scheduling, recurring schedule generation, and job-to-invoice workflows.
+- Invoices support invoice creation, invoice items, payments, partial payments, payment tracking, email preview, PDF sending, and Stripe payment links.
 - Bookkeeping combines ledger entries, payroll, invoice payments, and job costs into bookkeeping / P&L reporting.
 - Bookkeeping supports manual entries, CSV export, P&L breakdowns, and printable bookkeeping checks.
-- Settings include company info, branding, email settings, tax defaults, W-2 company profile, backups, and backup restore.
+- Settings include company info, branding, email settings, tax defaults, W-2 company profile, backups, backup restore, and time clock pay period settings.
 - Users & Permissions supports role-based access and per-user permission management.
 - Billing supports Stripe subscription handling, checkout, webhook syncing, billing history, and customer portal access.
 - The platform has routes/modules for dashboard, customers, jobs, quotes, invoices, payroll, employees, users, settings, billing, bookkeeping, help assistant, mobile, calendar, messages, payment setup, and legal.
@@ -88,15 +135,74 @@ Recent TerraLedger capabilities and updates to keep in mind:
 - Email settings include sender identity, reply-to behavior, and test email sending.
 - W-2 tools include W-2 readiness, company W-2 profile, employee year-end summaries, and printable W-2 summary PDFs.
 - Backup tools include backup export and restore.
+- Time clock supports current pay period hours, previous pay period summaries, and pay-period-based entry filtering.
+- Stripe invoice payments can use connected accounts and platform fee handling when configured.
 """.strip()
 
 
-def _build_augmented_question(user_question, page_title="", route=""):
+def _build_business_insight_block(company_id, user_question):
+    if not company_id:
+        return ""
+
+    if not should_include_business_insights(user_question):
+        return ""
+
+    try:
+        insight_text = format_sales_snapshot_for_ai(company_id)
+        return f"""
+Business insight context for this company:
+
+{insight_text}
+
+Use this context only when the user is asking about sales, revenue, trends, growth, forecasts, YTD progress, or year-end projections.
+Describe forecasts as estimates based on historical paid invoice revenue and current pace, not guarantees.
+""".strip()
+    except Exception as e:
+        return f"""
+Business insight context could not be loaded cleanly for this request.
+Error: {e}
+
+If the user is asking for sales trends or forecasts, explain that the insight layer could not be loaded right now.
+""".strip()
+
+
+def _build_material_block(user_question):
+    calc_result = calculate_material(user_question)
+    if not calc_result:
+        return "", None
+
+    return f"""
+Material calculation context:
+
+The user's message appears to request a material estimate.
+Use the following result directly if it answers the question:
+
+{calc_result}
+""".strip(), calc_result
+
+
+def _build_augmented_question(user_question, company_id=None, page_title="", route=""):
+    knowledge_block = _knowledge_summary_block()
+    business_block = _build_business_insight_block(company_id, user_question)
+    material_block, _ = _build_material_block(user_question)
+
     context_parts = [
         "You are the built-in TerraLedger help assistant.",
-        "Answer using the current TerraLedger feature set and recent updates below.",
+        "Answer using the current TerraLedger feature set and current app logic.",
+        "Be direct, practical, and accurate.",
+        "Do not invent features that do not exist.",
+        "If a feature is not built yet, say so clearly.",
+        "If the user is asking how to do something, give step-by-step instructions.",
+        "If the user is asking about sales or forecasting, use the business insight context when available and clearly describe projections as estimates.",
+        knowledge_block,
         _recent_terraledger_context(),
     ]
+
+    if business_block:
+        context_parts.append(business_block)
+
+    if material_block:
+        context_parts.append(material_block)
 
     if page_title:
         context_parts.append(f"Current page title: {page_title}")
@@ -105,7 +211,7 @@ def _build_augmented_question(user_question, page_title="", route=""):
 
     context_parts.append(f"User question: {user_question}")
 
-    return "\n\n".join(context_parts)
+    return "\n\n".join(part for part in context_parts if part)
 
 
 @help_assistant_bp.route("/api/help-assistant", methods=["POST"])
@@ -126,17 +232,22 @@ def help_assistant_api():
             }), 400
 
         history = _get_chat_history()
+        company_id = session.get("company_id")
 
-        calc_result = calculate_material(user_question)
+        material_block, calc_result = _build_material_block(user_question)
 
         if calc_result:
             answer = _safe_text(calc_result, "I could not calculate that.")
+            used_business_insights = False
         else:
             augmented_question = _build_augmented_question(
                 user_question=user_question,
+                company_id=company_id,
                 page_title=page_title,
                 route=route,
             )
+
+            used_business_insights = bool(company_id and should_include_business_insights(user_question))
 
             answer = ask_terraledger_help(
                 user_question=augmented_question,
@@ -155,7 +266,8 @@ def help_assistant_api():
 
         return jsonify({
             "ok": True,
-            "answer": answer
+            "answer": answer,
+            "used_business_insights": used_business_insights
         })
 
     except Exception as e:
