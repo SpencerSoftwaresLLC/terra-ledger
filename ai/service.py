@@ -4,7 +4,7 @@ import os
 
 from openai import OpenAI
 
-from TerraLedger.ai.context_builder import build_ai_system_prompt
+from ai.context_builder import build_ai_system_prompt
 
 
 def ask_terraledger_ai(user_message, company_id=None):

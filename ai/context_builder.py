@@ -1,7 +1,7 @@
 # TerraLedger/ai/context_builder.py
 
-from TerraLedger.ai.knowledge import get_help_knowledge, calculate_material
-from TerraLedger.ai.insights import format_sales_snapshot_for_ai
+from ai.knowledge import get_help_knowledge, calculate_material
+from ai.insights import format_sales_snapshot_for_ai
 
 
 INSIGHT_KEYWORDS = [
