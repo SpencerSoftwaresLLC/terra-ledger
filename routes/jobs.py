@@ -2212,8 +2212,8 @@ def generate_recurring_schedule_jobs(schedule_id):
         return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
     try:
-        horizon_days = safe_int(schedule["auto_generate_until_days"], 42)
-        through_date = date.today() + timedelta(days=horizon_days if horizon_days > 0 else 42)
+        horizon_days = safe_int(schedule["auto_generate_until_days"], 90)
+        through_date = date.today() + timedelta(days=horizon_days if horizon_days > 0 else 90)
         created_count = auto_generate_recurring_jobs(conn, cid, through_date=through_date)
         conn.commit()
         flash(f"Recurring generation complete. {created_count} job(s) created.")

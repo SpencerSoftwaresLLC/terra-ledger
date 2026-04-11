@@ -163,3 +163,40 @@ def send_pay_period_summary_emails_for_company(company_id):
         sent_count += 1
 
     return {"sent": sent_count, "skipped": 0, "reason": None}
+
+def run_time_clock_summary_emails():
+    conn = get_db_connection()
+
+    try:
+        companies = conn.execute(
+            """
+            SELECT id
+            FROM companies
+            ORDER BY id
+            """
+        ).fetchall()
+
+        results = []
+
+        for company in companies:
+            company_id = company["id"]
+
+            try:
+                result = send_pay_period_summary_emails_for_company(company_id)
+                results.append({
+                    "company_id": company_id,
+                    "sent": result.get("sent", 0),
+                    "skipped": result.get("skipped", 0),
+                    "reason": result.get("reason"),
+                })
+            except Exception as e:
+                results.append({
+                    "company_id": company_id,
+                    "sent": 0,
+                    "skipped": 1,
+                    "reason": str(e),
+                })
+
+        return results
+    finally:
+        conn.close()

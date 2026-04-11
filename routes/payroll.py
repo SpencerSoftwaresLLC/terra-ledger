@@ -267,6 +267,110 @@ def get_company_check_info(profile):
     }
 
 
+def _fit_text_to_width(c, text, font_name, start_font_size, max_width, min_font_size=7):
+    text = clean_text_input(text)
+    font_size = start_font_size
+    while font_size > min_font_size and c.stringWidth(text, font_name, font_size) > max_width:
+        font_size -= 0.25
+    return text, font_size
+
+
+def _draw_money_row(c, x_label, x_value, y, label, value, width=1.2 * inch, font_size=8.7):
+    c.setFont("Helvetica", font_size)
+    c.drawString(x_label, y, label)
+    c.drawRightString(x_value + width, y, f"${money(value):,.2f}")
+
+
+def _draw_stub_section(c, x, y_top, width, height, title, payroll_row, employee_name):
+    pad_x = 0.14 * inch
+    pad_y = 0.11 * inch
+
+    left = x + pad_x
+    right = x + width - pad_x
+    top = y_top - pad_y
+
+    c.setLineWidth(0.7)
+    c.rect(x, y_top - height, width, height, stroke=1, fill=0)
+
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(left, top, title)
+
+    c.setLineWidth(0.4)
+    c.line(left, top - 0.08 * inch, right, top - 0.08 * inch)
+
+    info_y = top - 0.23 * inch
+    col1 = left
+    col2 = x + width * 0.50
+
+    pay_date = clean_text_input(payroll_row["pay_date"]) or date.today().isoformat()
+    pay_period = f"{clean_text_input(payroll_row['pay_period_start'])} to {clean_text_input(payroll_row['pay_period_end'])}"
+    payment_method = clean_text_input(payroll_row.get("payment_method")) or "Check"
+    check_number = payroll_row["check_number"] if "check_number" in payroll_row.keys() and payroll_row["check_number"] else "-"
+
+    c.setFont("Helvetica", 8.6)
+    c.drawString(col1, info_y, f"Employee: {employee_name[:40]}")
+    c.drawString(col2, info_y, f"Check #: {check_number}")
+
+    info_y -= 0.17 * inch
+    c.drawString(col1, info_y, f"Pay Date: {pay_date}")
+    c.drawString(col2, info_y, f"Method: {payment_method}")
+
+    info_y -= 0.17 * inch
+    c.drawString(col1, info_y, f"Pay Type: {clean_text_display(payroll_row['pay_type'])}")
+    c.drawString(col2, info_y, f"Period: {pay_period[:34]}")
+
+    info_y -= 0.24 * inch
+
+    section1_x = left
+    section2_x = x + width * 0.34
+    section3_x = x + width * 0.68
+
+    c.setFont("Helvetica-Bold", 8.8)
+    c.drawString(section1_x, info_y, "Earnings")
+    c.drawString(section2_x, info_y, "Deductions")
+    c.drawString(section3_x, info_y, "Totals")
+
+    info_y -= 0.16 * inch
+    c.setLineWidth(0.3)
+    c.line(section1_x, info_y + 0.04 * inch, x + width * 0.31, info_y + 0.04 * inch)
+    c.line(section2_x, info_y + 0.04 * inch, x + width * 0.65, info_y + 0.04 * inch)
+    c.line(section3_x, info_y + 0.04 * inch, right, info_y + 0.04 * inch)
+
+    money_width = 0.90 * inch
+    row_gap = 0.15 * inch
+    row_y = info_y - 0.02 * inch
+
+    _draw_money_row(c, section1_x, x + width * 0.31 - money_width, row_y, "Regular Hours", payroll_row["hours_regular"], width=money_width)
+    _draw_money_row(c, section2_x, x + width * 0.65 - money_width, row_y, "Federal", payroll_row["federal_withholding"], width=money_width)
+    _draw_money_row(c, section3_x, right - money_width, row_y, "Gross", payroll_row["gross_pay"], width=money_width)
+
+    row_y -= row_gap
+    _draw_money_row(c, section1_x, x + width * 0.31 - money_width, row_y, "OT Hours", payroll_row["hours_overtime"], width=money_width)
+    _draw_money_row(c, section2_x, x + width * 0.65 - money_width, row_y, "State", payroll_row["state_withholding"], width=money_width)
+    _draw_money_row(c, section3_x, right - money_width, row_y, "Net", payroll_row["net_pay"], width=money_width)
+
+    row_y -= row_gap
+    _draw_money_row(c, section1_x, x + width * 0.31 - money_width, row_y, "Reg Rate", payroll_row["rate_regular"], width=money_width)
+    _draw_money_row(c, section2_x, x + width * 0.65 - money_width, row_y, "Social Sec.", payroll_row["social_security"], width=money_width)
+
+    row_y -= row_gap
+    _draw_money_row(c, section1_x, x + width * 0.31 - money_width, row_y, "OT Rate", payroll_row["rate_overtime"], width=money_width)
+    _draw_money_row(c, section2_x, x + width * 0.65 - money_width, row_y, "Medicare", payroll_row["medicare"], width=money_width)
+
+    row_y -= row_gap
+    _draw_money_row(c, section2_x, x + width * 0.65 - money_width, row_y, "Local Tax", payroll_row["local_tax"], width=money_width)
+
+    row_y -= row_gap
+    _draw_money_row(c, section2_x, x + width * 0.65 - money_width, row_y, "Other Ded.", payroll_row["other_deductions"], width=money_width)
+
+    notes = clean_text_input(payroll_row.get("notes"))
+    if notes:
+        notes_y = y_top - height + 0.16 * inch
+        c.setFont("Helvetica", 7.9)
+        notes_text = notes[:110]
+        c.drawString(left, notes_y, f"Notes: {notes_text}")
+
+
 def build_payroll_check_pdf(company_info, payroll_row, employee_name, check_number):
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
@@ -277,111 +381,79 @@ def build_payroll_check_pdf(company_info, payroll_row, employee_name, check_numb
     pay_date = clean_text_input(payroll_row["pay_date"]) or date.today().isoformat()
     memo = f"Payroll {clean_text_input(payroll_row['pay_period_start'])} to {clean_text_input(payroll_row['pay_period_end'])}"
 
-    top_y = height - 0.75 * inch
-    c.setFont("Helvetica-Bold", 13)
-    c.drawString(0.7 * inch, top_y, company_info["company_name"])
+    # Top section: designed for pre-printed check stock.
+    # Do NOT print company name/address or check number.
+    check_top = height
+    check_height = 3.48 * inch
 
-    c.setFont("Helvetica", 9)
-    line_y = top_y - 0.18 * inch
-    if company_info["address_line_1"]:
-        c.drawString(0.7 * inch, line_y, company_info["address_line_1"])
-        line_y -= 0.15 * inch
-    if company_info["address_line_2"]:
-        c.drawString(0.7 * inch, line_y, company_info["address_line_2"])
-        line_y -= 0.15 * inch
-    if company_info["city_state_zip"]:
-        c.drawString(0.7 * inch, line_y, company_info["city_state_zip"])
-
-    c.setFont("Helvetica-Bold", 11)
-    c.drawRightString(width - 0.7 * inch, top_y, f"Check #{check_number}")
+    # Date
     c.setFont("Helvetica", 10)
-    c.drawRightString(width - 0.7 * inch, top_y - 0.24 * inch, f"Date: {pay_date}")
+    c.drawString(8.12 * inch, check_top - 0.92 * inch, pay_date)
 
-    c.setFont("Helvetica", 10)
-    c.drawString(0.7 * inch, height - 1.75 * inch, "Pay to the Order of:")
-    c.line(1.95 * inch, height - 1.79 * inch, width - 1.65 * inch, height - 1.79 * inch)
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(2.05 * inch, height - 1.72 * inch, employee_name)
+    # Payee line
+    payee_x = 1.74 * inch
+    payee_y = check_top - 1.73 * inch
+    payee_text, payee_font = _fit_text_to_width(c, employee_name, "Helvetica-Bold", 11, 4.95 * inch, 8.5)
+    c.setFont("Helvetica-Bold", payee_font)
+    c.drawString(payee_x, payee_y, payee_text)
 
-    c.rect(width - 1.85 * inch, height - 1.97 * inch, 1.15 * inch, 0.33 * inch)
-    c.setFont("Helvetica-Bold", 11)
-    c.drawCentredString(width - 1.275 * inch, height - 1.84 * inch, f"${amount:,.2f}")
+    # Numeric amount box
+    amount_box_center_x = 8.62 * inch
+    amount_box_y = check_top - 1.77 * inch
+    amount_text = f"${amount:,.2f}"
+    amount_text, amount_font = _fit_text_to_width(c, amount_text, "Helvetica-Bold", 11, 1.12 * inch, 8.0)
+    c.setFont("Helvetica-Bold", amount_font)
+    c.drawCentredString(amount_box_center_x, amount_box_y, amount_text)
 
-    c.setFont("Helvetica", 10)
-    c.drawString(0.7 * inch, height - 2.35 * inch, amount_written)
-    c.line(0.7 * inch, height - 2.42 * inch, width - 1.05 * inch, height - 2.42 * inch)
+    # Written amount line
+    words_x = 0.72 * inch
+    words_y = check_top - 2.16 * inch
+    max_words_width = 7.35 * inch
+    words_text, words_font = _fit_text_to_width(c, amount_written, "Helvetica", 10, max_words_width, 8.0)
+    c.setFont("Helvetica", words_font)
+    c.drawString(words_x, words_y, words_text)
 
-    c.setFont("Helvetica", 9)
-    c.drawString(0.7 * inch, height - 2.78 * inch, "Memo")
-    c.line(1.05 * inch, height - 2.82 * inch, 3.8 * inch, height - 2.82 * inch)
-    c.drawString(1.12 * inch, height - 2.75 * inch, memo)
+    # Memo line
+    memo_x = 0.88 * inch
+    memo_y = check_top - 2.75 * inch
+    memo_text, memo_font = _fit_text_to_width(c, memo, "Helvetica", 9, 2.55 * inch, 7.5)
+    c.setFont("Helvetica", memo_font)
+    c.drawString(memo_x, memo_y, memo_text)
 
-    c.drawString(width - 2.55 * inch, height - 2.78 * inch, "Authorized Signature")
-    c.line(width - 2.65 * inch, height - 2.82 * inch, width - 0.7 * inch, height - 2.82 * inch)
+    # Optional signature label only
+    c.setFont("Helvetica", 7.5)
+    c.drawString(7.12 * inch, check_top - 2.76 * inch, "Authorized Signature")
 
-    divider_y = height - 3.45 * inch
-    c.setDash(4, 3)
-    c.line(0.5 * inch, divider_y, width - 0.5 * inch, divider_y)
-    c.setDash()
+    # Stub areas
+    stub_width = width - (0.48 * inch)
+    stub_x = 0.24 * inch
 
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(0.7 * inch, divider_y - 0.35 * inch, "Payroll Check Stub")
+    first_stub_top = height - 3.72 * inch
+    stub_height = 2.02 * inch
 
-    c.setFont("Helvetica", 10)
-    stub_y = divider_y - 0.65 * inch
-    c.drawString(0.7 * inch, stub_y, f"Employee: {employee_name}")
-    c.drawString(3.75 * inch, stub_y, f"Check #: {check_number}")
+    second_stub_top = 1.96 * inch
 
-    stub_y -= 0.22 * inch
-    c.drawString(0.7 * inch, stub_y, f"Pay Date: {pay_date}")
-    c.drawString(3.75 * inch, stub_y, f"Pay Type: {clean_text_display(payroll_row['pay_type'])}")
-
-    stub_y -= 0.22 * inch
-    c.drawString(
-        0.7 * inch,
-        stub_y,
-        f"Pay Period: {clean_text_input(payroll_row['pay_period_start'])} to {clean_text_input(payroll_row['pay_period_end'])}"
+    _draw_stub_section(
+        c,
+        x=stub_x,
+        y_top=first_stub_top,
+        width=stub_width,
+        height=stub_height,
+        title="Payroll Check Stub - Employee Copy",
+        payroll_row=payroll_row,
+        employee_name=employee_name,
     )
-    c.drawString(3.75 * inch, stub_y, f"Method: Check")
 
-    stub_y -= 0.34 * inch
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(0.7 * inch, stub_y, "Hours / Rates")
-    c.drawString(2.55 * inch, stub_y, "Deductions")
-    c.drawString(4.65 * inch, stub_y, "Totals")
-
-    c.setFont("Helvetica", 10)
-    stub_y -= 0.24 * inch
-    c.drawString(0.7 * inch, stub_y, f"Regular Hours: {money(payroll_row['hours_regular']):.2f}")
-    c.drawString(2.55 * inch, stub_y, f"Federal: ${money(payroll_row['federal_withholding']):,.2f}")
-    c.drawString(4.65 * inch, stub_y, f"Gross: ${money(payroll_row['gross_pay']):,.2f}")
-
-    stub_y -= 0.22 * inch
-    c.drawString(0.7 * inch, stub_y, f"OT Hours: {money(payroll_row['hours_overtime']):.2f}")
-    c.drawString(2.55 * inch, stub_y, f"State: ${money(payroll_row['state_withholding']):,.2f}")
-    c.drawString(4.65 * inch, stub_y, f"Net: ${money(payroll_row['net_pay']):,.2f}")
-
-    stub_y -= 0.22 * inch
-    c.drawString(0.7 * inch, stub_y, f"Reg Rate: ${money(payroll_row['rate_regular']):,.2f}")
-    c.drawString(2.55 * inch, stub_y, f"Social Security: ${money(payroll_row['social_security']):,.2f}")
-
-    stub_y -= 0.22 * inch
-    c.drawString(0.7 * inch, stub_y, f"OT Rate: ${money(payroll_row['rate_overtime']):,.2f}")
-    c.drawString(2.55 * inch, stub_y, f"Medicare: ${money(payroll_row['medicare']):,.2f}")
-
-    stub_y -= 0.22 * inch
-    c.drawString(2.55 * inch, stub_y, f"Local Tax: ${money(payroll_row['local_tax']):,.2f}")
-
-    stub_y -= 0.22 * inch
-    c.drawString(2.55 * inch, stub_y, f"Other Deduct.: ${money(payroll_row['other_deductions']):,.2f}")
-
-    notes = clean_text_input(payroll_row["notes"])
-    if notes:
-        stub_y -= 0.32 * inch
-        c.setFont("Helvetica-Bold", 10)
-        c.drawString(0.7 * inch, stub_y, "Notes:")
-        c.setFont("Helvetica", 10)
-        c.drawString(1.15 * inch, stub_y, notes[:95])
+    _draw_stub_section(
+        c,
+        x=stub_x,
+        y_top=second_stub_top,
+        width=stub_width,
+        height=stub_height,
+        title="Payroll Payment Record - Company Copy",
+        payroll_row=payroll_row,
+        employee_name=employee_name,
+    )
 
     c.showPage()
     c.save()

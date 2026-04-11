@@ -38,6 +38,7 @@ from routes.help_assistant import help_assistant_bp
 from routes.mobile import mobile_bp
 from admin.admin_routes import admin_bp
 from routes.public_compliance import public_compliance_bp
+from routes.cron import cron_bp
 from routes.legal import legal_bp
 from reports.material_usage import material_usage_bp
 
@@ -173,6 +174,7 @@ def create_app():
     app.register_blueprint(mobile_bp)
     app.register_blueprint(calendar_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(cron_bp)
     app.register_blueprint(messages_bp)
     app.register_blueprint(notifications_bp)
     app.register_blueprint(legal_bp)
