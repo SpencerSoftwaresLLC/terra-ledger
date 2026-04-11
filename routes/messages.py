@@ -2,6 +2,7 @@ import os
 import re
 from datetime import datetime, date, time, timedelta
 from urllib.parse import quote_plus
+from flask_wtf.csrf import generate_csrf
 
 from flask import (
     Blueprint,
