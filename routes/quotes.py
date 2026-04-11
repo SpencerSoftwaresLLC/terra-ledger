@@ -97,11 +97,56 @@ def _default_unit_for_quote_item_type(item_type):
 
     return ""
 
+
 def is_mowing_quote(items):
     for i in items:
         if (i["item_type"] or "").lower() == "mowing":
             return True
     return False
+
+
+def _quote_summary_text(quote, items):
+    notes = _clean_text(quote["notes"]) if "notes" in quote.keys() else ""
+    quote_title = _clean_text(quote["title"]) if "title" in quote.keys() else ""
+    item_descriptions = []
+
+    for item in items or []:
+        desc = _clean_text(item["description"])
+        if desc:
+            item_descriptions.append(desc)
+
+    deduped = []
+    seen = set()
+    for desc in item_descriptions:
+        key = desc.lower()
+        if key not in seen:
+            seen.add(key)
+            deduped.append(desc)
+
+    if is_mowing_quote(items):
+        summary = "Proposed mowing service"
+        if deduped:
+            summary += f" including {', '.join(deduped[:5])}."
+        elif quote_title:
+            summary += f" for {quote_title}."
+        else:
+            summary += "."
+        return summary
+
+    if deduped:
+        if len(deduped) == 1:
+            return deduped[0]
+        if len(deduped) == 2:
+            return f"{deduped[0]} and {deduped[1]}"
+        return ", ".join(deduped[:-1]) + f", and {deduped[-1]}"
+
+    if notes:
+        return notes
+
+    if quote_title:
+        return quote_title
+
+    return "Proposed service."
 
 
 def ensure_quote_item_columns():
@@ -142,6 +187,7 @@ def build_quote_pdf(quote, items, company, profile):
 
         footer_note = profile["quote_footer_note"] if profile and profile["quote_footer_note"] else ""
         logo_url = profile["logo_url"] if profile and profile["logo_url"] else ""
+        summary_text = _quote_summary_text(quote, items)
 
         address_parts = []
         if company:
@@ -289,40 +335,17 @@ def build_quote_pdf(quote, items, company, profile):
         c.drawString(50, y, f"Date: {quote['quote_date'] or date.today().isoformat()}")
         y -= 24
 
-        ensure_space(40)
-        c.setFont("Helvetica-Bold", 10)
-        c.drawString(50, y, "Description")
-        c.drawString(280, y, "Qty")
-        c.drawString(330, y, "Unit")
-        c.drawString(390, y, "Unit Price")
-        c.drawString(480, y, "Line Total")
-        y -= 10
-
-        c.line(50, y, 560, y)
+        ensure_space(80)
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(50, y, "Service Summary")
         y -= 18
 
         c.setFont("Helvetica", 10)
-
-        if items:
-            for i in items:
-                ensure_space(24)
-
-                description = str(i["description"] or "")[:38]
-                qty = f"{float(i['quantity'] or 0):g}"
-                unit = str(i["unit"] or "")[:8]
-                unit_price = f"${float(i['unit_price'] or 0):.2f}"
-                line_total = f"${float(i['line_total'] or 0):.2f}"
-
-                c.drawString(50, y, description)
-                c.drawString(280, y, qty)
-                c.drawString(330, y, unit)
-                c.drawRightString(460, y, unit_price)
-                c.drawRightString(560, y, line_total)
-
-                y -= 18
-        else:
-            c.drawString(50, y, "No items.")
-            y -= 18
+        summary_chunks = [summary_text[i:i + 95] for i in range(0, len(summary_text), 95)] if summary_text else ["Proposed service."]
+        for chunk in summary_chunks:
+            ensure_space(18)
+            c.drawString(50, y, chunk)
+            y -= 15
 
         ensure_space(55)
         y -= 8
@@ -898,7 +921,6 @@ def view_quote(quote_id):
             unit_cost = 0.0
 
         if item_type == "mowing":
-            # 🔥 enforce per-cut logic
             if quantity <= 0:
                 quantity = 1
             if not unit:
@@ -1397,7 +1419,13 @@ def email_quote_preview(quote_id):
         conn.close()
         abort(404)
 
+    items = conn.execute(
+        "SELECT * FROM quote_items WHERE quote_id = %s ORDER BY id",
+        (quote_id,),
+    ).fetchall()
+
     recipient = (quote["customer_email"] or "").strip()
+    summary_text = _quote_summary_text(quote, items)
     conn.close()
 
     preview_url = url_for("quotes.preview_quote_pdf", quote_id=quote_id)
@@ -1424,10 +1452,16 @@ def email_quote_preview(quote_id):
 
     <div class='card'>
         <div class='notice' style='margin-bottom:16px;'>
-            Customer-facing quote delivery hides all internal cost fields. Only description, quantity, unit, price, and totals are shown.
+            Customer-facing quote delivery uses a clean service summary and total. Internal cost fields and line-by-line item pricing are not shown in the email body or PDF.
         </div>
 
-        <h2>Preview</h2>
+        <h2>Email Summary</h2>
+        <div class='card' style='background:#fafafa; margin-bottom:16px;'>
+            <p style='margin:0 0 10px 0;'><strong>Service Summary</strong></p>
+            <p style='margin:0;'>{escape(summary_text)}</p>
+        </div>
+
+        <h2>PDF Preview</h2>
         <div style='margin-bottom:14px;'>
             <iframe src='{preview_url}' style='width:100%; height:820px; border:1px solid #dbe2ea; border-radius:12px; background:#fff;'></iframe>
         </div>
@@ -1557,6 +1591,7 @@ def send_quote_email(quote_id):
 
     quote_number = quote["quote_number"] or quote["id"]
     total_amount = float(quote["total"] or 0)
+    summary_text = _quote_summary_text(quote, items)
 
     try:
         pdf_data = build_quote_pdf(quote, items, company, profile)
@@ -1564,15 +1599,21 @@ def send_quote_email(quote_id):
         text_body = (
             f"Hello {quote['customer_name']},\n\n"
             f"Please find attached Quote #{quote_number}.\n\n"
+            f"Service Summary: {summary_text}\n\n"
             f"Total: ${total_amount:.2f}\n\n"
             f"Thank you."
         )
 
         html_body = f"""
             <div style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222;">
-                <p>Hello {quote['customer_name']},</p>
+                <p>Hello {escape(quote['customer_name'])},</p>
 
-                <p>Please find attached Quote #{quote_number}.</p>
+                <p>Please find attached Quote #{escape(str(quote_number))}.</p>
+
+                <p>
+                    <strong>Service Summary:</strong><br>
+                    {escape(summary_text)}
+                </p>
 
                 <p>
                     <strong>Total:</strong> ${total_amount:.2f}
@@ -1652,7 +1693,6 @@ def convert_quote_to_job(quote_id):
             flash("No items to convert.")
             return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
-        # Detect mowing / recurring
         service_type = None
         is_recurring = False
 
@@ -1668,7 +1708,6 @@ def convert_quote_to_job(quote_id):
         quote_notes = (quote["notes"] or "").strip() if "notes" in quote.keys() and quote["notes"] else ""
         job_title = quote_title or f"Job from Quote {quote_number}"
 
-        # Optional recurring values if you later add them to quotes
         recurring_interval_weeks = 1
         recurring_start_date = date.today().isoformat()
         recurring_end_date = None
@@ -1710,7 +1749,6 @@ def convert_quote_to_job(quote_id):
 
         cur = conn.cursor()
 
-        # Create the first job
         try:
             cur.execute(
                 """
@@ -1784,7 +1822,6 @@ def convert_quote_to_job(quote_id):
 
         recurring_schedule_id = None
 
-        # Create recurring mowing schedule if mowing quote
         if is_recurring:
             try:
                 cur.execute(
@@ -1849,7 +1886,6 @@ def convert_quote_to_job(quote_id):
                         (recurring_schedule_id, job_id, cid),
                     )
                 except Exception:
-                    # In case one of these columns does not exist yet
                     try:
                         conn.execute(
                             """
@@ -1865,8 +1901,6 @@ def convert_quote_to_job(quote_id):
             except Exception as e:
                 raise Exception(f"Failed creating recurring schedule: {e}")
 
-        # Copy quote items into first job
-        # If recurring mowing, convert mowing lines to per-visit math for the job + schedule
         for i in items:
             raw_qty = float(i["quantity"] or 0)
             price = float(i["unit_price"] or 0)
@@ -1914,7 +1948,6 @@ def convert_quote_to_job(quote_id):
             elif item_type in ["plants", "trees", "misc"]:
                 unit = ""
 
-            # For recurring mowing, each generated visit should be one cut at the quoted per-cut price
             if is_recurring and item_type == "mowing":
                 qty = 1.0
                 unit = "Cut"
@@ -1961,7 +1994,6 @@ def convert_quote_to_job(quote_id):
 
             ensure_job_cost_ledger(conn, item_row["id"])
 
-            # Also create recurring schedule items
             if recurring_schedule_id:
                 recurring_qty = raw_qty if raw_qty > 0 else 1.0
                 recurring_unit = unit
@@ -2017,7 +2049,6 @@ def convert_quote_to_job(quote_id):
             (quote_id, cid),
         )
 
-        # If the helper exists in scope, generate upcoming jobs now
         if recurring_schedule_id and "auto_generate_recurring_jobs" in globals():
             try:
                 auto_generate_recurring_jobs(conn, cid)

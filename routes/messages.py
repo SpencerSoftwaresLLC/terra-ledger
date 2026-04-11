@@ -1,7 +1,7 @@
 import os
 import re
 from datetime import datetime, date, time, timedelta
-from urllib.parse import urlparse
+from urllib.parse import quote_plus
 
 from flask import (
     Blueprint,
@@ -12,6 +12,7 @@ from flask import (
     session,
     render_template_string,
     Response,
+    abort,
 )
 from twilio.rest import Client
 from twilio.base.exceptions import TwilioRestException
@@ -28,6 +29,8 @@ from routes.notifications import create_notification
 messages_bp = Blueprint("messages", __name__)
 
 MAX_MESSAGE_LENGTH = 1600
+THREAD_PREVIEW_LIMIT = 140
+
 STOP_WORDS = {"stop", "stopall", "unsubscribe", "cancel", "end", "quit"}
 HELP_WORDS = {"help", "info"}
 START_WORDS = {"start", "unstop", "yes"}
@@ -53,46 +56,9 @@ def _safe_float(value, default=0.0):
     try:
         if value is None or str(value).strip() == "":
             return default
-        return default if value is None else float(value)
+        return float(value)
     except (TypeError, ValueError):
         return default
-
-
-def _normalize_phone(value):
-    """
-    Normalize to E.164 when possible.
-    Assumes US/Canada for 10-digit local numbers.
-    """
-    text = _safe_text(value)
-    if not text:
-        return ""
-
-    digits = re.sub(r"\D", "", text)
-
-    if not digits:
-        return ""
-
-    if len(digits) == 10:
-        return f"+1{digits}"
-
-    if len(digits) == 11 and digits.startswith("1"):
-        return f"+{digits}"
-
-    if 10 <= len(digits) <= 15:
-        return f"+{digits}"
-
-    return ""
-
-
-def _digits_only(value):
-    return re.sub(r"\D", "", _safe_text(value))
-
-
-def _is_reasonable_phone(value):
-    if not value:
-        return False
-    digits = _digits_only(value)
-    return 10 <= len(digits) <= 15
 
 
 def _to_bool(value):
@@ -100,9 +66,34 @@ def _to_bool(value):
         return value
     if value is None:
         return False
+    return str(value).strip().lower() in {"1", "true", "t", "yes", "y", "on"}
 
-    text = str(value).strip().lower()
-    return text in {"1", "true", "t", "yes", "y", "on"}
+
+def _digits_only(value):
+    return re.sub(r"\D", "", _safe_text(value))
+
+
+def _normalize_phone(value):
+    text = _safe_text(value)
+    if not text:
+        return ""
+
+    digits = _digits_only(text)
+    if not digits:
+        return ""
+
+    if len(digits) == 10:
+        return f"+1{digits}"
+    if len(digits) == 11 and digits.startswith("1"):
+        return f"+{digits}"
+    if 10 <= len(digits) <= 15:
+        return f"+{digits}"
+    return ""
+
+
+def _is_reasonable_phone(value):
+    digits = _digits_only(value)
+    return 10 <= len(digits) <= 15
 
 
 def _utcnow():
@@ -123,16 +114,14 @@ def _coerce_datetime(value):
     if not text:
         return None
 
-    formats = [
+    for fmt in (
         "%Y-%m-%d %H:%M:%S",
         "%Y-%m-%d %H:%M",
         "%Y-%m-%d",
         "%m/%d/%Y %H:%M:%S",
         "%m/%d/%Y %H:%M",
         "%m/%d/%Y",
-    ]
-
-    for fmt in formats:
+    ):
         try:
             parsed = datetime.strptime(text, fmt)
             if fmt in ("%Y-%m-%d", "%m/%d/%Y"):
@@ -154,6 +143,13 @@ def _format_datetime_for_message(value):
     return dt.strftime("%m/%d/%Y at %I:%M %p")
 
 
+def _format_datetime_short(value):
+    dt = _coerce_datetime(value)
+    if not dt:
+        return ""
+    return dt.strftime("%m/%d/%Y %I:%M %p")
+
+
 def _format_currency(value):
     try:
         return f"${float(value):,.2f}"
@@ -161,27 +157,19 @@ def _format_currency(value):
         return "$0.00"
 
 
-def _get_twilio_client():
-    account_sid = _safe_text(os.environ.get("TWILIO_ACCOUNT_SID"))
-    auth_token = _safe_text(os.environ.get("TWILIO_AUTH_TOKEN"))
-
-    if not account_sid or not auth_token:
-        return None, "Twilio credentials are missing."
-
-    try:
-        return Client(account_sid, auth_token), None
-    except Exception as e:
-        return None, f"Twilio client error: {e}"
-
-
-def _get_from_number():
-    return _normalize_phone(os.environ.get("TWILIO_FROM_NUMBER"))
+def _preview_text(value, limit=THREAD_PREVIEW_LIMIT):
+    text = _safe_text(value)
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
 
 
 def _get_app_base_url():
     base = _safe_text(os.environ.get("APP_BASE_URL"))
     if not base:
         return ""
+    if not base.startswith(("http://", "https://")):
+        base = "https://" + base
     return base.rstrip("/")
 
 
@@ -189,7 +177,6 @@ def _get_external_base_url_from_request(req):
     forwarded_proto = _safe_text(req.headers.get("X-Forwarded-Proto"))
     forwarded_host = _safe_text(req.headers.get("X-Forwarded-Host"))
     host = forwarded_host or _safe_text(req.host)
-
     if not host:
         return _get_app_base_url()
 
@@ -198,38 +185,27 @@ def _get_external_base_url_from_request(req):
 
 
 def _candidate_request_urls(req):
-    """
-    Twilio validates against the exact URL it requested.
-    Behind proxies like Render, req.url may not exactly match.
-    So generate multiple reasonable candidates.
-    """
     candidates = []
 
-    # Raw Flask URL
     try:
         if req.url:
             candidates.append(req.url)
     except Exception:
         pass
 
-    # Reconstructed from forwarded headers
     external_base = _get_external_base_url_from_request(req)
     if external_base and req.path:
         candidates.append(f"{external_base}{req.path}")
 
-    # APP_BASE_URL fallback
     app_base = _get_app_base_url()
     if app_base and req.path:
         candidates.append(f"{app_base}{req.path}")
 
-    # Deduplicate while preserving order
     seen = set()
     final = []
     for url in candidates:
         url = _safe_text(url)
-        if not url:
-            continue
-        if url not in seen:
+        if url and url not in seen:
             seen.add(url)
             final.append(url)
     return final
@@ -254,16 +230,6 @@ def _validate_twilio_request(req):
         except Exception:
             continue
 
-    # Final fallback: compare only by APP_BASE_URL + path if hosts differ
-    app_base = _get_app_base_url()
-    if app_base and req.path:
-        try:
-            fallback_url = f"{app_base}{req.path}"
-            if validator.validate(fallback_url, form_data, signature):
-                return True
-        except Exception:
-            pass
-
     return False
 
 
@@ -280,11 +246,40 @@ def _validate_automation_request(req):
     return provided == token
 
 
+def _get_twilio_client():
+    account_sid = _safe_text(os.environ.get("TWILIO_ACCOUNT_SID"))
+    auth_token = _safe_text(os.environ.get("TWILIO_AUTH_TOKEN"))
+
+    if not account_sid or not auth_token:
+        return None, "Twilio credentials are missing."
+
+    try:
+        return Client(account_sid, auth_token), None
+    except Exception as e:
+        return None, f"Twilio client error: {e}"
+
+
+def _get_from_number():
+    return _normalize_phone(os.environ.get("TWILIO_FROM_NUMBER"))
+
+
+def _get_full_inbound_webhook_url():
+    base = _get_app_base_url()
+    return f"{base}/messages/webhook" if base else "/messages/webhook"
+
+
+def _get_full_status_callback_url():
+    env_url = _safe_text(os.environ.get("TWILIO_STATUS_CALLBACK_URL"))
+    if env_url:
+        return env_url
+    base = _get_app_base_url()
+    return f"{base}/messages/status-callback" if base else ""
+
+
 def _get_customer_phone_column(conn):
     cols = table_columns(conn, "customers")
     if not cols:
         return None
-
     if "phone" in cols:
         return "phone"
     if "phone_number" in cols:
@@ -303,29 +298,23 @@ def _customer_sms_columns_exist(conn):
     }.issubset(cols)
 
 
-def _build_conversation_key(company_id, phone_number):
-    normalized = _normalize_phone(phone_number)
-    if not company_id or not normalized:
-        return None
-    return f"{int(company_id)}:{normalized}"
-
-
-def _get_full_inbound_webhook_url():
-    base = _get_app_base_url()
-    if not base:
-        return "/messages/webhook"
-    return f"{base}/messages/webhook"
-
-
-def _get_full_status_callback_url():
-    env_url = _safe_text(os.environ.get("TWILIO_STATUS_CALLBACK_URL"))
-    if env_url:
-        return env_url
-
-    base = _get_app_base_url()
-    if not base:
+def _thread_key(company_id, phone_number):
+    digits = _digits_only(phone_number)
+    if not company_id or not digits:
         return ""
-    return f"{base}/messages/status-callback"
+    return f"{int(company_id)}__{digits}"
+
+
+def _thread_link_by_key(thread_key):
+    return url_for("messages.view_thread", thread_key=thread_key)
+
+
+def _full_thread_link(thread_key):
+    base = _get_app_base_url()
+    path = url_for("messages.view_thread", thread_key=thread_key)
+    if not base:
+        return path
+    return f"{base}{path}"
 
 
 def ensure_customer_sms_consent_columns():
@@ -364,168 +353,62 @@ def ensure_messaging_tables():
 
     try:
         cur.execute("""
-            SELECT EXISTS (
-                SELECT 1
-                FROM information_schema.tables
-                WHERE table_name = 'messaging_settings'
-            ) AS exists_flag
+            CREATE TABLE IF NOT EXISTS messaging_settings (
+                id SERIAL PRIMARY KEY,
+                company_id INTEGER NOT NULL UNIQUE,
+                messaging_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                send_job_updates BOOLEAN NOT NULL DEFAULT TRUE,
+                send_invoice_reminders BOOLEAN NOT NULL DEFAULT FALSE,
+                send_manual_messages BOOLEAN NOT NULL DEFAULT TRUE,
+                enable_job_reminders BOOLEAN NOT NULL DEFAULT TRUE,
+                job_reminder_hours INTEGER NOT NULL DEFAULT 24,
+                enable_late_invoice_reminders BOOLEAN NOT NULL DEFAULT FALSE,
+                late_invoice_days INTEGER NOT NULL DEFAULT 30,
+                forward_inbound_to_owner BOOLEAN NOT NULL DEFAULT TRUE,
+                owner_forward_phone TEXT,
+                default_on_the_way_template TEXT,
+                default_job_started_template TEXT,
+                default_job_completed_template TEXT,
+                default_invoice_reminder_template TEXT,
+                default_job_reminder_template TEXT,
+                default_late_invoice_reminder_template TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
         """)
-        settings_exists = cur.fetchone()["exists_flag"]
 
-        if not settings_exists:
-            cur.execute("""
-                CREATE TABLE messaging_settings (
-                    id SERIAL PRIMARY KEY,
-                    company_id INTEGER NOT NULL UNIQUE,
-                    messaging_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-                    send_job_updates BOOLEAN NOT NULL DEFAULT TRUE,
-                    send_invoice_reminders BOOLEAN NOT NULL DEFAULT FALSE,
-                    send_manual_messages BOOLEAN NOT NULL DEFAULT TRUE,
-                    enable_job_reminders BOOLEAN NOT NULL DEFAULT TRUE,
-                    job_reminder_hours INTEGER NOT NULL DEFAULT 24,
-                    enable_late_invoice_reminders BOOLEAN NOT NULL DEFAULT FALSE,
-                    late_invoice_days INTEGER NOT NULL DEFAULT 30,
-                    default_on_the_way_template TEXT,
-                    default_job_started_template TEXT,
-                    default_job_completed_template TEXT,
-                    default_invoice_reminder_template TEXT,
-                    default_job_reminder_template TEXT,
-                    default_late_invoice_reminder_template TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-        else:
-            cur.execute("""
-                SELECT column_name, data_type
-                FROM information_schema.columns
-                WHERE table_name = 'messaging_settings'
-            """)
-            existing_columns = {row["column_name"]: row["data_type"] for row in cur.fetchall()}
+        cur.execute("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'messaging_settings'
+        """)
+        settings_cols = {row["column_name"] for row in cur.fetchall()}
 
-            required_columns = {
-                "company_id": "INTEGER NOT NULL UNIQUE",
-                "messaging_enabled": "BOOLEAN NOT NULL DEFAULT FALSE",
-                "send_job_updates": "BOOLEAN NOT NULL DEFAULT TRUE",
-                "send_invoice_reminders": "BOOLEAN NOT NULL DEFAULT FALSE",
-                "send_manual_messages": "BOOLEAN NOT NULL DEFAULT TRUE",
-                "enable_job_reminders": "BOOLEAN NOT NULL DEFAULT TRUE",
-                "job_reminder_hours": "INTEGER NOT NULL DEFAULT 24",
-                "enable_late_invoice_reminders": "BOOLEAN NOT NULL DEFAULT FALSE",
-                "late_invoice_days": "INTEGER NOT NULL DEFAULT 30",
-                "default_on_the_way_template": "TEXT",
-                "default_job_started_template": "TEXT",
-                "default_job_completed_template": "TEXT",
-                "default_invoice_reminder_template": "TEXT",
-                "default_job_reminder_template": "TEXT",
-                "default_late_invoice_reminder_template": "TEXT",
-                "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-                "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-            }
+        required_settings_cols = {
+            "company_id": "INTEGER NOT NULL UNIQUE",
+            "messaging_enabled": "BOOLEAN NOT NULL DEFAULT FALSE",
+            "send_job_updates": "BOOLEAN NOT NULL DEFAULT TRUE",
+            "send_invoice_reminders": "BOOLEAN NOT NULL DEFAULT FALSE",
+            "send_manual_messages": "BOOLEAN NOT NULL DEFAULT TRUE",
+            "enable_job_reminders": "BOOLEAN NOT NULL DEFAULT TRUE",
+            "job_reminder_hours": "INTEGER NOT NULL DEFAULT 24",
+            "enable_late_invoice_reminders": "BOOLEAN NOT NULL DEFAULT FALSE",
+            "late_invoice_days": "INTEGER NOT NULL DEFAULT 30",
+            "forward_inbound_to_owner": "BOOLEAN NOT NULL DEFAULT TRUE",
+            "owner_forward_phone": "TEXT",
+            "default_on_the_way_template": "TEXT",
+            "default_job_started_template": "TEXT",
+            "default_job_completed_template": "TEXT",
+            "default_invoice_reminder_template": "TEXT",
+            "default_job_reminder_template": "TEXT",
+            "default_late_invoice_reminder_template": "TEXT",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        }
 
-            bool_columns = [
-                "messaging_enabled",
-                "send_job_updates",
-                "send_invoice_reminders",
-                "send_manual_messages",
-                "enable_job_reminders",
-                "enable_late_invoice_reminders",
-            ]
-
-            needs_rebuild = False
-            for col in bool_columns:
-                if col in existing_columns and existing_columns[col] != "boolean":
-                    needs_rebuild = True
-                    break
-
-            if needs_rebuild:
-                cur.execute("""
-                    CREATE TABLE messaging_settings_new (
-                        id SERIAL PRIMARY KEY,
-                        company_id INTEGER NOT NULL UNIQUE,
-                        messaging_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-                        send_job_updates BOOLEAN NOT NULL DEFAULT TRUE,
-                        send_invoice_reminders BOOLEAN NOT NULL DEFAULT FALSE,
-                        send_manual_messages BOOLEAN NOT NULL DEFAULT TRUE,
-                        enable_job_reminders BOOLEAN NOT NULL DEFAULT TRUE,
-                        job_reminder_hours INTEGER NOT NULL DEFAULT 24,
-                        enable_late_invoice_reminders BOOLEAN NOT NULL DEFAULT FALSE,
-                        late_invoice_days INTEGER NOT NULL DEFAULT 30,
-                        default_on_the_way_template TEXT,
-                        default_job_started_template TEXT,
-                        default_job_completed_template TEXT,
-                        default_invoice_reminder_template TEXT,
-                        default_job_reminder_template TEXT,
-                        default_late_invoice_reminder_template TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-
-                cur.execute("""
-                    INSERT INTO messaging_settings_new (
-                        company_id,
-                        messaging_enabled,
-                        send_job_updates,
-                        send_invoice_reminders,
-                        send_manual_messages,
-                        enable_job_reminders,
-                        job_reminder_hours,
-                        enable_late_invoice_reminders,
-                        late_invoice_days,
-                        default_on_the_way_template,
-                        default_job_started_template,
-                        default_job_completed_template,
-                        default_invoice_reminder_template,
-                        default_job_reminder_template,
-                        default_late_invoice_reminder_template,
-                        created_at,
-                        updated_at
-                    )
-                    SELECT
-                        company_id,
-                        CASE
-                            WHEN messaging_enabled IS NULL THEN FALSE
-                            WHEN LOWER(BTRIM(messaging_enabled::text)) IN ('1', 'true', 't', 'yes', 'y', 'on') THEN TRUE
-                            ELSE FALSE
-                        END,
-                        CASE
-                            WHEN send_job_updates IS NULL THEN TRUE
-                            WHEN LOWER(BTRIM(send_job_updates::text)) IN ('1', 'true', 't', 'yes', 'y', 'on') THEN TRUE
-                            ELSE FALSE
-                        END,
-                        CASE
-                            WHEN send_invoice_reminders IS NULL THEN FALSE
-                            WHEN LOWER(BTRIM(send_invoice_reminders::text)) IN ('1', 'true', 't', 'yes', 'y', 'on') THEN TRUE
-                            ELSE FALSE
-                        END,
-                        CASE
-                            WHEN send_manual_messages IS NULL THEN TRUE
-                            WHEN LOWER(BTRIM(send_manual_messages::text)) IN ('1', 'true', 't', 'yes', 'y', 'on') THEN TRUE
-                            ELSE FALSE
-                        END,
-                        TRUE,
-                        24,
-                        FALSE,
-                        30,
-                        default_on_the_way_template,
-                        default_job_started_template,
-                        default_job_completed_template,
-                        default_invoice_reminder_template,
-                        NULL,
-                        NULL,
-                        COALESCE(created_at, CURRENT_TIMESTAMP),
-                        COALESCE(updated_at, CURRENT_TIMESTAMP)
-                    FROM messaging_settings
-                    ON CONFLICT (company_id) DO NOTHING
-                """)
-
-                cur.execute("DROP TABLE messaging_settings")
-                cur.execute("ALTER TABLE messaging_settings_new RENAME TO messaging_settings")
-            else:
-                for col_name, col_def in required_columns.items():
-                    if col_name not in existing_columns:
-                        cur.execute(f"ALTER TABLE messaging_settings ADD COLUMN {col_name} {col_def}")
+        for col_name, col_def in required_settings_cols.items():
+            if col_name not in settings_cols:
+                cur.execute(f"ALTER TABLE messaging_settings ADD COLUMN {col_name} {col_def}")
 
         cur.execute("""
             CREATE TABLE IF NOT EXISTS message_log (
@@ -556,7 +439,7 @@ def ensure_messaging_tables():
         """)
         message_cols = {row["column_name"] for row in cur.fetchall()}
 
-        message_required_columns = {
+        required_message_cols = {
             "company_id": "INTEGER NOT NULL",
             "customer_id": "INTEGER",
             "job_id": "INTEGER",
@@ -575,10 +458,14 @@ def ensure_messaging_tables():
             "sent_at": "TIMESTAMP",
         }
 
-        for col_name, col_def in message_required_columns.items():
+        for col_name, col_def in required_message_cols.items():
             if col_name not in message_cols:
                 cur.execute(f"ALTER TABLE message_log ADD COLUMN {col_name} {col_def}")
 
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_message_log_company_created
+            ON message_log (company_id, created_at DESC)
+        """)
         cur.execute("""
             CREATE INDEX IF NOT EXISTS idx_message_log_phone_created
             ON message_log (phone_number, created_at DESC)
@@ -600,13 +487,12 @@ def ensure_messaging_tables():
 def get_messaging_settings(company_id):
     conn = get_db_connection()
     try:
-        cur = conn.cursor()
-        cur.execute("""
+        row = conn.execute("""
             SELECT *
             FROM messaging_settings
             WHERE company_id = %s
-        """, (company_id,))
-        row = cur.fetchone()
+        """, (company_id,)).fetchone()
+
         if row:
             row["messaging_enabled"] = _to_bool(row.get("messaging_enabled"))
             row["send_job_updates"] = _to_bool(row.get("send_job_updates"))
@@ -614,8 +500,10 @@ def get_messaging_settings(company_id):
             row["send_manual_messages"] = _to_bool(row.get("send_manual_messages"))
             row["enable_job_reminders"] = _to_bool(row.get("enable_job_reminders"))
             row["enable_late_invoice_reminders"] = _to_bool(row.get("enable_late_invoice_reminders"))
+            row["forward_inbound_to_owner"] = _to_bool(row.get("forward_inbound_to_owner"))
             row["job_reminder_hours"] = _safe_int(row.get("job_reminder_hours"), 24)
             row["late_invoice_days"] = _safe_int(row.get("late_invoice_days"), 30)
+            row["owner_forward_phone"] = _normalize_phone(row.get("owner_forward_phone"))
         return row
     finally:
         conn.close()
@@ -624,8 +512,7 @@ def get_messaging_settings(company_id):
 def get_message_history(company_id, limit=100):
     conn = get_db_connection()
     try:
-        cur = conn.cursor()
-        cur.execute("""
+        return conn.execute("""
             SELECT
                 ml.*,
                 c.name AS customer_name,
@@ -638,22 +525,97 @@ def get_message_history(company_id, limit=100):
             WHERE ml.company_id = %s
             ORDER BY ml.created_at DESC, ml.id DESC
             LIMIT %s
-        """, (company_id, limit))
-        return cur.fetchall()
+        """, (company_id, limit)).fetchall()
     finally:
         conn.close()
 
 
+def get_message_threads(company_id, limit=100):
+    conn = get_db_connection()
+    try:
+        rows = conn.execute("""
+            WITH ranked AS (
+                SELECT
+                    ml.*,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY ml.conversation_key
+                        ORDER BY ml.created_at DESC, ml.id DESC
+                    ) AS rn
+                FROM message_log ml
+                WHERE ml.company_id = %s
+                  AND ml.conversation_key IS NOT NULL
+                  AND ml.conversation_key <> ''
+            )
+            SELECT
+                r.conversation_key,
+                r.phone_number,
+                r.customer_id,
+                c.name AS customer_name,
+                r.message_body AS last_message_body,
+                r.direction AS last_direction,
+                r.status AS last_status,
+                r.created_at AS last_created_at,
+                (
+                    SELECT COUNT(*)
+                    FROM message_log ml2
+                    WHERE ml2.company_id = %s
+                      AND ml2.conversation_key = r.conversation_key
+                ) AS message_count
+            FROM ranked r
+            LEFT JOIN customers c ON r.customer_id = c.id
+            WHERE r.rn = 1
+            ORDER BY r.created_at DESC
+            LIMIT %s
+        """, (company_id, company_id, limit)).fetchall()
+        return rows
+    finally:
+        conn.close()
+
+
+def get_thread_messages(company_id, thread_key):
+    conn = get_db_connection()
+    try:
+        rows = conn.execute("""
+            SELECT
+                ml.*,
+                c.name AS customer_name,
+                j.title AS job_title,
+                i.invoice_number AS invoice_number
+            FROM message_log ml
+            LEFT JOIN customers c ON ml.customer_id = c.id
+            LEFT JOIN jobs j ON ml.job_id = j.id
+            LEFT JOIN invoices i ON ml.invoice_id = i.id
+            WHERE ml.company_id = %s
+              AND ml.conversation_key = %s
+            ORDER BY ml.created_at ASC, ml.id ASC
+        """, (company_id, thread_key)).fetchall()
+        return rows
+    finally:
+        conn.close()
+
+
+def get_thread_context(company_id, thread_key):
+    messages = get_thread_messages(company_id, thread_key)
+    if not messages:
+        return None
+
+    first = messages[0]
+    last = messages[-1]
+    return {
+        "thread_key": thread_key,
+        "phone_number": first.get("phone_number"),
+        "customer_id": first.get("customer_id"),
+        "customer_name": first.get("customer_name"),
+        "last_message_body": last.get("message_body"),
+        "last_created_at": last.get("created_at"),
+        "message_count": len(messages),
+    }
+
+
 def get_customers_for_messages(company_id):
     conn = get_db_connection()
-
     try:
-        cols = table_columns(conn, "customers")
-        if not cols:
-            return []
-
         phone_col = _get_customer_phone_column(conn)
-
         if not phone_col:
             return conn.execute("""
                 SELECT id, name, NULL AS phone, FALSE AS sms_opt_in
@@ -688,8 +650,6 @@ def get_customers_for_messages(company_id):
             WHERE company_id = %s
             ORDER BY name ASC
         """, (company_id,)).fetchall()
-    except Exception:
-        return []
     finally:
         conn.close()
 
@@ -701,12 +661,11 @@ def find_customer_by_phone(company_id, phone_number):
         if not phone_col:
             return None
 
-        sms_cols_exist = _customer_sms_columns_exist(conn)
         search_digits = _digits_only(phone_number)
         if not search_digits:
             return None
 
-        if sms_cols_exist:
+        if _customer_sms_columns_exist(conn):
             sql = f"""
                 SELECT
                     id,
@@ -737,21 +696,15 @@ def find_customer_by_phone(company_id, phone_number):
                 ORDER BY id DESC
             """
 
-        cur = conn.cursor()
-        cur.execute(sql, (company_id,))
-        rows = cur.fetchall()
-
+        rows = conn.execute(sql, (company_id,)).fetchall()
         for row in rows:
             existing_digits = _digits_only(row["phone"])
             if not existing_digits:
                 continue
-
             if existing_digits == search_digits:
                 return row
-
             if existing_digits.endswith(search_digits) or search_digits.endswith(existing_digits):
                 return row
-
         return None
     finally:
         conn.close()
@@ -878,8 +831,7 @@ def get_last_conversation_for_phone(phone_number):
 
     conn = get_db_connection()
     try:
-        cur = conn.cursor()
-        cur.execute("""
+        return conn.execute("""
             SELECT
                 company_id,
                 customer_id,
@@ -891,8 +843,7 @@ def get_last_conversation_for_phone(phone_number):
               AND company_id IS NOT NULL
             ORDER BY created_at DESC, id DESC
             LIMIT 1
-        """, (normalized_phone,))
-        return cur.fetchone()
+        """, (normalized_phone,)).fetchone()
     finally:
         conn.close()
 
@@ -903,16 +854,15 @@ def has_automation_message(company_id, automation_key):
 
     conn = get_db_connection()
     try:
-        cur = conn.cursor()
-        cur.execute("""
+        row = conn.execute("""
             SELECT 1
             FROM message_log
             WHERE company_id = %s
               AND automation_key = %s
               AND status IN ('sent', 'delivered', 'received', 'queued')
             LIMIT 1
-        """, (company_id, automation_key))
-        return cur.fetchone() is not None
+        """, (company_id, automation_key)).fetchone()
+        return row is not None
     finally:
         conn.close()
 
@@ -935,12 +885,11 @@ def insert_message_log(
 ):
     normalized_phone = _normalize_phone(phone_number)
     if not conversation_key and company_id and normalized_phone:
-        conversation_key = _build_conversation_key(company_id, normalized_phone)
+        conversation_key = _thread_key(company_id, normalized_phone)
 
     conn = get_db_connection()
     try:
-        cur = conn.cursor()
-        cur.execute("""
+        conn.execute("""
             INSERT INTO message_log (
                 company_id,
                 customer_id,
@@ -990,8 +939,7 @@ def update_message_status_by_provider_id(provider_message_id, status, error_mess
 
     conn = get_db_connection()
     try:
-        cur = conn.cursor()
-        cur.execute("""
+        conn.execute("""
             UPDATE message_log
             SET status = %s,
                 error_message = COALESCE(%s, error_message),
@@ -1102,6 +1050,53 @@ def _render_invoice_late_message(template, invoice_row):
     return message.strip()
 
 
+def _send_owner_relay_alert(company_id, customer_id, phone_number, inbound_body, thread_key):
+    settings = get_messaging_settings(company_id)
+    if not settings:
+        return
+
+    if not _to_bool(settings.get("messaging_enabled")):
+        return
+
+    if not _to_bool(settings.get("forward_inbound_to_owner")):
+        return
+
+    owner_phone = _normalize_phone(settings.get("owner_forward_phone"))
+    if not _is_reasonable_phone(owner_phone):
+        return
+
+    customer = get_customer_by_id(company_id, customer_id) if customer_id else None
+    customer_name = _safe_text(customer.get("name")) if customer else ""
+    display_name = customer_name or phone_number
+    thread_link = _full_thread_link(thread_key)
+
+    relay_message = (
+        f"TerraLedger reply from {display_name}: "
+        f"{_preview_text(inbound_body, 110)}\n"
+        f"Reply: {thread_link}"
+    )
+
+    success, provider_message_id, error_message = send_text_message(
+        to_number=owner_phone,
+        message_body=relay_message,
+        settings_row=settings,
+    )
+
+    insert_message_log(
+        company_id=company_id,
+        customer_id=None,
+        phone_number=owner_phone,
+        message_body=relay_message,
+        direction="outbound",
+        status="sent" if success else "failed",
+        provider="twilio",
+        provider_message_id=provider_message_id,
+        conversation_key=None,
+        sent_by_user_id=None,
+        error_message=error_message,
+    )
+
+
 def process_job_reminders():
     ensure_messaging_tables()
 
@@ -1122,8 +1117,7 @@ def process_job_reminders():
         title_expr = "j.title" if "title" in job_cols else "NULL"
         status_expr = "j.status" if "status" in job_cols else "NULL"
 
-        cur = conn.cursor()
-        cur.execute(f"""
+        rows = conn.execute(f"""
             SELECT
                 j.id,
                 j.company_id,
@@ -1156,8 +1150,7 @@ def process_job_reminders():
               AND c.sms_opt_in = TRUE
               AND c.sms_opt_out_at IS NULL
             ORDER BY j.scheduled_date ASC
-        """)
-        rows = cur.fetchall()
+        """).fetchall()
     finally:
         conn.close()
 
@@ -1212,6 +1205,7 @@ def process_job_reminders():
                 provider="twilio",
                 provider_message_id=provider_message_id,
                 automation_key=automation_key,
+                conversation_key=_thread_key(row["company_id"], phone_number),
             )
 
             create_notification(
@@ -1234,6 +1228,7 @@ def process_job_reminders():
                 status="failed",
                 provider="twilio",
                 automation_key=automation_key,
+                conversation_key=_thread_key(row["company_id"], phone_number),
                 error_message=error_message,
             )
 
@@ -1270,8 +1265,7 @@ def process_late_invoice_reminders():
         balance_due_expr = "i.balance_due" if "balance_due" in invoice_cols else "NULL"
         status_expr = "i.status" if "status" in invoice_cols else "NULL"
 
-        cur = conn.cursor()
-        cur.execute(f"""
+        rows = conn.execute(f"""
             SELECT
                 i.id,
                 i.company_id,
@@ -1305,8 +1299,7 @@ def process_late_invoice_reminders():
               AND c.sms_opt_in = TRUE
               AND c.sms_opt_out_at IS NULL
             ORDER BY i.due_date ASC
-        """)
-        rows = cur.fetchall()
+        """).fetchall()
     finally:
         conn.close()
 
@@ -1365,6 +1358,7 @@ def process_late_invoice_reminders():
                 provider="twilio",
                 provider_message_id=provider_message_id,
                 automation_key=automation_key,
+                conversation_key=_thread_key(row["company_id"], phone_number),
             )
 
             create_notification(
@@ -1387,6 +1381,7 @@ def process_late_invoice_reminders():
                 status="failed",
                 provider="twilio",
                 automation_key=automation_key,
+                conversation_key=_thread_key(row["company_id"], phone_number),
                 error_message=error_message,
             )
 
@@ -1416,212 +1411,220 @@ def messages_page():
 
     settings = get_messaging_settings(company_id)
     history = get_message_history(company_id, limit=100)
+    threads = get_message_threads(company_id, limit=50)
     customers = get_customers_for_messages(company_id)
     from_number = _get_from_number()
 
     page_html = """
     <style>
         .messages-page {
-            display: grid;
-            gap: 18px;
+            display:grid;
+            gap:18px;
         }
 
         .messages-top-grid {
-            display: grid;
-            grid-template-columns: 1.15fr 0.85fr;
-            gap: 18px;
-            align-items: start;
+            display:grid;
+            grid-template-columns:1.1fr 0.9fr;
+            gap:18px;
+            align-items:start;
         }
 
-        .desktop-only {
-            display: block;
-        }
-
-        .mobile-only {
-            display: none;
-        }
+        .desktop-only { display:block; }
+        .mobile-only { display:none; }
 
         .table-wrap {
-            width: 100%;
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
+            width:100%;
+            overflow-x:auto;
+            -webkit-overflow-scrolling:touch;
         }
 
         .message-history-table th,
         .message-history-table td {
-            vertical-align: top;
+            vertical-align:top;
         }
 
         .message-body-cell {
-            max-width: 420px;
-            white-space: normal;
-            word-break: break-word;
-            line-height: 1.35;
+            max-width:420px;
+            white-space:normal;
+            word-break:break-word;
+            line-height:1.35;
+        }
+
+        .thread-list {
+            display:grid;
+            gap:10px;
+        }
+
+        .thread-row {
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:12px;
+            padding:12px;
+            border:1px solid rgba(15,23,42,.08);
+            border-radius:12px;
+            background:#fff;
+        }
+
+        .thread-row:hover {
+            background:#fafafa;
+        }
+
+        .thread-main {
+            min-width:0;
+            flex:1;
+        }
+
+        .thread-title {
+            font-weight:700;
+            color:#0f172a;
+            line-height:1.2;
+            margin-bottom:4px;
+        }
+
+        .thread-meta {
+            font-size:.85rem;
+            color:#64748b;
+            margin-bottom:6px;
+            line-height:1.3;
+        }
+
+        .thread-preview {
+            color:#334155;
+            line-height:1.35;
+            word-break:break-word;
         }
 
         .mobile-list {
-            display: grid;
-            gap: 12px;
+            display:grid;
+            gap:12px;
         }
 
         .mobile-list-card {
-            border: 1px solid rgba(15, 23, 42, 0.08);
-            border-radius: 14px;
-            padding: 14px;
-            background: #fff;
-            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+            border:1px solid rgba(15,23,42,.08);
+            border-radius:14px;
+            padding:14px;
+            background:#fff;
+            box-shadow:0 1px 2px rgba(15,23,42,.04);
         }
 
         .mobile-list-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 10px;
-            margin-bottom: 10px;
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:10px;
+            margin-bottom:10px;
         }
 
         .mobile-list-title {
-            font-weight: 700;
-            color: #0f172a;
-            line-height: 1.25;
-            word-break: break-word;
+            font-weight:700;
+            color:#0f172a;
+            line-height:1.25;
+            word-break:break-word;
         }
 
         .mobile-list-subtitle {
-            margin-top: 4px;
-            font-size: .9rem;
-            color: #64748b;
-            line-height: 1.25;
-            word-break: break-word;
+            margin-top:4px;
+            font-size:.9rem;
+            color:#64748b;
+            line-height:1.25;
+            word-break:break-word;
         }
 
         .mobile-badge {
-            font-size: .85rem;
-            font-weight: 700;
-            color: #334155;
-            background: #f1f5f9;
-            padding: 6px 10px;
-            border-radius: 999px;
-            white-space: nowrap;
+            font-size:.85rem;
+            font-weight:700;
+            color:#334155;
+            background:#f1f5f9;
+            padding:6px 10px;
+            border-radius:999px;
+            white-space:nowrap;
         }
 
         .mobile-list-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px 12px;
-            margin-bottom: 12px;
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:10px 12px;
+            margin-bottom:12px;
         }
 
         .mobile-list-grid span {
-            display: block;
-            font-size: .78rem;
-            color: #64748b;
-            margin-bottom: 3px;
+            display:block;
+            font-size:.78rem;
+            color:#64748b;
+            margin-bottom:3px;
         }
 
         .mobile-list-grid strong {
-            display: block;
-            color: #0f172a;
-            font-size: .95rem;
-            line-height: 1.25;
-            word-break: break-word;
+            display:block;
+            color:#0f172a;
+            font-size:.95rem;
+            line-height:1.25;
+            word-break:break-word;
         }
 
         .mobile-message-body {
-            margin-top: 4px;
-            border-top: 1px solid rgba(15, 23, 42, 0.08);
-            padding-top: 12px;
+            margin-top:4px;
+            border-top:1px solid rgba(15,23,42,.08);
+            padding-top:12px;
         }
 
         .mobile-message-body span {
-            display: block;
-            font-size: .78rem;
-            color: #64748b;
-            margin-bottom: 5px;
+            display:block;
+            font-size:.78rem;
+            color:#64748b;
+            margin-bottom:5px;
         }
 
         .mobile-message-body div {
-            color: #0f172a;
-            line-height: 1.4;
-            word-break: break-word;
-            white-space: normal;
+            color:#0f172a;
+            line-height:1.4;
+            word-break:break-word;
+            white-space:normal;
         }
 
         .status-pill {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 6px 10px;
-            border-radius: 999px;
-            font-size: .85rem;
-            font-weight: 700;
-            white-space: nowrap;
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            padding:6px 10px;
+            border-radius:999px;
+            font-size:.85rem;
+            font-weight:700;
+            white-space:nowrap;
         }
 
-        .status-pill.good {
-            background: #dff3d2;
-            color: #254314;
-        }
+        .status-pill.good { background:#dff3d2; color:#254314; }
+        .status-pill.bad { background:#f6d5d2; color:#7a1f17; }
+        .status-pill.neutral { background:#f3d77b; color:#4a3720; }
 
-        .status-pill.bad {
-            background: #f6d5d2;
-            color: #7a1f17;
-        }
-
-        .status-pill.neutral {
-            background: #f3d77b;
-            color: #4a3720;
-        }
-
-        .direction-pill.inbound {
-            background: #d7ebff;
-            color: #15406b;
-        }
-
-        .direction-pill.outbound {
-            background: #ece8ff;
-            color: #40307a;
-        }
+        .direction-pill.inbound { background:#d7ebff; color:#15406b; }
+        .direction-pill.outbound { background:#ece8ff; color:#40307a; }
 
         .consent-pill {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 4px 9px;
-            border-radius: 999px;
-            font-size: .78rem;
-            font-weight: 700;
-            white-space: nowrap;
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            padding:4px 9px;
+            border-radius:999px;
+            font-size:.78rem;
+            font-weight:700;
+            white-space:nowrap;
         }
 
-        .consent-pill.yes {
-            background: #dff3d2;
-            color: #254314;
-        }
-
-        .consent-pill.no {
-            background: #f6d5d2;
-            color: #7a1f17;
-        }
+        .consent-pill.yes { background:#dff3d2; color:#254314; }
+        .consent-pill.no { background:#f6d5d2; color:#7a1f17; }
 
         @media (max-width: 900px) {
             .messages-top-grid {
-                grid-template-columns: 1fr;
+                grid-template-columns:1fr;
             }
         }
 
         @media (max-width: 640px) {
-            .desktop-only {
-                display: none !important;
-            }
-
-            .mobile-only {
-                display: block !important;
-            }
-
-            .mobile-list-grid {
-                grid-template-columns: 1fr;
-            }
+            .desktop-only { display:none !important; }
+            .mobile-only { display:block !important; }
+            .mobile-list-grid { grid-template-columns:1fr; }
         }
     </style>
 
@@ -1630,12 +1633,10 @@ def messages_page():
             <div class="section-head">
                 <div>
                     <h1 style="margin-bottom:6px;">Messages</h1>
-                    <div class="muted">Send manual customer texts, receive replies, and review message history.</div>
+                    <div class="muted">Send manual customer texts, receive replies, and reply from TerraLedger threads.</div>
                 </div>
                 <div class="row-actions">
-                    <a class="btn secondary" href="{{ url_for('messages.messaging_configuration') }}">
-                        Messaging Configuration
-                    </a>
+                    <a class="btn secondary" href="{{ url_for('messages.messaging_configuration') }}">Messaging Configuration</a>
                 </div>
             </div>
         </div>
@@ -1672,13 +1673,7 @@ def messages_page():
 
                     <div style="margin-bottom:10px;">
                         <label>Phone Number</label>
-                        <input
-                            type="text"
-                            name="phone_number"
-                            id="phoneNumberField"
-                            placeholder="Enter mobile number"
-                            required
-                        >
+                        <input type="text" name="phone_number" id="phoneNumberField" placeholder="Enter mobile number" required>
                     </div>
 
                     <div id="customerConsentStatus" class="muted" style="margin-bottom:14px;">
@@ -1689,35 +1684,18 @@ def messages_page():
                         <label>Template</label>
                         <select id="templateSelect" onchange="applyMessageTemplate()">
                             <option value="">Choose a template (optional)</option>
-                            <option value="{{ settings['default_on_the_way_template'] if settings and settings['default_on_the_way_template'] else 'Hello from TerraLedger — we are on the way to your job site. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">
-                                On The Way
-                            </option>
-                            <option value="{{ settings['default_job_started_template'] if settings and settings['default_job_started_template'] else 'Hello from TerraLedger — we have started your scheduled job. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">
-                                Job Started
-                            </option>
-                            <option value="{{ settings['default_job_completed_template'] if settings and settings['default_job_completed_template'] else 'Hello from TerraLedger — your job has been completed. Thank you. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">
-                                Job Completed
-                            </option>
-                            <option value="{{ settings['default_invoice_reminder_template'] if settings and settings['default_invoice_reminder_template'] else 'Hello from TerraLedger — this is a reminder that your invoice is still outstanding. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">
-                                Invoice Reminder
-                            </option>
-                            <option value="{{ settings['default_job_reminder_template'] if settings and settings['default_job_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} about {{job_title}} scheduled for {{scheduled_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">
-                                Job Reminder
-                            </option>
-                            <option value="{{ settings['default_late_invoice_reminder_template'] if settings and settings['default_late_invoice_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} that invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. Due date: {{due_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">
-                                Late Invoice Reminder
-                            </option>
+                            <option value="{{ settings['default_on_the_way_template'] if settings and settings['default_on_the_way_template'] else 'Hello from TerraLedger — we are on the way to your job site. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">On The Way</option>
+                            <option value="{{ settings['default_job_started_template'] if settings and settings['default_job_started_template'] else 'Hello from TerraLedger — we have started your scheduled job. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">Job Started</option>
+                            <option value="{{ settings['default_job_completed_template'] if settings and settings['default_job_completed_template'] else 'Hello from TerraLedger — your job has been completed. Thank you. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">Job Completed</option>
+                            <option value="{{ settings['default_invoice_reminder_template'] if settings and settings['default_invoice_reminder_template'] else 'Hello from TerraLedger — this is a reminder that your invoice is still outstanding. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">Invoice Reminder</option>
+                            <option value="{{ settings['default_job_reminder_template'] if settings and settings['default_job_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} about {{job_title}} scheduled for {{scheduled_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">Job Reminder</option>
+                            <option value="{{ settings['default_late_invoice_reminder_template'] if settings and settings['default_late_invoice_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} that invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. Due date: {{due_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">Late Invoice Reminder</option>
                         </select>
                     </div>
 
                     <div style="margin-bottom:14px;">
                         <label>Message</label>
-                        <textarea
-                            name="message_body"
-                            id="messageBodyField"
-                            placeholder="Type your message here..."
-                            required
-                        ></textarea>
+                        <textarea name="message_body" id="messageBodyField" placeholder="Type your message here..." required></textarea>
                     </div>
 
                     <div class="muted small" style="margin-bottom:14px;">
@@ -1753,17 +1731,21 @@ def messages_page():
                 </div>
 
                 <div style="margin-bottom:12px;">
-                    <strong>Manual Messages:</strong>
+                    <strong>Owner Relay Alerts:</strong>
                     <span class="muted">
-                        {% if settings and settings['send_manual_messages'] %}On{% else %}Off{% endif %}
+                        {% if settings and settings['forward_inbound_to_owner'] %}On{% else %}Off{% endif %}
+                        {% if settings and settings['owner_forward_phone'] %} — {{ settings['owner_forward_phone'] }}{% endif %}
                     </span>
                 </div>
 
                 <div style="margin-bottom:12px;">
+                    <strong>Manual Messages:</strong>
+                    <span class="muted">{% if settings and settings['send_manual_messages'] %}On{% else %}Off{% endif %}</span>
+                </div>
+
+                <div style="margin-bottom:12px;">
                     <strong>Job Updates:</strong>
-                    <span class="muted">
-                        {% if settings and settings['send_job_updates'] %}On{% else %}Off{% endif %}
-                    </span>
+                    <span class="muted">{% if settings and settings['send_job_updates'] %}On{% else %}Off{% endif %}</span>
                 </div>
 
                 <div style="margin-bottom:12px;">
@@ -1776,9 +1758,7 @@ def messages_page():
 
                 <div style="margin-bottom:12px;">
                     <strong>Invoice Reminders:</strong>
-                    <span class="muted">
-                        {% if settings and settings['send_invoice_reminders'] %}On{% else %}Off{% endif %}
-                    </span>
+                    <span class="muted">{% if settings and settings['send_invoice_reminders'] %}On{% else %}Off{% endif %}</span>
                 </div>
 
                 <div style="margin-bottom:12px;">
@@ -1790,11 +1770,49 @@ def messages_page():
                 </div>
 
                 <div class="row-actions" style="margin-top:16px;">
-                    <a class="btn secondary" href="{{ url_for('messages.messaging_configuration') }}">
-                        Open Configuration
-                    </a>
+                    <a class="btn secondary" href="{{ url_for('messages.messaging_configuration') }}">Open Configuration</a>
                 </div>
             </div>
+        </div>
+
+        <div class="card">
+            <div class="section-head">
+                <div>
+                    <h3 style="margin-bottom:6px;">Conversations</h3>
+                    <div class="muted">Reply from these threads so the customer always sees your TerraLedger number.</div>
+                </div>
+            </div>
+
+            {% if threads %}
+                <div class="thread-list">
+                    {% for thread in threads %}
+                        <div class="thread-row">
+                            <div class="thread-main">
+                                <div class="thread-title">{{ thread['customer_name'] or thread['phone_number'] or 'Unknown' }}</div>
+                                <div class="thread-meta">
+                                    {{ thread['phone_number'] or '—' }} •
+                                    {{ thread['message_count'] or 0 }} message(s) •
+                                    {{ thread['last_created_at'] or '' }}
+                                </div>
+                                <div class="thread-preview">
+                                    {% if thread['last_direction'] == 'inbound' %}
+                                        <strong>Customer:</strong>
+                                    {% else %}
+                                        <strong>You:</strong>
+                                    {% endif %}
+                                    {{ thread['last_message_body'] or '' }}
+                                </div>
+                            </div>
+
+                            <div class="row-actions">
+                                <a class="btn secondary small" href="{{ url_for('messages.view_thread', thread_key=thread['conversation_key']) }}">Open Thread</a>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="muted">No conversations yet.</div>
+            {% endif %}
         </div>
 
         <div class="card">
@@ -1974,11 +1992,264 @@ def messages_page():
             page_html,
             settings=settings,
             history=history,
+            threads=threads,
             customers=customers,
             from_number=from_number,
         ),
-        "Messages"
+        "Messages",
     )
+
+
+@messages_bp.route("/messages/thread/<thread_key>")
+@login_required
+@subscription_required
+@require_permission("can_manage_settings")
+def view_thread(thread_key):
+    ensure_messaging_tables()
+
+    company_id = session.get("company_id")
+    if not company_id:
+        flash("Company session not found.")
+        return redirect(url_for("dashboard.dashboard"))
+
+    if not thread_key.startswith(f"{int(company_id)}__"):
+        abort(404)
+
+    thread = get_thread_context(company_id, thread_key)
+    if not thread:
+        flash("Conversation not found.")
+        return redirect(url_for("messages.messages_page"))
+
+    messages = get_thread_messages(company_id, thread_key)
+    reply_csrf = generate_csrf()
+
+    page_html = """
+    <style>
+        .thread-page {
+            display:grid;
+            gap:18px;
+        }
+
+        .thread-shell {
+            display:grid;
+            gap:14px;
+        }
+
+        .thread-message {
+            max-width:760px;
+            border:1px solid rgba(15,23,42,.08);
+            border-radius:14px;
+            padding:12px 14px;
+            background:#fff;
+        }
+
+        .thread-message.inbound {
+            border-left:4px solid #60a5fa;
+        }
+
+        .thread-message.outbound {
+            border-left:4px solid #8b5cf6;
+        }
+
+        .thread-message-head {
+            display:flex;
+            justify-content:space-between;
+            gap:12px;
+            flex-wrap:wrap;
+            margin-bottom:6px;
+        }
+
+        .thread-message-title {
+            font-weight:700;
+            color:#0f172a;
+        }
+
+        .thread-message-meta {
+            font-size:.84rem;
+            color:#64748b;
+        }
+
+        .thread-message-body {
+            color:#0f172a;
+            line-height:1.45;
+            white-space:pre-wrap;
+            word-break:break-word;
+        }
+    </style>
+
+    <div class="thread-page">
+        <div class="card">
+            <div class="section-head">
+                <div>
+                    <h1 style="margin-bottom:6px;">Conversation</h1>
+                    <div class="muted">
+                        {{ thread['customer_name'] or thread['phone_number'] }}{% if thread['phone_number'] %} — {{ thread['phone_number'] }}{% endif %}
+                    </div>
+                </div>
+                <div class="row-actions">
+                    <a class="btn secondary" href="{{ url_for('messages.messages_page') }}">Back to Messages</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="thread-shell">
+                {% for row in messages %}
+                    <div class="thread-message {{ row['direction'] }}">
+                        <div class="thread-message-head">
+                            <div class="thread-message-title">
+                                {% if row['direction'] == 'inbound' %}
+                                    Customer
+                                {% else %}
+                                    TerraLedger
+                                {% endif %}
+                            </div>
+                            <div class="thread-message-meta">
+                                {{ row['created_at'] or '' }}
+                                {% if row['status'] and row['direction'] == 'outbound' %}
+                                    • {{ row['status'] }}
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="thread-message-body">{{ row['message_body'] or '' }}</div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Reply</h3>
+            <form method="post" action="{{ url_for('messages.reply_to_thread', thread_key=thread['thread_key']) }}">
+                <input type="hidden" name="csrf_token" value="{{ reply_csrf }}">
+                <div style="margin-bottom:14px;">
+                    <label>Message</label>
+                    <textarea name="message_body" maxlength="{{ max_len }}" required placeholder="Type your reply..."></textarea>
+                </div>
+
+                <div class="row-actions">
+                    <button type="submit" class="btn">Send Reply</button>
+                    <a class="btn secondary" href="{{ url_for('messages.messages_page') }}">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+    """
+
+    return render_page(
+        render_template_string(
+            page_html,
+            thread=thread,
+            messages=messages,
+            reply_csrf=reply_csrf,
+            max_len=MAX_MESSAGE_LENGTH,
+        ),
+        f"Conversation - {thread.get('customer_name') or thread.get('phone_number') or 'Messages'}",
+    )
+
+
+@messages_bp.route("/messages/thread/<thread_key>/reply", methods=["POST"])
+@login_required
+@subscription_required
+@require_permission("can_manage_settings")
+def reply_to_thread(thread_key):
+    ensure_messaging_tables()
+
+    company_id = session.get("company_id")
+    user_id = session.get("user_id")
+
+    if not company_id:
+        flash("Company session not found.")
+        return redirect(url_for("messages.messages_page"))
+
+    if not thread_key.startswith(f"{int(company_id)}__"):
+        abort(404)
+
+    thread = get_thread_context(company_id, thread_key)
+    if not thread:
+        flash("Conversation not found.")
+        return redirect(url_for("messages.messages_page"))
+
+    message_body = _safe_text(request.form.get("message_body"))
+    if not message_body:
+        flash("Message is required.")
+        return redirect(url_for("messages.view_thread", thread_key=thread_key))
+
+    if len(message_body) > MAX_MESSAGE_LENGTH:
+        flash(f"Message is too long. Keep it under {MAX_MESSAGE_LENGTH} characters.")
+        return redirect(url_for("messages.view_thread", thread_key=thread_key))
+
+    phone_number = _normalize_phone(thread.get("phone_number"))
+    if not _is_reasonable_phone(phone_number):
+        flash("This thread does not have a valid phone number.")
+        return redirect(url_for("messages.view_thread", thread_key=thread_key))
+
+    customer = get_customer_by_id(company_id, thread.get("customer_id")) if thread.get("customer_id") else None
+    if customer and not customer_has_sms_consent(customer):
+        flash("This customer has not opted in to SMS notifications.")
+        return redirect(url_for("messages.view_thread", thread_key=thread_key))
+
+    settings = get_messaging_settings(company_id)
+    if settings and not settings["messaging_enabled"]:
+        flash("Messaging is not enabled for this company.")
+        return redirect(url_for("messages.view_thread", thread_key=thread_key))
+
+    success, provider_message_id, error_message = send_text_message(
+        to_number=phone_number,
+        message_body=message_body,
+        settings_row=settings,
+    )
+
+    if success:
+        insert_message_log(
+            company_id=company_id,
+            customer_id=thread.get("customer_id"),
+            phone_number=phone_number,
+            message_body=message_body,
+            direction="outbound",
+            status="sent",
+            provider="twilio",
+            provider_message_id=provider_message_id,
+            conversation_key=thread_key,
+            sent_by_user_id=user_id,
+        )
+
+        create_notification(
+            company_id=company_id,
+            user_id=None,
+            notif_type="message",
+            title="Reply sent",
+            message=f"Reply sent to {phone_number}.",
+            link=url_for("messages.view_thread", thread_key=thread_key),
+        )
+
+        flash("Reply sent.")
+    else:
+        insert_message_log(
+            company_id=company_id,
+            customer_id=thread.get("customer_id"),
+            phone_number=phone_number,
+            message_body=message_body,
+            direction="outbound",
+            status="failed",
+            provider="twilio",
+            conversation_key=thread_key,
+            sent_by_user_id=user_id,
+            error_message=error_message,
+        )
+
+        create_notification(
+            company_id=company_id,
+            user_id=None,
+            notif_type="message",
+            title="Reply failed",
+            message=f"Reply to {phone_number} failed: {error_message}",
+            link=url_for("messages.view_thread", thread_key=thread_key),
+        )
+
+        flash(f"Reply failed: {error_message}")
+
+    return redirect(url_for("messages.view_thread", thread_key=thread_key))
 
 
 @messages_bp.route("/messages/send", methods=["POST"])
@@ -2049,6 +2320,8 @@ def send_message():
         settings_row=settings,
     )
 
+    thread_key = _thread_key(company_id, phone_number)
+
     if success:
         insert_message_log(
             company_id=company_id,
@@ -2059,6 +2332,7 @@ def send_message():
             status="sent",
             provider="twilio",
             provider_message_id=provider_message_id,
+            conversation_key=thread_key,
             sent_by_user_id=user_id,
         )
 
@@ -2068,34 +2342,35 @@ def send_message():
             notif_type="message",
             title="Message sent",
             message=f"Message sent to {phone_number}.",
-            link=url_for("messages.messages_page"),
+            link=url_for("messages.view_thread", thread_key=thread_key),
         )
 
         flash("Message sent successfully.")
-    else:
-        insert_message_log(
-            company_id=company_id,
-            customer_id=customer_id,
-            phone_number=phone_number,
-            message_body=message_body,
-            direction="outbound",
-            status="failed",
-            provider="twilio",
-            sent_by_user_id=user_id,
-            error_message=error_message,
-        )
+        return redirect(url_for("messages.view_thread", thread_key=thread_key))
 
-        create_notification(
-            company_id=company_id,
-            user_id=None,
-            notif_type="message",
-            title="Message failed",
-            message=f"Message to {phone_number} failed: {error_message}",
-            link=url_for("messages.messages_page"),
-        )
+    insert_message_log(
+        company_id=company_id,
+        customer_id=customer_id,
+        phone_number=phone_number,
+        message_body=message_body,
+        direction="outbound",
+        status="failed",
+        provider="twilio",
+        conversation_key=thread_key,
+        sent_by_user_id=user_id,
+        error_message=error_message,
+    )
 
-        flash(f"Message failed: {error_message}")
+    create_notification(
+        company_id=company_id,
+        user_id=None,
+        notif_type="message",
+        title="Message failed",
+        message=f"Message to {phone_number} failed: {error_message}",
+        link=url_for("messages.messages_page"),
+    )
 
+    flash(f"Message failed: {error_message}")
     return redirect(url_for("messages.messages_page"))
 
 
@@ -2146,25 +2421,21 @@ def incoming_message_webhook():
     matched_customer_id = None
     conversation_key = None
 
-    # Best match: previously messaged thread
     last_conversation = get_last_conversation_for_phone(from_number)
     if last_conversation:
         matched_company_id = last_conversation["company_id"]
         matched_customer_id = last_conversation["customer_id"]
         conversation_key = last_conversation.get("conversation_key")
 
-    # Fallback: search enabled companies for matching customer phone
     if not matched_company_id:
         conn = get_db_connection()
         try:
-            cur = conn.cursor()
-            cur.execute("""
+            enabled_rows = conn.execute("""
                 SELECT company_id
                 FROM messaging_settings
                 WHERE messaging_enabled = TRUE
                 ORDER BY company_id ASC
-            """)
-            enabled_rows = cur.fetchall()
+            """).fetchall()
         finally:
             conn.close()
 
@@ -2174,13 +2445,16 @@ def incoming_message_webhook():
             if customer:
                 matched_company_id = company_id
                 matched_customer_id = customer["id"]
-                conversation_key = _build_conversation_key(company_id, from_number)
+                conversation_key = _thread_key(company_id, from_number)
                 break
 
     normalized_body = _safe_text(body).strip().lower()
     first_word = normalized_body.split()[0] if normalized_body else ""
 
     if matched_company_id:
+        if not conversation_key:
+            conversation_key = _thread_key(matched_company_id, from_number)
+
         insert_message_log(
             company_id=matched_company_id,
             customer_id=matched_customer_id,
@@ -2214,9 +2488,7 @@ def incoming_message_webhook():
             if customer:
                 customer_name = _safe_text(customer.get("name"))
 
-        preview = (body or "").strip()
-        if len(preview) > 120:
-            preview = preview[:117] + "..."
+        preview = _preview_text(body, 120)
 
         create_notification(
             company_id=matched_company_id,
@@ -2224,8 +2496,17 @@ def incoming_message_webhook():
             notif_type="message",
             title="New inbound message",
             message=f"{customer_name or from_number}: {preview}",
-            link=url_for("messages.messages_page"),
+            link=url_for("messages.view_thread", thread_key=conversation_key),
         )
+
+        if body:
+            _send_owner_relay_alert(
+                company_id=matched_company_id,
+                customer_id=matched_customer_id,
+                phone_number=from_number,
+                inbound_body=body,
+                thread_key=conversation_key,
+            )
 
     if first_word in STOP_WORDS:
         resp.message("You have been opted out of SMS messages from TerraLedger. Reply START to opt back in.")
@@ -2233,6 +2514,9 @@ def incoming_message_webhook():
         resp.message("TerraLedger support: Reply STOP to opt out. Reply START to opt back in.")
     elif first_word in START_WORDS:
         resp.message("You have been opted back in to SMS messages from TerraLedger.")
+    else:
+        # no auto-reply for normal inbound messages
+        pass
 
     return Response(str(resp), mimetype="application/xml")
 
@@ -2290,8 +2574,6 @@ def messaging_configuration():
         return redirect(url_for("dashboard.dashboard"))
 
     conn = get_db_connection()
-    cur = conn.cursor()
-
     try:
         if request.method == "POST":
             messaging_enabled = request.form.get("messaging_enabled") == "on"
@@ -2302,6 +2584,8 @@ def messaging_configuration():
             job_reminder_hours = _safe_int(request.form.get("job_reminder_hours"), 24)
             enable_late_invoice_reminders = request.form.get("enable_late_invoice_reminders") == "on"
             late_invoice_days = _safe_int(request.form.get("late_invoice_days"), 30)
+            forward_inbound_to_owner = request.form.get("forward_inbound_to_owner") == "on"
+            owner_forward_phone = _normalize_phone(request.form.get("owner_forward_phone"))
 
             if job_reminder_hours is None or job_reminder_hours < 1:
                 job_reminder_hours = 24
@@ -2319,7 +2603,7 @@ def messaging_configuration():
             existing = get_messaging_settings(company_id)
 
             if existing:
-                cur.execute("""
+                conn.execute("""
                     UPDATE messaging_settings
                     SET messaging_enabled = %s,
                         send_job_updates = %s,
@@ -2329,6 +2613,8 @@ def messaging_configuration():
                         job_reminder_hours = %s,
                         enable_late_invoice_reminders = %s,
                         late_invoice_days = %s,
+                        forward_inbound_to_owner = %s,
+                        owner_forward_phone = %s,
                         default_on_the_way_template = %s,
                         default_job_started_template = %s,
                         default_job_completed_template = %s,
@@ -2346,6 +2632,8 @@ def messaging_configuration():
                     job_reminder_hours,
                     enable_late_invoice_reminders,
                     late_invoice_days,
+                    forward_inbound_to_owner,
+                    owner_forward_phone or None,
                     default_on_the_way_template,
                     default_job_started_template,
                     default_job_completed_template,
@@ -2355,7 +2643,7 @@ def messaging_configuration():
                     company_id,
                 ))
             else:
-                cur.execute("""
+                conn.execute("""
                     INSERT INTO messaging_settings (
                         company_id,
                         messaging_enabled,
@@ -2366,6 +2654,8 @@ def messaging_configuration():
                         job_reminder_hours,
                         enable_late_invoice_reminders,
                         late_invoice_days,
+                        forward_inbound_to_owner,
+                        owner_forward_phone,
                         default_on_the_way_template,
                         default_job_started_template,
                         default_job_completed_template,
@@ -2373,7 +2663,7 @@ def messaging_configuration():
                         default_job_reminder_template,
                         default_late_invoice_reminder_template
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     company_id,
                     messaging_enabled,
@@ -2384,6 +2674,8 @@ def messaging_configuration():
                     job_reminder_hours,
                     enable_late_invoice_reminders,
                     late_invoice_days,
+                    forward_inbound_to_owner,
+                    owner_forward_phone or None,
                     default_on_the_way_template,
                     default_job_started_template,
                     default_job_completed_template,
@@ -2408,7 +2700,7 @@ def messaging_configuration():
         <div class="section-head">
             <div>
                 <h1 style="margin-bottom:6px;">Messaging Configuration</h1>
-                <div class="muted">Control messaging preferences, automation, and default templates.</div>
+                <div class="muted">Control messaging preferences, owner relay alerts, automation, and default templates.</div>
             </div>
             <div class="row-actions">
                 <a class="btn secondary" href="{{ url_for('messages.messages_page') }}">Back to Messages</a>
@@ -2446,6 +2738,25 @@ def messaging_configuration():
                 <div class="muted small" style="margin-top:12px;">
                     Messaging is provided by TerraLedger. Customers do not need to connect their own Twilio account.
                     Only customers with recorded SMS consent will receive outbound messages.
+                </div>
+            </div>
+
+            <div class="card" style="margin-top:0; margin-bottom:18px;">
+                <h3>Reply Relay Settings</h3>
+
+                <div style="display:grid; gap:10px;">
+                    <label style="display:flex; align-items:center; gap:10px; font-weight:600;">
+                        <input type="checkbox" name="forward_inbound_to_owner" {% if not settings or settings['forward_inbound_to_owner'] %}checked{% endif %}>
+                        Forward inbound customer replies to owner phone
+                    </label>
+
+                    <div style="margin-left:28px;">
+                        <label>Owner Forward Phone</label>
+                        <input type="text" name="owner_forward_phone" value="{{ settings['owner_forward_phone'] if settings and settings['owner_forward_phone'] else '' }}" placeholder="+1XXXXXXXXXX">
+                        <div class="muted small" style="margin-top:6px;">
+                            When a customer replies, TerraLedger sends an alert text to this phone with a link to the TerraLedger conversation thread.
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -2545,5 +2856,5 @@ def messaging_configuration():
             inbound_webhook_url=inbound_webhook_url,
             status_callback_url=status_callback_url,
         ),
-        "Messaging Configuration"
+        "Messaging Configuration",
     )

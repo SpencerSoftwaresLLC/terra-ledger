@@ -1178,6 +1178,7 @@ def jobs():
         convert_csrf = generate_csrf()
         delete_csrf = generate_csrf()
 
+        is_active = bool(r["active"])
         effective_next_run = r["computed_next_run"] or r["next_run_date"] or r["start_date"]
 
         next_preview = upcoming_schedule_preview(
@@ -1200,7 +1201,7 @@ def jobs():
                 <td><span class='service-chip mowing'>Mowing</span></td>
                 <td class='wrap'>{escape(clean_text_display(r['customer_name']))}</td>
                 <td>{escape(interval_label(r['interval_weeks']))}</td>
-                <td>{escape(clean_text_display(r['computed_next_run'] or r['next_run_date']))}</td>
+                <td>{escape(clean_text_display(effective_next_run))}</td>
                 <td class='wrap'>{escape(clean_text_display(r['assigned_to']))}</td>
                 <td>{active_chip}</td>
                 <td class='center'>{safe_int(r['generated_jobs_count'], 0)}</td>
@@ -1213,7 +1214,7 @@ def jobs():
 
                         <form method='post' action='{generate_url}' style='margin:0;'>
                             <input type="hidden" name="csrf_token" value="{generate_now_csrf}">
-                            <button class='btn success small' type='submit'>Generate Now</button>
+                            <button class='btn success small' type='submit' {"disabled" if not is_active else ""}>Generate Now</button>
                         </form>
 
                         <form method='post' action='{convert_url}' style='margin:0;'>
@@ -1224,14 +1225,14 @@ def jobs():
                         <form method='post' action='{toggle_url}' style='margin:0;'>
                             <input type="hidden" name="csrf_token" value="{toggle_csrf}">
                             <button class='btn warning small' type='submit'>
-                                {"Pause" if r["active"] else "Resume"}
+                                {"Pause" if is_active else "Resume"}
                             </button>
                         </form>
 
                         <form method='post'
                               action='{delete_url}'
                               style='margin:0;'
-                              onsubmit="return confirm('Delete this recurring mowing schedule? Existing jobs will stay, but future auto-generation will stop.');">
+                              onsubmit="return confirm('Delete this recurring mowing schedule and all non-invoiced generated jobs?');">
                             <input type="hidden" name="csrf_token" value="{delete_csrf}">
                             <button class='btn danger small' type='submit'>Delete</button>
                         </form>
@@ -1256,7 +1257,7 @@ def jobs():
 
                 <div class='mobile-list-grid'>
                     <div><span>Customer</span><strong>{escape(clean_text_display(r['customer_name']))}</strong></div>
-                    <div><span>Next Run</span><strong>{escape(clean_text_display(r['computed_next_run'] or r['next_run_date']))}</strong></div>
+                    <div><span>Next Run</span><strong>{escape(clean_text_display(effective_next_run))}</strong></div>
                     <div><span>Assigned To</span><strong>{escape(clean_text_display(r['assigned_to']))}</strong></div>
                     <div><span>Jobs Generated</span><strong>{safe_int(r['generated_jobs_count'], 0)}</strong></div>
                     <div><span>Total Revenue</span><strong>${safe_float(r['total_revenue']):.2f}</strong></div>
@@ -1270,7 +1271,7 @@ def jobs():
 
                     <form method='post' action='{generate_url}' style='margin:0;'>
                         <input type="hidden" name="csrf_token" value="{generate_now_csrf}">
-                        <button class='btn success small' type='submit'>Generate</button>
+                        <button class='btn success small' type='submit' {"disabled" if not is_active else ""}>Generate</button>
                     </form>
 
                     <form method='post' action='{convert_url}' style='margin:0;'>
@@ -1280,13 +1281,13 @@ def jobs():
 
                     <form method='post' action='{toggle_url}' style='margin:0;'>
                         <input type="hidden" name="csrf_token" value="{toggle_csrf}">
-                        <button class='btn warning small' type='submit'>{"Pause" if r["active"] else "Resume"}</button>
+                        <button class='btn warning small' type='submit'>{"Pause" if is_active else "Resume"}</button>
                     </form>
 
                     <form method='post'
                           action='{delete_url}'
                           style='margin:0;'
-                          onsubmit="return confirm('Delete this recurring mowing schedule?');">
+                          onsubmit="return confirm('Delete this recurring mowing schedule and all non-invoiced generated jobs?');">
                         <input type="hidden" name="csrf_token" value="{delete_csrf}">
                         <button class='btn danger small' type='submit'>Delete</button>
                     </form>
@@ -1714,7 +1715,7 @@ def jobs():
             <div class='recurring-card-head'>
                 <div>
                     <h2 style='margin:0;'>Recurring Mowing Schedules</h2>
-                    <p class='muted' style='margin:6px 0 0 0;'>Weekly, every 2 weeks, or your own custom week interval. Upcoming jobs are auto-generated into Jobs and your Calendar.</p>
+                    <p class='muted' style='margin:6px 0 0 0;'>Weekly, every 2 weeks, or your own custom week interval. Jobs continue generating automatically until you pause the schedule.</p>
                 </div>
                 <div style='display:flex; gap:8px; flex-wrap:wrap;'>
                     <span class='service-chip mowing'>Mowing Default</span>
@@ -1723,7 +1724,7 @@ def jobs():
             </div>
 
             <div class='recurring-default-note'>
-                Recurring mowing schedules default to <strong>Mowing</strong>, create future jobs automatically, and each generated job links back to its parent recurring schedule.
+                Recurring mowing schedules default to <strong>Mowing</strong>, create future jobs automatically, and each generated job links back to its parent recurring schedule. End date is optional. Leave it blank to keep generating until paused.
             </div>
 
             <form method='post' action='{url_for("jobs.create_recurring_schedule")}' style='margin-top:16px;'>
@@ -1776,7 +1777,7 @@ def jobs():
                     </div>
 
                     <div>
-                        <label>End Date</label>
+                        <label>End Date (Optional)</label>
                         <input type='date' name='end_date'>
                     </div>
 
@@ -2158,8 +2159,9 @@ def create_recurring_schedule():
         flash("Could not create recurring mowing schedule.")
         return redirect(url_for("jobs.jobs"))
 
-    flash("Recurring mowing schedule created. Add your recurring items first, then click Generate Upcoming Jobs Now.")
+    flash("Recurring mowing schedule created. It will continue generating jobs on its interval until you pause it.")
     return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
 
 @jobs_bp.route("/jobs/recurring/<int:schedule_id>/generate", methods=["POST"])
 @login_required
@@ -2184,6 +2186,11 @@ def generate_recurring_schedule_jobs(schedule_id):
         conn.close()
         flash("Recurring mowing schedule not found.")
         return redirect(url_for("jobs.jobs"))
+
+    if not bool(schedule["active"]):
+        conn.close()
+        flash("This recurring mowing schedule is paused. Resume it before generating upcoming jobs.")
+        return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
     try:
         horizon_days = safe_int(schedule["auto_generate_until_days"], 42)
@@ -2364,7 +2371,8 @@ def edit_recurring_schedule(schedule_id):
         )
 
         try:
-            auto_generate_recurring_jobs(conn, cid)
+            if bool(schedule["active"]):
+                auto_generate_recurring_jobs(conn, cid)
             conn.commit()
         except Exception as e:
             conn.rollback()
@@ -2506,6 +2514,9 @@ def edit_recurring_schedule(schedule_id):
 
     interval_mode = interval_mode_from_weeks(schedule["interval_weeks"])
     custom_wrap_display = "block" if interval_mode == "custom" else "none"
+    schedule_is_active = bool(schedule["active"])
+    schedule_status_text = "Active" if schedule_is_active else "Paused"
+    schedule_status_class_name = "mowing" if schedule_is_active else "default"
 
     content = f"""
     <style>
@@ -2629,12 +2640,14 @@ def edit_recurring_schedule(schedule_id):
         <div style='display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;'>
             <div>
                 <h1 style='margin:0;'>Edit Recurring Mowing Schedule #{schedule['id']}</h1>
-                <p class='muted' style='margin:6px 0 0 0;'>This schedule auto-generates mowing jobs and keeps them linked back here.</p>
+                <p class='muted' style='margin:6px 0 0 0;'>
+                    This schedule keeps generating mowing jobs on its set interval until you pause it.
+                </p>
             </div>
             <div style='display:flex; gap:8px; flex-wrap:wrap;'>
                 <span class='service-chip mowing'>Mowing</span>
                 <span class='service-chip default'>{escape(interval_label(schedule['interval_weeks']))}</span>
-                <span class='service-chip {schedule_status_class(schedule["active"])}'>{escape(schedule_status_badge(schedule["active"]))}</span>
+                <span class='service-chip {schedule_status_class_name}'>{schedule_status_text}</span>
             </div>
         </div>
 
@@ -2643,7 +2656,9 @@ def edit_recurring_schedule(schedule_id):
 
             <form method='post' action='{url_for("jobs.generate_recurring_schedule_jobs", schedule_id=schedule["id"])}' style='margin:0;'>
                 <input type="hidden" name="csrf_token" value="{generate_csrf_token}">
-                <button class='btn success' type='submit'>Generate Upcoming Jobs Now</button>
+                <button class='btn success' type='submit' {"disabled" if not schedule_is_active else ""}>
+                    Generate Upcoming Jobs Now
+                </button>
             </form>
 
             <form method='post' action='{url_for("jobs.convert_recurring_schedule_to_invoice", schedule_id=schedule["id"])}' style='margin:0;'>
@@ -2653,7 +2668,7 @@ def edit_recurring_schedule(schedule_id):
 
             <form method='post' action='{url_for("jobs.toggle_recurring_schedule", schedule_id=schedule["id"])}' style='margin:0;'>
                 <input type="hidden" name="csrf_token" value="{toggle_csrf}">
-                <button class='btn warning' type='submit'>{"Pause Schedule" if schedule["active"] else "Resume Schedule"}</button>
+                <button class='btn warning' type='submit'>{"Pause Schedule" if schedule_is_active else "Resume Schedule"}</button>
             </form>
         </div>
     </div>
@@ -2708,8 +2723,9 @@ def edit_recurring_schedule(schedule_id):
                 </div>
 
                 <div>
-                    <label>End Date</label>
+                    <label>End Date (Optional)</label>
                     <input type='date' name='end_date' value="{escape(date_to_iso(schedule['end_date']))}">
+                    <div class='muted small' style='margin-top:4px;'>Leave blank to keep generating jobs until you pause the schedule.</div>
                 </div>
 
                 <div>
@@ -2972,6 +2988,7 @@ def edit_recurring_schedule(schedule_id):
     """
     conn.close()
     return render_page(content, f"Recurring Schedule #{schedule_id}")
+
 
 @jobs_bp.route("/jobs/recurring/<int:schedule_id>/items/add", methods=["POST"])
 @login_required
@@ -3276,7 +3293,7 @@ def toggle_recurring_schedule(schedule_id):
 
     schedule = conn.execute(
         """
-        SELECT id, active
+        SELECT id, active, start_date, next_run_date
         FROM recurring_mowing_schedules
         WHERE id = %s AND company_id = %s
         """,
@@ -3289,17 +3306,29 @@ def toggle_recurring_schedule(schedule_id):
         return redirect(url_for("jobs.jobs"))
 
     new_active = not bool(schedule["active"])
+    next_run_date = schedule["next_run_date"] or schedule["start_date"] or date.today().isoformat()
 
     conn.execute(
         """
         UPDATE recurring_mowing_schedules
         SET active = %s,
+            next_run_date = COALESCE(next_run_date, %s),
             updated_at = CURRENT_TIMESTAMP
         WHERE id = %s AND company_id = %s
         """,
-        (new_active, schedule_id, cid),
+        (new_active, next_run_date, schedule_id, cid),
     )
-    conn.commit()
+
+    try:
+        if new_active:
+            auto_generate_recurring_jobs(conn, cid)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        flash(f"Could not update recurring mowing schedule: {e}")
+        return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
     conn.close()
 
     flash("Recurring mowing schedule resumed." if new_active else "Recurring mowing schedule paused.")
@@ -3363,6 +3392,7 @@ def convert_recurring_schedule_to_invoice(schedule_id):
                 j.service_type,
                 j.scheduled_date,
                 j.status,
+                j.address,
                 COALESCE(
                     SUM(
                         CASE
@@ -3390,7 +3420,8 @@ def convert_recurring_schedule_to_invoice(schedule_id):
                 j.title,
                 j.service_type,
                 j.scheduled_date,
-                j.status
+                j.status,
+                j.address
             ORDER BY j.scheduled_date ASC, j.id ASC
             """,
             (cid, schedule_id),
@@ -3402,6 +3433,7 @@ def convert_recurring_schedule_to_invoice(schedule_id):
 
         invoice_lines = []
         invoiced_job_ids = []
+        billed_dates = []
 
         for job in jobs:
             line_total = safe_float(job["billable_total"], 0)
@@ -3433,6 +3465,9 @@ def convert_recurring_schedule_to_invoice(schedule_id):
             )
             invoiced_job_ids.append(job["id"])
 
+            if scheduled_date:
+                billed_dates.append(scheduled_date)
+
         if not invoice_lines:
             flash("No billable recurring job totals were found to invoice.")
             return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
@@ -3442,20 +3477,43 @@ def convert_recurring_schedule_to_invoice(schedule_id):
         invoice_number = f"INV-{int(datetime.now().timestamp())}"
 
         schedule_title = clean_text_input(schedule["title"]) or "Recurring Mowing"
+        schedule_address = clean_text_input(schedule["address"])
+        service_type = clean_text_input(schedule["service_type"]).lower() or "mowing"
+
         notes_lines = [
             f"Recurring schedule invoice for Schedule #{schedule_id} - {schedule_title}"
         ]
 
-        dated_jobs = [
-            clean_text_input(j["scheduled_date"])
-            for j in jobs
-            if clean_text_input(j["scheduled_date"]) and safe_float(j["billable_total"], 0) > 0
-        ]
-        if dated_jobs:
-            notes_lines.append(f"Service dates: {dated_jobs[0]} to {dated_jobs[-1]}")
+        if billed_dates:
+            notes_lines.append(f"Service dates: {billed_dates[0]} to {billed_dates[-1]}")
 
         notes_lines.append(f"Included visits: {len(invoice_lines)}")
         invoice_notes = "\n".join(notes_lines)
+
+        if billed_dates:
+            if len(billed_dates) == 1:
+                date_phrase = billed_dates[0]
+            else:
+                date_phrase = f"{billed_dates[0]} to {billed_dates[-1]}"
+        else:
+            date_phrase = ""
+
+        if service_type == "mowing":
+            summary_parts = [f"Recurring mowing service"]
+        else:
+            summary_parts = [f"Recurring {service_type.replace('_', ' ')} service"]
+
+        if schedule_address:
+            summary_parts.append(f"at {schedule_address}")
+
+        if date_phrase:
+            summary_parts.append(f"for service dates {date_phrase}")
+
+        summary_sentence = " ".join(summary_parts).strip()
+        if not summary_sentence.endswith("."):
+            summary_sentence += "."
+
+        summary_description = f"{summary_sentence} Included {len(invoice_lines)} visit(s)."
 
         cur = conn.cursor()
         cur.execute(
@@ -3471,9 +3529,11 @@ def convert_recurring_schedule_to_invoice(schedule_id):
                 status,
                 notes,
                 amount_paid,
-                balance_due
+                balance_due,
+                display_mode,
+                summary_description
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -3488,6 +3548,8 @@ def convert_recurring_schedule_to_invoice(schedule_id):
                 invoice_notes,
                 0,
                 0,
+                "summary_only",
+                summary_description,
             ),
         )
 
@@ -3672,6 +3734,18 @@ def view_job(job_id):
     if not job:
         conn.close()
         abort(404)
+
+    existing_invoice = conn.execute(
+        """
+        SELECT id, invoice_number, status
+        FROM invoices
+        WHERE job_id = %s
+          AND company_id = %s
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (job_id, cid),
+    ).fetchone()
 
     if request.method == "POST":
         item_type = clean_text_input(request.form.get("item_type", "")).lower()
@@ -4045,6 +4119,25 @@ Thank you,
 
     add_item_csrf = generate_csrf()
 
+    invoice_action_html = ""
+    if existing_invoice:
+        invoice_label = clean_text_display(existing_invoice["invoice_number"]) or f"#{existing_invoice['id']}"
+        invoice_action_html = f"""
+            <a class='btn secondary' href='{url_for("invoices.view_invoice", invoice_id=existing_invoice["id"])}'>
+                View Invoice {escape(invoice_label)}
+            </a>
+        """
+    else:
+        invoice_button_text = "Convert to Invoice"
+        if job["recurring_schedule_id"]:
+            invoice_button_text = "Invoice This Visit"
+
+        invoice_action_html = f"""
+            <a class='btn success' href='{url_for("jobs.convert_job_to_invoice", job_id=job_id)}'>
+                {invoice_button_text}
+            </a>
+        """
+
     content = f"""
         <style>
             .service-chip {{
@@ -4367,7 +4460,7 @@ Thank you,
                 <div class="row-actions" style="margin-top:14px;">
                     <a class='btn secondary' href='{url_for("jobs.jobs")}'>Done Editing</a>
                     <a class='btn warning' href='{url_for("jobs.edit_job", job_id=job_id)}'>Edit Job</a>
-                    <a class='btn success' href='{url_for("jobs.convert_job_to_invoice", job_id=job_id)}'>Convert to Invoice</a>
+                    {invoice_action_html}
                 </div>
 
                 <div class="row-actions" style="margin-top:12px;">
@@ -5282,6 +5375,58 @@ def convert_job_to_invoice(job_id):
         notes = clean_text_input(job["notes"]) if "notes" in job.keys() and job["notes"] else ""
         invoice_number = f"INV-{int(datetime.now().timestamp())}"
 
+        service_type = clean_text_input(job["service_type"]).lower() if "service_type" in job.keys() else ""
+        job_title = clean_text_input(job["title"]) or "Service"
+        job_address = clean_text_input(job["address"]) if "address" in job.keys() else ""
+        scheduled_date = clean_text_input(job["scheduled_date"]) if "scheduled_date" in job.keys() else ""
+
+        item_descriptions = []
+        for i in items:
+            desc = clean_text_input(i["description"]) if i["description"] else ""
+            if desc:
+                item_descriptions.append(desc)
+
+        deduped_descriptions = []
+        seen = set()
+        for desc in item_descriptions:
+            key = desc.lower()
+            if key not in seen:
+                seen.add(key)
+                deduped_descriptions.append(desc)
+
+        if service_type == "mowing":
+            summary_parts = ["Mowing service completed"]
+            if job_address:
+                summary_parts.append(f"at {job_address}")
+            if scheduled_date:
+                summary_parts.append(f"on {scheduled_date}")
+
+            summary_description = " ".join(summary_parts).strip()
+            if not summary_description.endswith("."):
+                summary_description += "."
+
+            if deduped_descriptions:
+                summary_description += f" Included {', '.join(deduped_descriptions[:5])}."
+            else:
+                summary_description += f" Included service from job '{job_title}'."
+
+            display_mode = "summary_only"
+        else:
+            summary_parts = [job_title]
+            if job_address:
+                summary_parts.append(f"at {job_address}")
+            if scheduled_date:
+                summary_parts.append(f"on {scheduled_date}")
+
+            summary_description = " ".join(summary_parts).strip()
+            if not summary_description.endswith("."):
+                summary_description += "."
+
+            if deduped_descriptions:
+                summary_description += f" Included {', '.join(deduped_descriptions[:5])}."
+
+            display_mode = "summary_only"
+
         cur = conn.cursor()
         cur.execute(
             """
@@ -5296,9 +5441,11 @@ def convert_job_to_invoice(job_id):
                 status,
                 notes,
                 amount_paid,
-                balance_due
+                balance_due,
+                display_mode,
+                summary_description
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -5313,6 +5460,8 @@ def convert_job_to_invoice(job_id):
                 notes,
                 0,
                 0,
+                display_mode,
+                summary_description,
             ),
         )
 

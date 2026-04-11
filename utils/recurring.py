@@ -46,8 +46,6 @@ def auto_generate_recurring_jobs(conn, company_id, through_date=None):
     from routes.jobs import create_job_from_recurring_schedule
 
     today = date.today()
-    if through_date is None:
-        through_date = today + timedelta(days=42)
 
     schedules = conn.execute(
         """
@@ -55,8 +53,7 @@ def auto_generate_recurring_jobs(conn, company_id, through_date=None):
         FROM recurring_mowing_schedules
         WHERE company_id = %s
           AND COALESCE(active, TRUE) = TRUE
-          AND next_run_date IS NOT NULL
-        ORDER BY next_run_date ASC, id ASC
+        ORDER BY COALESCE(next_run_date, start_date) ASC, id ASC
         """,
         (company_id,),
     ).fetchall()
@@ -68,23 +65,43 @@ def auto_generate_recurring_jobs(conn, company_id, through_date=None):
         if interval_weeks <= 0:
             interval_weeks = 1
 
-        next_run = parse_iso_date(schedule["next_run_date"])
         start_date_value = parse_iso_date(schedule["start_date"])
+        next_run = parse_iso_date(schedule["next_run_date"])
         end_date_value = parse_iso_date(schedule["end_date"])
         horizon_days = safe_int(schedule["auto_generate_until_days"], 42)
 
-        if end_date_value:
-            schedule_through = end_date_value
-        else:
-            schedule_through = today + timedelta(days=horizon_days if horizon_days > 0 else 42)
-
-        if through_date:
-            target_through = schedule_through if schedule_through <= through_date else through_date
-        else:
-            target_through = schedule_through
-
         if next_run is None:
             next_run = start_date_value or today
+
+        if next_run is None:
+            continue
+
+        schedule_horizon = today + timedelta(days=horizon_days if horizon_days > 0 else 42)
+
+        target_through = schedule_horizon
+        if through_date:
+            parsed_through = parse_iso_date(through_date) if not isinstance(through_date, date) else through_date
+            if parsed_through:
+                target_through = min(schedule_horizon, parsed_through)
+
+        if end_date_value:
+            target_through = min(target_through, end_date_value)
+
+        if next_run > target_through:
+            conn.execute(
+                """
+                UPDATE recurring_mowing_schedules
+                SET next_run_date = %s,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s AND company_id = %s
+                """,
+                (
+                    date_to_iso(next_run),
+                    schedule["id"],
+                    company_id,
+                ),
+            )
+            continue
 
         safety = 0
         while next_run and next_run <= target_through and safety < 250:

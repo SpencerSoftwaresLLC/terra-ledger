@@ -156,6 +156,22 @@ def ensure_document_number_columns():
                 """
             )
 
+        if "display_mode" not in invoice_cols:
+            conn.execute(
+                """
+                ALTER TABLE invoices
+                ADD COLUMN display_mode TEXT NOT NULL DEFAULT 'detailed'
+                """
+            )
+
+        if "summary_description" not in invoice_cols:
+            conn.execute(
+                """
+                ALTER TABLE invoices
+                ADD COLUMN summary_description TEXT
+                """
+            )
+
         conn.commit()
     finally:
         conn.close()
@@ -193,6 +209,56 @@ def _extract_numeric_invoice_number(invoice_number):
         return int(match.group(1))
     except Exception:
         return None
+
+
+def _invoice_display_mode(invoice):
+    mode = _clean_text(invoice["display_mode"]) if hasattr(invoice, "keys") and "display_mode" in invoice.keys() else ""
+    return mode if mode in {"detailed", "summary_only"} else "detailed"
+
+
+def _invoice_summary_text(invoice, items):
+    stored = _clean_text(invoice["summary_description"]) if hasattr(invoice, "keys") and "summary_description" in invoice.keys() else ""
+    if stored:
+        return stored
+
+    descriptions = []
+    for item in items or []:
+        desc = _clean_text(item["description"])
+        if desc:
+            descriptions.append(desc)
+
+    deduped = []
+    seen = set()
+    for desc in descriptions:
+        key = desc.lower()
+        if key not in seen:
+            seen.add(key)
+            deduped.append(desc)
+
+    if deduped:
+        if len(deduped) == 1:
+            return deduped[0]
+        if len(deduped) == 2:
+            return f"{deduped[0]} and {deduped[1]}"
+        return ", ".join(deduped[:-1]) + f", and {deduped[-1]}"
+
+    notes = _clean_text(invoice["notes"]) if hasattr(invoice, "keys") and "notes" in invoice.keys() else ""
+    if notes:
+        return notes
+
+    return "Service completed."
+
+
+def _should_use_summary_only(invoice, items):
+    mode = _invoice_display_mode(invoice)
+    if mode == "summary_only":
+        return True
+
+    service_note = _clean_text(invoice["notes"]).lower() if hasattr(invoice, "keys") and "notes" in invoice.keys() else ""
+    if "recurring schedule invoice" in service_note:
+        return True
+
+    return False
 
 
 def get_next_invoice_number(company_id):
@@ -589,40 +655,56 @@ def build_invoice_pdf(invoice, items, company, profile):
         c.drawString(50, y, f"Due Date: {invoice['due_date'] or '-'}")
         y -= 24
 
-        ensure_space(40)
-        c.setFont("Helvetica-Bold", 10)
-        c.drawString(50, y, "Description")
-        c.drawString(280, y, "Qty")
-        c.drawString(330, y, "Unit")
-        c.drawString(390, y, "Unit Price")
-        c.drawString(480, y, "Line Total")
-        y -= 10
+        summary_only = _should_use_summary_only(invoice, items)
+        summary_text = _invoice_summary_text(invoice, items)
 
-        c.line(50, y, 560, y)
-        y -= 18
-
-        c.setFont("Helvetica", 10)
-
-        if items:
-            for i in items:
-                ensure_space(24)
-
-                description = str(i["description"] or "")[:38]
-                qty = f"{float(i['quantity'] or 0):g}"
-                unit = str(i["unit"] or "")[:8]
-                unit_price = f"${float(i['unit_price'] or 0):.2f}"
-                line_total = f"${float(i['line_total'] or 0):.2f}"
-
-                c.drawString(50, y, description)
-                c.drawString(280, y, qty)
-                c.drawString(330, y, unit)
-                c.drawRightString(460, y, unit_price)
-                c.drawRightString(560, y, line_total)
-
-                y -= 18
-        else:
-            c.drawString(50, y, "No items.")
+        if summary_only:
+            ensure_space(90)
+            c.setFont("Helvetica-Bold", 11)
+            c.drawString(50, y, "Service Performed")
             y -= 18
+
+            c.setFont("Helvetica", 10)
+            summary_chunks = [summary_text[i:i + 95] for i in range(0, len(summary_text), 95)] if summary_text else ["Service completed."]
+            for chunk in summary_chunks:
+                ensure_space(18)
+                c.drawString(50, y, chunk)
+                y -= 15
+        else:
+            ensure_space(40)
+            c.setFont("Helvetica-Bold", 10)
+            c.drawString(50, y, "Description")
+            c.drawString(280, y, "Qty")
+            c.drawString(330, y, "Unit")
+            c.drawString(390, y, "Unit Price")
+            c.drawString(480, y, "Line Total")
+            y -= 10
+
+            c.line(50, y, 560, y)
+            y -= 18
+
+            c.setFont("Helvetica", 10)
+
+            if items:
+                for i in items:
+                    ensure_space(24)
+
+                    description = str(i["description"] or "")[:38]
+                    qty = f"{float(i['quantity'] or 0):g}"
+                    unit = str(i["unit"] or "")[:8]
+                    unit_price = f"${float(i['unit_price'] or 0):.2f}"
+                    line_total = f"${float(i['line_total'] or 0):.2f}"
+
+                    c.drawString(50, y, description)
+                    c.drawString(280, y, qty)
+                    c.drawString(330, y, unit)
+                    c.drawRightString(460, y, unit_price)
+                    c.drawRightString(560, y, line_total)
+
+                    y -= 18
+            else:
+                c.drawString(50, y, "No items.")
+                y -= 18
 
         ensure_space(80)
         y -= 8
@@ -660,6 +742,7 @@ def build_invoice_pdf(invoice, items, company, profile):
     finally:
         if os.path.exists(pdf_temp.name):
             os.remove(pdf_temp.name)
+
 
 def get_invoice_email_context(invoice_id, company_id):
     conn = get_db_connection()
@@ -1301,7 +1384,6 @@ def new_invoice():
         due_date = _clean_text(request.form.get("due_date", ""))
         description = _clean_text(request.form.get("description", ""))
         status = _clean_text(request.form.get("status", "Unpaid")) or "Unpaid"
-
         total = _safe_float(request.form.get("total"))
 
         if not customer_id:
@@ -1313,6 +1395,9 @@ def new_invoice():
             conn.close()
             invoice_number = get_next_invoice_number(cid)
             conn = get_db_connection()
+
+        display_mode = "summary_only"
+        summary_description = description or "Service completed."
 
         cur = conn.cursor()
         cur.execute(
@@ -1328,9 +1413,11 @@ def new_invoice():
                 total,
                 amount_paid,
                 balance_due,
-                status
+                status,
+                display_mode,
+                summary_description
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -1345,6 +1432,8 @@ def new_invoice():
                 total if status == "Paid" else 0,
                 0 if status == "Paid" else total,
                 status,
+                display_mode,
+                summary_description,
             ),
         )
 
@@ -1480,7 +1569,7 @@ def new_invoice():
 
     <div class='card'>
         <h1>Create Invoice</h1>
-        <p class='muted'>Create an invoice manually without converting a job.</p>
+        <p class='muted'>Create a clean customer-facing invoice without itemized line pricing.</p>
     </div>
 
     <div class='card'>
@@ -1531,8 +1620,8 @@ def new_invoice():
                 </div>
 
                 <div style='grid-column:1 / -1;'>
-                    <label>Description / Notes</label>
-                    <textarea name='description' placeholder='Mowing service, mulch, labor, fuel, delivery, or other invoice details.'></textarea>
+                    <label>Service Performed</label>
+                    <textarea name='description' placeholder='Example: Weekly mowing service including mowing, trimming, and cleanup.'></textarea>
                 </div>
             </div>
 
@@ -1678,7 +1767,9 @@ def view_invoice(invoice_id):
 
     conn.close()
 
-    # ---------- ITEMS ----------
+    summary_only = _should_use_summary_only(invoice, items)
+    summary_text = _invoice_summary_text(invoice, items)
+
     item_rows = ""
     item_mobile_cards = ""
 
@@ -1711,7 +1802,6 @@ def view_invoice(invoice_id):
     if not item_mobile_cards:
         item_mobile_cards = "<div class='mobile-list-card muted'>No invoice items found.</div>"
 
-    # ---------- PAYMENTS ----------
     payment_rows = ""
     payment_mobile_cards = ""
 
@@ -1751,7 +1841,6 @@ def view_invoice(invoice_id):
     if not payment_mobile_cards:
         payment_mobile_cards = "<div class='mobile-list-card muted'>No payments recorded.</div>"
 
-    # ---------- META ----------
     invoice_number = _clean_display(invoice["invoice_number"] or invoice["id"])
     is_paid = str(invoice["status"]).lower() == "paid"
 
@@ -1786,7 +1875,42 @@ def view_invoice(invoice_id):
         </form>
         """
 
-    # ---------- PAGE ----------
+    items_section_html = ""
+    if summary_only:
+        items_section_html = f"""
+        <div class='card'>
+            <h2>Service Performed</h2>
+            <div class='invoice-card' style='margin-top:10px;'>
+                <strong>{escape(summary_text)}</strong>
+            </div>
+        </div>
+        """
+    else:
+        items_section_html = f"""
+        <div class='card'>
+            <h2>Items</h2>
+
+            <div class='desktop-only'>
+                <table class='table'>
+                    <thead>
+                        <tr>
+                            <th>Description</th>
+                            <th>Qty</th>
+                            <th>Unit</th>
+                            <th>Price</th>
+                            <th>Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>{item_rows}</tbody>
+                </table>
+            </div>
+
+            <div class='mobile-only'>
+                {item_mobile_cards}
+            </div>
+        </div>
+        """
+
     content = f"""
     <style>
         .invoice-page {{ display:grid; gap:16px; }}
@@ -1866,28 +1990,7 @@ def view_invoice(invoice_id):
             <div class='invoice-card'><span>Balance Due</span><strong>${_safe_float(invoice["balance_due"]):.2f}</strong></div>
         </div>
 
-        <div class='card'>
-            <h2>Items</h2>
-
-            <div class='desktop-only'>
-                <table class='table'>
-                    <thead>
-                        <tr>
-                            <th>Description</th>
-                            <th>Qty</th>
-                            <th>Unit</th>
-                            <th>Price</th>
-                            <th>Total</th>
-                        </tr>
-                    </thead>
-                    <tbody>{item_rows}</tbody>
-                </table>
-            </div>
-
-            <div class='mobile-only'>
-                {item_mobile_cards}
-            </div>
-        </div>
+        {items_section_html}
 
         <div class='card'>
             <h2>Payments</h2>
@@ -2035,10 +2138,22 @@ def email_invoice_preview(invoice_id):
         (cid,),
     ).fetchone()
 
+    items = conn.execute(
+        """
+        SELECT *
+        FROM invoice_items
+        WHERE invoice_id = %s
+        ORDER BY id ASC
+        """,
+        (invoice_id,),
+    ).fetchall()
+
     conn.close()
 
     invoice_number = invoice["invoice_number"] or invoice["id"]
     customer_name = _clean_text(invoice["customer_name"]) or "Customer"
+    summary_only = _should_use_summary_only(invoice, items)
+    summary_text = _invoice_summary_text(invoice, items)
 
     company_name = "Your Company"
     if profile and "invoice_header_name" in profile.keys() and profile["invoice_header_name"]:
@@ -2063,6 +2178,13 @@ def email_invoice_preview(invoice_id):
         </p>
         """
 
+    service_html = f"""
+        <p>
+            <strong>Service Performed:</strong><br>
+            {escape(summary_text)}
+        </p>
+    """ if summary_only else ""
+
     preview_csrf = generate_csrf()
 
     content = f"""
@@ -2074,6 +2196,8 @@ def email_invoice_preview(invoice_id):
                 <p>Hello {escape(customer_name)},</p>
 
                 <p>Please find attached Invoice #{escape(str(invoice_number))} from {escape(company_name)}.</p>
+
+                {service_html}
 
                 <p>
                     <strong>Total:</strong> ${_safe_float(invoice['total']):.2f}<br>
@@ -2098,6 +2222,7 @@ def email_invoice_preview(invoice_id):
     </div>
     """
     return render_page(content, f"Email Preview - Invoice #{invoice_number}")
+
 
 @invoices_bp.route("/invoices/<int:invoice_id>/send_email", methods=["POST"])
 @login_required
@@ -2182,6 +2307,8 @@ def send_invoice_email(invoice_id):
 
     invoice_number = invoice["invoice_number"] or invoice["id"]
     customer_name = (invoice["customer_name"] or "Customer").strip()
+    summary_only = _should_use_summary_only(invoice, items)
+    summary_text = _invoice_summary_text(invoice, items)
 
     company_name = "Your Company"
     if profile and "invoice_header_name" in profile.keys() and profile["invoice_header_name"]:
@@ -2214,7 +2341,8 @@ def send_invoice_email(invoice_id):
         text_body = (
             f"Hello {customer_name},\n\n"
             f"Please find attached Invoice #{invoice_number} from {company_name}.\n\n"
-            f"Total: ${_safe_float(invoice['total']):.2f}\n"
+            + (f"Service Performed: {summary_text}\n\n" if summary_only else "")
+            + f"Total: ${_safe_float(invoice['total']):.2f}\n"
             f"Amount Paid: ${_safe_float(invoice['amount_paid']):.2f}\n"
             f"Balance Due: ${_safe_float(invoice['balance_due']):.2f}"
             f"{payment_text_section}\n"
@@ -2226,6 +2354,8 @@ def send_invoice_email(invoice_id):
                 <p>Hello {escape(customer_name)},</p>
 
                 <p>Please find attached Invoice #{escape(str(invoice_number))} from {escape(company_name)}.</p>
+
+                {'<p><strong>Service Performed:</strong><br>' + escape(summary_text) + '</p>' if summary_only else ''}
 
                 <p>
                     <strong>Total:</strong> ${_safe_float(invoice['total']):.2f}<br>
@@ -2293,7 +2423,7 @@ def add_invoice_payment(invoice_id):
             conn.close()
             flash("Payment amount must be greater than 0.")
             return redirect(url_for("invoices.add_invoice_payment", invoice_id=invoice_id))
-        
+
         current_paid = _safe_float(invoice["amount_paid"])
         invoice_total = _safe_float(invoice["total"])
 
@@ -2385,6 +2515,7 @@ def add_invoice_payment(invoice_id):
     """
     conn.close()
     return render_page(content, f"Add Payment - Invoice #{invoice['id']}")
+
 
 @invoices_bp.route("/invoices/<int:invoice_id>/payments/<int:payment_id>/delete", methods=["POST"])
 @login_required
@@ -2580,7 +2711,6 @@ def delete_invoice(invoice_id):
     notes_text = (invoice["notes"] or "").strip() if "notes" in invoice.keys() and invoice["notes"] else ""
     recurring_schedule_id = None
 
-    # Handle standard job invoice
     if "job_id" in invoice.keys() and invoice["job_id"]:
         conn.execute(
             """
@@ -2591,7 +2721,6 @@ def delete_invoice(invoice_id):
             (invoice["job_id"], cid),
         )
 
-    # Handle standard quote invoice
     if "quote_id" in invoice.keys() and invoice["quote_id"]:
         conn.execute(
             """
@@ -2602,9 +2731,6 @@ def delete_invoice(invoice_id):
             (invoice["quote_id"], cid),
         )
 
-    # Handle recurring schedule aggregate invoice
-    # Notes format created earlier:
-    # "Recurring schedule invoice for Schedule #<id> - <title>"
     if notes_text.lower().startswith("recurring schedule invoice for schedule #"):
         try:
             prefix = "Recurring schedule invoice for Schedule #"
