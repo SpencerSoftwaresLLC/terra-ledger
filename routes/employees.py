@@ -1954,7 +1954,25 @@ def time_clock():
 
     pay_period_start_day = _get_company_time_clock_start_day(cid)
     pay_period_start, pay_period_end = _get_current_pay_period(pay_period_start_day)
+    previous_pay_period_start, previous_pay_period_end = _get_previous_pay_period(pay_period_start_day)
     pay_period_end_day = (pay_period_start_day - 1) % 7
+
+    selected_period = (request.args.get("period") or "current").strip().lower()
+    if selected_period not in {"current", "previous"}:
+        selected_period = "current"
+
+    if selected_period == "previous":
+        entries_start = previous_pay_period_start
+        entries_end = previous_pay_period_end
+        entries_heading = "Previous Pay Period Time Entries"
+        entries_description = "Review previous pay period punches and send the last hours summary email manually."
+        empty_entries_message = "No time entries for the previous pay period."
+    else:
+        entries_start = pay_period_start
+        entries_end = pay_period_end
+        entries_heading = "Current Pay Period Time Entries"
+        entries_description = "Review current pay period punches and send the last hours summary email manually."
+        empty_entries_message = "No time entries for the current pay period."
 
     active_sql = _active_where_sql("is_active")
     status_active_sql = _active_where_sql("e.is_active")
@@ -2047,10 +2065,12 @@ def time_clock():
         FROM employee_time_entries t
         JOIN employees e ON t.employee_id = e.id
         WHERE t.company_id = %s
-        ORDER BY t.clock_in DESC
-        LIMIT 25
+          AND DATE(t.clock_in) >= %s
+          AND DATE(t.clock_in) <= %s
+        ORDER BY t.clock_in DESC, t.id DESC
+        LIMIT 100
         """,
-        (cid,),
+        (cid, entries_start.isoformat(), entries_end.isoformat()),
     ).fetchall()
 
     conn.close()
@@ -2105,6 +2125,32 @@ def time_clock():
             grid-template-columns:minmax(220px, 1fr) auto;
             gap:12px;
             align-items:end;
+        }
+
+        .time-clock-period-toggle {
+            display:flex;
+            gap:8px;
+            flex-wrap:wrap;
+            align-items:center;
+        }
+
+        .time-clock-period-link {
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            padding:8px 12px;
+            border-radius:10px;
+            border:1px solid #d1d5db;
+            text-decoration:none;
+            color:#334155;
+            background:#fff;
+            font-weight:600;
+        }
+
+        .time-clock-period-link.active {
+            background:#eef6ff;
+            border-color:#93c5fd;
+            color:#1d4ed8;
         }
 
         .mobile-only {
@@ -2353,14 +2399,27 @@ def time_clock():
         <div class='card'>
             <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px;'>
                 <div>
-                    <h2 style='margin-bottom:4px;'>Recent Time Entries</h2>
-                    <div class='muted'>Review recent punches and send the current hours summary email manually.</div>
+                    <h2 style='margin-bottom:4px;'>{{ entries_heading }}</h2>
+                    <div class='muted'>{{ entries_description }}</div>
                 </div>
 
-                <form method='post' action='{{ url_for("employees.send_time_clock_summary_now") }}' style='margin:0;'>
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button class='btn warning' type='submit'>Send Last Pay Period Summary</button>
-                </form>
+                <div class='row-actions' style='display:flex; gap:10px; flex-wrap:wrap; align-items:center;'>
+                    <div class='time-clock-period-toggle'>
+                        <a class='time-clock-period-link {% if selected_period == "current" %}active{% endif %}'
+                           href='{{ url_for("employees.time_clock", period="current") }}'>
+                            Current Pay Period
+                        </a>
+                        <a class='time-clock-period-link {% if selected_period == "previous" %}active{% endif %}'
+                           href='{{ url_for("employees.time_clock", period="previous") }}'>
+                            Previous Pay Period
+                        </a>
+                    </div>
+
+                    <form method='post' action='{{ url_for("employees.send_time_clock_summary_now") }}' style='margin:0;'>
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class='btn warning' type='submit'>Send Last Pay Period Summary</button>
+                    </form>
+                </div>
             </div>
 
             {% if recent_entries %}
@@ -2410,7 +2469,7 @@ def time_clock():
                     </div>
                 </div>
             {% else %}
-                <p class='muted'>No time entries yet.</p>
+                <p class='muted'>{{ empty_entries_message }}</p>
             {% endif %}
         </div>
     </div>
@@ -2425,6 +2484,8 @@ def time_clock():
             currently_clocked_in=currently_clocked_in,
             pay_period_start=pay_period_start.isoformat(),
             pay_period_end=pay_period_end.isoformat(),
+            previous_pay_period_start=previous_pay_period_start.isoformat(),
+            previous_pay_period_end=previous_pay_period_end.isoformat(),
             pay_period_start_label=_weekday_label(pay_period_start_day),
             pay_period_end_label=_weekday_label(pay_period_end_day),
             pay_period_start_day=pay_period_start_day,
@@ -2437,6 +2498,10 @@ def time_clock():
                 (5, "Saturday"),
                 (6, "Sunday"),
             ],
+            selected_period=selected_period,
+            entries_heading=entries_heading,
+            entries_description=entries_description,
+            empty_entries_message=empty_entries_message,
             clocked_in_ids=clocked_in_ids,
             format_hours=_format_hours,
         ),
