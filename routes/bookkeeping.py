@@ -2178,3 +2178,563 @@ def _render_bookkeeping_page(conn, cid):
     """
 
     return render_page(content, "Bookkeeping / P&L")
+
+@bookkeeping_bp.route("/bookkeeping", methods=["GET", "POST"])
+@bookkeeping_bp.route("/ledger", methods=["GET", "POST"])
+@login_required
+@subscription_required
+@require_permission("can_manage_bookkeeping")
+def bookkeeping():
+    _ensure_bookkeeping_check_structure()
+    conn = get_db_connection()
+    cid = session["company_id"]
+    try:
+        return _render_bookkeeping_page(conn, cid)
+    finally:
+        conn.close()
+
+
+@bookkeeping_bp.route("/bookkeeping/<int:entry_id>")
+@bookkeeping_bp.route("/ledger/<int:entry_id>")
+@login_required
+@subscription_required
+@require_permission("can_manage_bookkeeping")
+def view_bookkeeping_entry(entry_id):
+    _ensure_bookkeeping_check_structure()
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    try:
+        row = _fetch_ledger_entry_by_id(conn, cid, entry_id)
+        if not row:
+            flash("Bookkeeping entry not found.")
+            return redirect(url_for("bookkeeping.bookkeeping"))
+
+        entry_type = _normalize_ledger_type(
+            _safe_get(row, "entry_type", ""),
+            _safe_get(row, "source_type", ""),
+            _safe_get(row, "amount", 0),
+        )
+        amount = abs(_safe_float(_safe_get(row, "amount", 0)))
+        payee_name = _clean_text(_safe_get(row, "payee_name", "")) or _clean_text(_safe_get(row, "description", ""))
+        can_print_check = (
+            entry_type == "Expense"
+            and amount > 0
+            and _normalize_text(_safe_get(row, "source_type", "")) != "payroll"
+        )
+
+        check_action_html = ""
+        if can_print_check:
+            if _safe_get(row, "check_number"):
+                check_action_html = f"""
+                <a class='btn success' href='{url_for("bookkeeping.print_bookkeeping_check", entry_id=entry_id)}' target='_blank'>
+                    View Check PDF
+                </a>
+                """
+            else:
+                check_action_html = f"""
+                <a class='btn success' href='{url_for("bookkeeping.print_bookkeeping_check", entry_id=entry_id)}' target='_blank'>
+                    Print Check
+                </a>
+                """
+
+        source_html = escape(_clean_text(_safe_get(row, "source_type", "")) or "-")
+        if _safe_get(row, "invoice_id"):
+            source_html = f"<a class='btn secondary' href='{url_for('invoices.view_invoice', invoice_id=_safe_get(row, 'invoice_id'))}'>Open Invoice</a>"
+        elif _safe_get(row, "job_id"):
+            source_html = f"<a class='btn secondary' href='{url_for('jobs.view_job', job_id=_safe_get(row, 'job_id'))}'>Open Job</a>"
+
+        service_type = _normalize_service_type(_safe_get(row, "service_type", "")) or ""
+        service_html = (
+            f"<span class='service-chip {_service_chip_class(service_type)}'>{escape(_display_service_type(service_type))}</span>"
+            if service_type else "-"
+        )
+
+        content = f"""
+        <style>
+            .service-chip {{
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                padding: 6px 10px;
+                border-radius: 999px;
+                font-size: .79rem;
+                font-weight: 700;
+                line-height: 1;
+                white-space: nowrap;
+                border: 1px solid rgba(15,23,42,.08);
+                background: #f8fafc;
+                color: #334155;
+            }}
+
+            .service-chip.mowing {{
+                background: #ecfdf3;
+                color: #166534;
+                border-color: #bbf7d0;
+            }}
+
+            .service-chip.material {{
+                background: #fff7ed;
+                color: #9a3412;
+                border-color: #fed7aa;
+            }}
+
+            .service-chip.seasonal {{
+                background: #eff6ff;
+                color: #1d4ed8;
+                border-color: #bfdbfe;
+            }}
+
+            .service-chip.default {{
+                background: #f8fafc;
+                color: #334155;
+                border-color: #e2e8f0;
+            }}
+        </style>
+
+        <div class='card'>
+            <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
+                <div>
+                    <h1 style='margin-bottom:6px;'>Ledger Entry Detail</h1>
+                    <p class='muted' style='margin:0;'>Review this entry before printing a check.</p>
+                </div>
+                <div class='row-actions'>
+                    <a class='btn secondary' href='{url_for("bookkeeping.bookkeeping")}'>Back to Bookkeeping</a>
+                    {check_action_html}
+                </div>
+            </div>
+        </div>
+
+        <div class='card'>
+            <div class='grid'>
+                <div><strong>Date</strong><br>{escape(str(_safe_get(row, "entry_date", "") or "-"))}</div>
+                <div><strong>Type</strong><br>{escape(entry_type)}</div>
+                <div><strong>Service</strong><br>{service_html}</div>
+                <div><strong>Category</strong><br>{escape(_clean_text(_safe_get(row, "category", "")) or "-")}</div>
+                <div><strong>Amount</strong><br>{escape(_fmt_money(amount))}</div>
+                <div><strong>Payee</strong><br>{escape(payee_name or "-")}</div>
+                <div><strong>Payment Method</strong><br>{escape(_clean_text(_safe_get(row, "payment_method", "")) or "-")}</div>
+                <div><strong>Check #</strong><br>{escape(str(_safe_get(row, "check_number", "") or "-"))}</div>
+                <div><strong>Source</strong><br>{source_html}</div>
+                <div style='grid-column:1 / -1;'><strong>Description</strong><br>{escape(_clean_text(_safe_get(row, "description", "")) or "-")}</div>
+                <div style='grid-column:1 / -1;'><strong>Notes</strong><br>{escape(_clean_text(_safe_get(row, "notes", "")) or "-")}</div>
+            </div>
+        </div>
+        """
+        return render_page(content, "Ledger Entry Detail")
+    finally:
+        conn.close()
+
+
+@bookkeeping_bp.route("/bookkeeping/<int:entry_id>/print-check")
+@bookkeeping_bp.route("/ledger/<int:entry_id>/print-check")
+@login_required
+@subscription_required
+@require_permission("can_manage_bookkeeping")
+def print_bookkeeping_check(entry_id):
+    _ensure_bookkeeping_check_structure()
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    try:
+        row = _fetch_ledger_entry_by_id(conn, cid, entry_id)
+        if not row:
+            flash("Bookkeeping entry not found.")
+            return redirect(url_for("bookkeeping.bookkeeping"))
+
+        entry_type = _normalize_ledger_type(
+            _safe_get(row, "entry_type", ""),
+            _safe_get(row, "source_type", ""),
+            _safe_get(row, "amount", 0),
+        )
+        amount = abs(_safe_float(_safe_get(row, "amount", 0)))
+
+        if entry_type != "Expense":
+            flash("Only expense-type entries can be printed as checks.")
+            return redirect(url_for("bookkeeping.view_bookkeeping_entry", entry_id=entry_id))
+
+        if amount <= 0:
+            flash("Cannot print a check for a zero or negative amount.")
+            return redirect(url_for("bookkeeping.view_bookkeeping_entry", entry_id=entry_id))
+
+        if _normalize_text(_safe_get(row, "source_type", "")) == "payroll":
+            flash("Payroll checks should be printed from the payroll screen.")
+            return redirect(url_for("bookkeeping.view_bookkeeping_entry", entry_id=entry_id))
+
+        _, check_number = _create_or_get_ledger_check(conn, cid, row)
+        conn.commit()
+
+        refreshed_row = _fetch_ledger_entry_by_id(conn, cid, entry_id)
+        company_info = _get_company_check_info(cid)
+
+        pdf_data = _build_ledger_check_pdf(
+            company_info=company_info,
+            ledger_row=refreshed_row,
+            check_number=check_number,
+        )
+
+        response = make_response(pdf_data)
+        response.headers["Content-Type"] = "application/pdf"
+        response.headers["Content-Disposition"] = f"inline; filename=ledger_check_{check_number}.pdf"
+        return response
+    finally:
+        conn.close()
+
+
+@bookkeeping_bp.route("/bookkeeping/export")
+@bookkeeping_bp.route("/ledger/export")
+@login_required
+@subscription_required
+@require_permission("can_manage_bookkeeping")
+def export_bookkeeping_csv():
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    view_type = request.args.get("view", "monthly")
+    valid_views = ["daily", "weekly", "monthly", "quarterly", "yearly", "yoy"]
+    if view_type not in valid_views:
+        view_type = "monthly"
+
+    anchor_date = request.args.get("anchor_date", date.today().isoformat())
+    service_filter = _normalize_service_type(request.args.get("service_type", ""))
+
+    if view_type == "yoy":
+        anchor_year = datetime.strptime(anchor_date, "%Y-%m-%d").date().year
+        start_date = f"{anchor_year}-01-01"
+        end_date = f"{anchor_year}-12-31"
+    else:
+        start_date, end_date = get_period_range(view_type, anchor_date)
+
+    try:
+        rows = _build_combined_rows(conn, cid, start_date, end_date, service_filter=service_filter)
+    finally:
+        conn.close()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    writer.writerow([
+        "Date",
+        "Type",
+        "Service Type",
+        "Category",
+        "Description",
+        "Amount",
+        "Source Type",
+        "Invoice ID",
+        "Job ID",
+    ])
+
+    for r in rows:
+        signed_amount = abs(_safe_float(r.get("amount")))
+        if r.get("entry_type") == "Expense":
+            signed_amount = -signed_amount
+
+        writer.writerow([
+            r.get("entry_date") or "",
+            r.get("entry_type") or "",
+            _display_service_type(r.get("service_type"), fallback=""),
+            r.get("category") or "",
+            r.get("description") or "",
+            f"{signed_amount:.2f}",
+            r.get("source_type") or "",
+            r.get("invoice_id") or "",
+            r.get("job_id") or "",
+        ])
+
+    filename = f"bookkeeping_{view_type}_{anchor_date}.csv"
+
+    response = make_response(output.getvalue())
+    response.headers["Content-Disposition"] = f"attachment; filename={filename}"
+    response.headers["Content-type"] = "text/csv"
+    return response
+
+
+@bookkeeping_bp.route("/bookkeeping/<int:entry_id>/delete", methods=["POST"])
+@bookkeeping_bp.route("/ledger/<int:entry_id>/delete", methods=["POST"])
+@login_required
+@subscription_required
+@require_permission("can_manage_bookkeeping")
+def delete_bookkeeping_entry(entry_id):
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    try:
+        ledger_cols = table_columns(conn, "ledger_entries")
+
+        date_select = "entry_date"
+        if "entry_date" in ledger_cols:
+            date_select = "entry_date"
+        elif "date" in ledger_cols:
+            date_select = "date"
+        else:
+            date_select = "NULL"
+
+        entry_type_select = "entry_type" if "entry_type" in ledger_cols else "''"
+        category_select = "category" if "category" in ledger_cols else "''"
+        amount_select = "amount" if "amount" in ledger_cols else "0"
+
+        if "description" in ledger_cols and "memo" in ledger_cols:
+            description_select = "COALESCE(description, memo, '')"
+        elif "description" in ledger_cols:
+            description_select = "COALESCE(description, '')"
+        elif "memo" in ledger_cols:
+            description_select = "COALESCE(memo, '')"
+        else:
+            description_select = "''"
+
+        notes_select = "notes" if "notes" in ledger_cols else "''"
+        source_type_select = "source_type" if "source_type" in ledger_cols else "''"
+        reference_type_select = "reference_type" if "reference_type" in ledger_cols else "''"
+        source_id_select = "source_id" if "source_id" in ledger_cols else "NULL"
+        check_id_select = "check_id" if "check_id" in ledger_cols else "NULL"
+
+        row = conn.execute(
+            f"""
+            SELECT
+                id,
+                company_id,
+                {date_select} AS entry_date,
+                {entry_type_select} AS entry_type,
+                {category_select} AS category,
+                {amount_select} AS amount,
+                {description_select} AS description,
+                {notes_select} AS notes,
+                {source_type_select} AS source_type,
+                {reference_type_select} AS reference_type,
+                {source_id_select} AS source_id,
+                {check_id_select} AS check_id
+            FROM ledger_entries
+            WHERE id = %s AND company_id = %s
+            """,
+            (entry_id, cid),
+        ).fetchone()
+
+        if not row:
+            flash("Bookkeeping entry not found.")
+            return redirect(url_for("bookkeeping.bookkeeping"))
+
+        is_manual = (
+            _normalize_text(_safe_get(row, "source_type", "")) == "manual"
+            or _normalize_text(_safe_get(row, "reference_type", "")) == "manual"
+        )
+
+        if not is_manual:
+            flash("Only manual bookkeeping entries can be deleted here.")
+            return redirect(url_for("bookkeeping.bookkeeping"))
+
+        if _safe_get(row, "check_id"):
+            conn.execute(
+                "DELETE FROM checks WHERE id = %s AND company_id = %s",
+                (_safe_get(row, "check_id"), cid),
+            )
+
+        conn.execute(
+            "DELETE FROM ledger_entries WHERE id = %s AND company_id = %s",
+            (entry_id, cid),
+        )
+        conn.commit()
+
+        flash("Bookkeeping entry deleted.")
+        return redirect(url_for("bookkeeping.bookkeeping"))
+    finally:
+        conn.close()
+
+
+@bookkeeping_bp.route("/bookkeeping/pnl")
+@login_required
+@subscription_required
+@require_permission("can_view_bookkeeping")
+def bookkeeping_pnl():
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    date_from = (request.args.get("date_from") or "").strip()
+    date_to = (request.args.get("date_to") or "").strip()
+    service_filter = _normalize_service_type(request.args.get("service_type", ""))
+
+    today = date.today()
+
+    if not date_from:
+        date_from = f"{today.year}-01-01"
+    if not date_to:
+        date_to = today.isoformat()
+
+    try:
+        rows = _build_combined_rows(conn, cid, date_from, date_to, service_filter=service_filter)
+    finally:
+        conn.close()
+
+    total_income = 0.0
+    total_expenses = 0.0
+    breakdown = {}
+
+    for r in rows:
+        amount = abs(_safe_float(r["amount"]))
+        entry_type = str(r["entry_type"] or "")
+        description = str(r["description"] or "")
+        category = str(r["category"] or "")
+        source_type = str(r["source_type"] or "")
+        reference_type = str(r.get("reference_type") or "")
+
+        bucket = _get_pl_bucket(
+            entry_type=entry_type,
+            description=description,
+            category=category,
+            source_type=source_type,
+            reference_type=reference_type,
+        )
+
+        is_expense = _is_expense_entry(
+            entry_type=entry_type,
+            description=description,
+            category=category,
+            source_type=source_type,
+            reference_type=reference_type,
+        )
+
+        if bucket not in breakdown:
+            breakdown[bucket] = 0.0
+
+        if is_expense:
+            total_expenses += amount
+            breakdown[bucket] -= amount
+        else:
+            total_income += amount
+            breakdown[bucket] += amount
+
+    net_profit = total_income - total_expenses
+
+    rows_html = ""
+    for cat, amt in sorted(breakdown.items(), key=lambda x: x[0].lower()):
+        color = "#16a34a" if amt >= 0 else "#dc2626"
+        rows_html += f"""
+        <tr>
+            <td class='wrap'>{escape(cat)}</td>
+            <td class='money' style="color:{color};">{_fmt_money(amt, show_plus=True)}</td>
+        </tr>
+        """
+
+    net_color = "#16a34a" if net_profit >= 0 else "#dc2626"
+
+    range_text = f"{escape(date_from)} to {escape(date_to)}"
+    if service_filter:
+        range_text += f" • {escape(_display_service_type(service_filter))}"
+
+    content = f"""
+    <style>
+        .static-table-wrap {{
+            width: 100%;
+        }}
+
+        .static-table {{
+            width: 100%;
+            table-layout: fixed;
+            border-collapse: collapse;
+        }}
+
+        .static-table th,
+        .static-table td {{
+            padding: 10px 8px;
+            vertical-align: top;
+            font-size: 0.88rem;
+            line-height: 1.25;
+            border-bottom: 1px solid rgba(0,0,0,0.06);
+        }}
+
+        .static-table th {{
+            text-align: left;
+            font-weight: 700;
+        }}
+
+        .static-table td.money,
+        .static-table th.money {{
+            text-align: right;
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }}
+
+        .static-table td.wrap,
+        .static-table th.wrap {{
+            white-space: normal;
+            word-break: break-word;
+        }}
+    </style>
+
+    <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+            <h1 style="margin:0;">Profit &amp; Loss</h1>
+            <div class="row-actions">
+                <a href="{url_for('bookkeeping.bookkeeping')}" class="btn secondary">Back</a>
+            </div>
+        </div>
+
+        <form method="get" style="margin-top:18px;">
+            <div class="grid">
+                <div>
+                    <label>From Date</label>
+                    <input type="date" name="date_from" value="{escape(date_from)}">
+                </div>
+                <div>
+                    <label>To Date</label>
+                    <input type="date" name="date_to" value="{escape(date_to)}">
+                </div>
+                <div>
+                    <label>Service Filter</label>
+                    <select name="service_type">
+                        {_service_filter_options(service_filter)}
+                    </select>
+                </div>
+            </div>
+
+            <div class="row-actions" style="margin-top:14px;">
+                <button class="btn success" type="submit">Apply Date Filter</button>
+                <a href="{url_for('bookkeeping.bookkeeping_pnl')}" class="btn secondary">Clear</a>
+            </div>
+        </form>
+
+        <div class="muted" style="margin-top:14px;">
+            <strong>Date Range:</strong> {range_text}
+        </div>
+
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:20px;">
+            <div class="card stat-card" style="flex:1;min-width:220px;">
+                <div class="stat-label">Total Income</div>
+                <div class="stat-value" style="color:#16a34a;">{_fmt_money(total_income)}</div>
+            </div>
+
+            <div class="card stat-card" style="flex:1;min-width:220px;">
+                <div class="stat-label">Total Expenses</div>
+                <div class="stat-value" style="color:#dc2626;">-{abs(total_expenses):,.2f}</div>
+            </div>
+
+            <div class="card stat-card" style="flex:1;min-width:220px;">
+                <div class="stat-label">Net Profit</div>
+                <div class="stat-value" style="color:{net_color};">{_fmt_money(net_profit, show_plus=True)}</div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top:20px;">
+            <h2>Breakdown</h2>
+            <div class="static-table-wrap">
+                <table class="static-table">
+                    <colgroup>
+                        <col style='width:70%;'>
+                        <col style='width:30%;'>
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th class='wrap'>Category</th>
+                            <th class='money'>Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows_html or '<tr><td colspan="2" class="muted">No P&amp;L data for this date range.</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    """
+
+    return render_page(content, "Profit & Loss")
