@@ -6,7 +6,7 @@ import json
 import io
 import csv
 
-from db import get_db_connection, ensure_job_cost_ledger
+from db import get_db_connection, ensure_job_cost_ledger, table_columns
 from decorators import login_required, require_permission, subscription_required
 from page_helpers import render_page
 from helpers import *
@@ -464,6 +464,21 @@ def display_item_type(value):
     if key in ITEM_TYPE_LABELS:
         return ITEM_TYPE_LABELS[key]
     return key.replace("_", " ").title() if key else "Material"
+
+def _safe_float(value, default=0.0):
+    try:
+        if value is None or str(value).strip() == "":
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _table_exists(conn, table_name):
+    try:
+        return len(table_columns(conn, table_name)) > 0
+    except Exception:
+        return False
 
 
 def default_unit_for_item_type(item_type):
@@ -2447,8 +2462,9 @@ def edit_recurring_schedule(schedule_id):
 
     customer_opts = "".join(customer_option_list)
     edit_csrf = generate_csrf()
-    generate_csrf_token = generate_csrf()
+    generate_jobs_csrf = generate_csrf()
     toggle_csrf = generate_csrf()
+    schedule_invoice_csrf = generate_csrf()
 
     jobs_rows = []
     jobs_mobile_cards = []
@@ -2742,9 +2758,17 @@ def edit_recurring_schedule(schedule_id):
             <a class='btn secondary' href='{url_for("jobs.jobs")}'>Back to Jobs</a>
 
             <form method='post' action='{url_for("jobs.generate_recurring_schedule_jobs", schedule_id=schedule["id"])}' style='margin:0;'>
-                <input type="hidden" name="csrf_token" value="{generate_csrf_token}">
+                <input type="hidden" name="csrf_token" value="{generate_jobs_csrf}">
                 <button class='btn success' type='submit' {"disabled" if not schedule_is_active else ""}>
                     Generate Upcoming Jobs Now
+                </button>
+            </form>
+
+            <form method='post' action='{url_for("jobs.convert_recurring_schedule_to_invoice", schedule_id=schedule["id"])}' style='margin:0;'>
+                <input type="hidden" name="csrf_token" value="{schedule_invoice_csrf}">
+                <input type="hidden" name="invoice_mode" value="full_schedule">
+                <button class='btn success' type='submit'>
+                    Invoice Entire Schedule
                 </button>
             </form>
 
@@ -2956,7 +2980,9 @@ def edit_recurring_schedule(schedule_id):
 
     <div class='card'>
         <h2>Generated Jobs Linked to This Schedule</h2>
-        <p class='muted' style='margin-top:0;'>Recurring schedules are now invoiced one visit at a time. Use the button on each generated job row.</p>
+        <p class='muted' style='margin-top:0;'>
+            You can invoice the full recurring schedule from the top action bar, or invoice one visit at a time using the button on each generated job row.
+        </p>
 
         <div class='desktop-only'>
             <table class='static-table'>
@@ -3434,8 +3460,344 @@ def toggle_recurring_schedule(schedule_id):
 @subscription_required
 @require_permission("can_manage_jobs")
 def convert_recurring_schedule_to_invoice(schedule_id):
-    flash("Recurring schedules are now invoiced one visit at a time. Open a generated job and use Convert to Invoice for that visit only.")
-    return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    try:
+        schedule = conn.execute(
+            """
+            SELECT rms.*, c.name AS customer_name
+            FROM recurring_mowing_schedules rms
+            JOIN customers c ON rms.customer_id = c.id
+            WHERE rms.id = %s AND rms.company_id = %s
+            """,
+            (schedule_id, cid),
+        ).fetchone()
+
+        if not schedule:
+            flash("Recurring schedule not found.")
+            return redirect(url_for("jobs.jobs"))
+
+        invoice_mode = (request.form.get("invoice_mode") or "").strip().lower()
+
+        # Default to full schedule if the user clicked the recurring schedule invoice button,
+        # but still allow a form value to control behavior.
+        if invoice_mode not in {"full_schedule", "single_visit"}:
+            invoice_mode = "full_schedule"
+
+        if invoice_mode == "single_visit":
+            flash(
+                "Single-visit invoicing is still available. Open the specific generated job "
+                "for that visit and use Convert to Invoice there."
+            )
+            return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+        jobs = conn.execute(
+            """
+            SELECT *
+            FROM jobs
+            WHERE company_id = %s
+              AND recurring_schedule_id = %s
+            ORDER BY
+                scheduled_date ASC NULLS LAST,
+                scheduled_start_time ASC NULLS LAST,
+                id ASC
+            """,
+            (cid, schedule_id),
+        ).fetchall()
+
+        if not jobs:
+            flash("No generated jobs were found for this recurring schedule yet.")
+            return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+        job_ids = [j["id"] for j in jobs]
+
+        existing_invoice = conn.execute(
+            """
+            SELECT id
+            FROM invoices
+            WHERE company_id = %s
+              AND recurring_schedule_id = %s
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (cid, schedule_id),
+        ).fetchone()
+
+        if existing_invoice:
+            flash("An invoice already exists for this recurring schedule.")
+            return redirect(url_for("invoices.view_invoice", invoice_id=existing_invoice["id"]))
+
+        schedule_title = (schedule["title"] or "").strip() if "title" in schedule.keys() else ""
+        customer_id = schedule["customer_id"]
+        service_type = (schedule["service_type"] or "").strip() if "service_type" in schedule.keys() else ""
+        notes = (schedule["notes"] or "").strip() if "notes" in schedule.keys() else ""
+
+        first_date = None
+        last_date = None
+        visit_count = 0
+
+        for j in jobs:
+            visit_count += 1
+            job_date = j["scheduled_date"] if "scheduled_date" in j.keys() else None
+            if job_date:
+                if first_date is None or job_date < first_date:
+                    first_date = job_date
+                if last_date is None or job_date > last_date:
+                    last_date = job_date
+
+        invoice_title_parts = []
+        if schedule_title:
+            invoice_title_parts.append(schedule_title)
+        elif service_type:
+            invoice_title_parts.append(service_type.replace("_", " ").title())
+        else:
+            invoice_title_parts.append("Recurring Schedule")
+
+        invoice_title_parts.append(f"{visit_count} Visit{'s' if visit_count != 1 else ''}")
+
+        if first_date and last_date and first_date != last_date:
+            invoice_title_parts.append(f"{first_date} to {last_date}")
+        elif first_date:
+            invoice_title_parts.append(str(first_date))
+
+        invoice_title = " - ".join(invoice_title_parts)
+
+        invoice_notes_parts = []
+        if schedule_title:
+            invoice_notes_parts.append(f"Recurring schedule: {schedule_title}")
+        else:
+            invoice_notes_parts.append(f"Recurring schedule ID: {schedule_id}")
+
+        invoice_notes_parts.append(f"Visits included: {visit_count}")
+
+        if first_date and last_date and first_date != last_date:
+            invoice_notes_parts.append(f"Service dates: {first_date} through {last_date}")
+        elif first_date:
+            invoice_notes_parts.append(f"Service date: {first_date}")
+
+        if notes:
+            invoice_notes_parts.append(f"Schedule notes: {notes}")
+
+        invoice_notes = "\n".join(invoice_notes_parts)
+
+        # Make sure invoice number logic matches your existing invoice setup
+        company_profile = conn.execute(
+            """
+            SELECT *
+            FROM company_profile
+            WHERE company_id = %s
+            """,
+            (cid,),
+        ).fetchone()
+
+        next_invoice_number = None
+        if company_profile and "next_invoice_number" in company_profile.keys():
+            next_invoice_number = company_profile["next_invoice_number"]
+
+        if not next_invoice_number:
+            last_invoice = conn.execute(
+                """
+                SELECT invoice_number
+                FROM invoices
+                WHERE company_id = %s
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (cid,),
+            ).fetchone()
+
+            if last_invoice and last_invoice["invoice_number"]:
+                try:
+                    next_invoice_number = int(str(last_invoice["invoice_number"]).strip()) + 1
+                except Exception:
+                    next_invoice_number = 1001
+            else:
+                next_invoice_number = 1001
+
+        invoice_row = conn.execute(
+            """
+            INSERT INTO invoices (
+                company_id,
+                customer_id,
+                invoice_number,
+                title,
+                notes,
+                status,
+                total,
+                recurring_schedule_id,
+                service_type,
+                created_at
+            )
+            VALUES (%s, %s, %s, %s, %s, 'Unpaid', 0, %s, %s, NOW())
+            RETURNING id
+            """,
+            (
+                cid,
+                customer_id,
+                str(next_invoice_number),
+                invoice_title,
+                invoice_notes,
+                schedule_id,
+                service_type or None,
+            ),
+        ).fetchone()
+
+        invoice_id = invoice_row["id"]
+
+        job_items_cols = set()
+        try:
+            job_items_cols = set(table_columns(conn, "job_items"))
+        except Exception:
+            job_items_cols = set()
+
+        invoice_items_total = 0.0
+        inserted_any_items = False
+
+        for job in jobs:
+            job_id = job["id"]
+
+            if _table_exists(conn, "job_items"):
+                job_items = conn.execute(
+                    """
+                    SELECT *
+                    FROM job_items
+                    WHERE job_id = %s
+                    ORDER BY id ASC
+                    """,
+                    (job_id,),
+                ).fetchall()
+            else:
+                job_items = []
+
+            if job_items:
+                for item in job_items:
+                    description = ""
+                    if "description" in item.keys() and item["description"]:
+                        description = str(item["description"]).strip()
+                    elif "name" in item.keys() and item["name"]:
+                        description = str(item["name"]).strip()
+                    else:
+                        description = "Recurring service visit"
+
+                    quantity = 1
+                    if "quantity" in item.keys() and item["quantity"] is not None:
+                        quantity = _safe_float(item["quantity"], 1)
+                    elif "qty" in item.keys() and item["qty"] is not None:
+                        quantity = _safe_float(item["qty"], 1)
+
+                    unit_price = 0.0
+                    if "unit_price" in item.keys() and item["unit_price"] is not None:
+                        unit_price = _safe_float(item["unit_price"], 0)
+                    elif "price" in item.keys() and item["price"] is not None:
+                        unit_price = _safe_float(item["price"], 0)
+                    elif "rate" in item.keys() and item["rate"] is not None:
+                        unit_price = _safe_float(item["rate"], 0)
+
+                    line_total = quantity * unit_price
+
+                    conn.execute(
+                        """
+                        INSERT INTO invoice_items (
+                            invoice_id,
+                            description,
+                            quantity,
+                            unit_price,
+                            total
+                        )
+                        VALUES (%s, %s, %s, %s, %s)
+                        """,
+                        (
+                            invoice_id,
+                            description,
+                            quantity,
+                            unit_price,
+                            line_total,
+                        ),
+                    )
+
+                    invoice_items_total += line_total
+                    inserted_any_items = True
+            else:
+                description_parts = []
+
+                if schedule_title:
+                    description_parts.append(schedule_title)
+                elif service_type:
+                    description_parts.append(service_type.replace("_", " ").title())
+                else:
+                    description_parts.append("Recurring service")
+
+                if "scheduled_date" in job.keys() and job["scheduled_date"]:
+                    description_parts.append(str(job["scheduled_date"]))
+
+                fallback_description = " - ".join(description_parts)
+
+                job_total = 0.0
+                if "total" in job.keys() and job["total"] is not None:
+                    job_total = _safe_float(job["total"], 0)
+                elif "price" in job.keys() and job["price"] is not None:
+                    job_total = _safe_float(job["price"], 0)
+
+                conn.execute(
+                    """
+                    INSERT INTO invoice_items (
+                        invoice_id,
+                        description,
+                        quantity,
+                        unit_price,
+                        total
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (
+                        invoice_id,
+                        fallback_description,
+                        1,
+                        job_total,
+                        job_total,
+                    ),
+                )
+
+                invoice_items_total += job_total
+                inserted_any_items = True
+
+        if not inserted_any_items:
+            conn.execute("DELETE FROM invoices WHERE id = %s AND company_id = %s", (invoice_id, cid))
+            conn.commit()
+            flash("Could not build an invoice because no billable recurring visits were found.")
+            return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+
+        conn.execute(
+            """
+            UPDATE invoices
+            SET total = %s
+            WHERE id = %s AND company_id = %s
+            """,
+            (invoice_items_total, invoice_id, cid),
+        )
+
+        if company_profile and "next_invoice_number" in company_profile.keys():
+            conn.execute(
+                """
+                UPDATE company_profile
+                SET next_invoice_number = %s
+                WHERE company_id = %s
+                """,
+                (int(next_invoice_number) + 1, cid),
+            )
+
+        conn.commit()
+        flash("Recurring schedule converted into a single invoice successfully.")
+        return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
+
+    except Exception as e:
+        conn.rollback()
+        print("CONVERT RECURRING SCHEDULE TO INVOICE ERROR:", repr(e), flush=True)
+        flash("Could not convert recurring schedule to an invoice.")
+        return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
+    finally:
+        conn.close()
 
 
 @jobs_bp.route("/jobs/export")
