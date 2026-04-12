@@ -27,6 +27,7 @@ ITEM_TYPE_LABELS = {
     "fuel": "Fuel",
     "misc": "Misc",
     "material": "Material",
+    "payroll": "Payroll",
 }
 
 
@@ -297,6 +298,47 @@ def fetch_job_items_for_range(company_id, start_date, end_date):
         conn.close()
 
 
+def fetch_payroll_rows_for_range(company_id, start_date, end_date):
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT COALESCE(SUM(gross_pay), 0) AS payroll_total
+            FROM payroll_entries
+            WHERE company_id = %s
+              AND pay_date >= %s
+              AND pay_date <= %s
+            """,
+            (company_id, start_date, end_date),
+        ).fetchone()
+
+        payroll_total = safe_float(row["payroll_total"] if row else 0)
+
+        if payroll_total <= 0:
+            return []
+
+        return [
+            {
+                "item_type": "payroll",
+                "description": "Payroll",
+                "unit": "",
+                "quantity": 0.0,
+                "cost_amount": payroll_total,
+                "line_total": 0.0,
+                "job_id": None,
+                "scheduled_date": None,
+            }
+        ]
+    finally:
+        conn.close()
+
+
+def fetch_report_rows_for_range(company_id, start_date, end_date):
+    job_rows = fetch_job_items_for_range(company_id, start_date, end_date)
+    payroll_rows = fetch_payroll_rows_for_range(company_id, start_date, end_date)
+    return list(job_rows) + list(payroll_rows)
+
+
 def build_period_summary(rows):
     category_map = {}
     grand = {
@@ -356,21 +398,24 @@ def build_period_summary(rows):
         item["gross_income"] += gross_income
         item["gross_profit"] += gross_profit
         item["net_profit"] += net_profit
-        item["jobs_used_on"].add(job_id)
+        if job_id not in (None, "", 0):
+            item["jobs_used_on"].add(job_id)
 
         category["quantity"] += quantity
         category["expense"] += expense
         category["gross_income"] += gross_income
         category["gross_profit"] += gross_profit
         category["net_profit"] += net_profit
-        category["jobs_used_on"].add(job_id)
+        if job_id not in (None, "", 0):
+            category["jobs_used_on"].add(job_id)
 
         grand["quantity"] += quantity
         grand["expense"] += expense
         grand["gross_income"] += gross_income
         grand["gross_profit"] += gross_profit
         grand["net_profit"] += net_profit
-        grand["jobs_used_on"].add(job_id)
+        if job_id not in (None, "", 0):
+            grand["jobs_used_on"].add(job_id)
 
     categories = []
     for category in sorted(category_map.values(), key=lambda x: x["category_label"].lower()):
@@ -396,8 +441,8 @@ def build_period_summary(rows):
 
 
 def build_comparison_report(company_id, current_start, current_end, previous_start, previous_end):
-    current_rows = fetch_job_items_for_range(company_id, current_start, current_end)
-    previous_rows = fetch_job_items_for_range(company_id, previous_start, previous_end)
+    current_rows = fetch_report_rows_for_range(company_id, current_start, current_end)
+    previous_rows = fetch_report_rows_for_range(company_id, previous_start, previous_end)
 
     current_summary = build_period_summary(current_rows)
     previous_summary = build_period_summary(previous_rows)
@@ -683,7 +728,7 @@ def annual_reports():
                 </table>
             </div>
             <p class="muted small" style="margin-top:12px;">
-                Net profit currently matches gross profit because item-level overhead is not stored separately yet.
+                Payroll is included as an expense category in annual reports. Net profit currently matches gross profit because item-level overhead is not stored separately yet.
             </p>
         </div>
     {% else %}

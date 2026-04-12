@@ -1,0 +1,28 @@
+TRANSLATIONS = {
+    "en": {
+        "dashboard": "Dashboard",
+        "customers": "Customers",
+        "employees": "Employees",
+        "quotes": "Quotes",
+        "jobs": "Jobs",
+        "invoices": "Invoices",
+        "calendar": "Calendar",
+        "bookkeeping": "Bookkeeping",
+        "settings": "Settings",
+        "save": "Save",
+        "cancel": "Cancel",
+    },
+    "es": {
+        "dashboard": "Panel",
+        "customers": "Clientes",
+        "employees": "Empleados",
+        "quotes": "Cotizaciones",
+        "jobs": "Trabajos",
+        "invoices": "Facturas",
+        "calendar": "Calendario",
+        "bookkeeping": "Contabilidad",
+        "settings": "Configuración",
+        "save": "Guardar",
+        "cancel": "Cancelar",
+    },
+}

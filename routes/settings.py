@@ -27,7 +27,7 @@ from utils.w2_service import (
     list_employee_w2_summaries,
 )
 from decorators import login_required, require_permission, subscription_required
-from page_helpers import render_page
+from page_helpers import render_page, csrf_input
 from utils.emailing import send_company_email
 from utils.backups import create_company_backup, export_company_backup_data, load_backup_file, restore_company_backup
 
@@ -4216,3 +4216,98 @@ def restore_backup():
 
     return render_page(content, "Restore Backup")
 
+@settings_bp.route("/settings/language", methods=["GET", "POST"])
+@login_required
+@subscription_required
+@require_permission("can_manage_settings")
+def settings_language():
+    conn = get_db_connection()
+    cid = session["company_id"]
+
+    try:
+        try:
+            conn.execute(
+                """
+                ALTER TABLE company_profile
+                ADD COLUMN IF NOT EXISTS language_preference TEXT DEFAULT 'en'
+                """
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+        company = conn.execute(
+            """
+            SELECT *
+            FROM company_profile
+            WHERE company_id = %s
+            """,
+            (cid,),
+        ).fetchone()
+
+        current_language = "en"
+        if company and "language_preference" in company.keys() and company["language_preference"]:
+            current_language = str(company["language_preference"]).strip().lower()
+            if current_language not in {"en", "es"}:
+                current_language = "en"
+
+        if request.method == "POST":
+            language_preference = (request.form.get("language_preference") or "en").strip().lower()
+            if language_preference not in {"en", "es"}:
+                language_preference = "en"
+
+            conn.execute(
+                """
+                UPDATE company_profile
+                SET language_preference = %s
+                WHERE company_id = %s
+                """,
+                (language_preference, cid),
+            )
+            conn.commit()
+
+            flash(
+                "Configuración de idioma actualizada."
+                if language_preference == "es"
+                else "Language setting updated."
+            )
+            return redirect(url_for("settings.settings_language"))
+
+        is_es = current_language == "es"
+
+        content = f"""
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+                <div>
+                    <h1 style="margin-bottom:6px;">{"Configuración de Idioma" if is_es else "Language Settings"}</h1>
+                    <div class="muted">{"Elige el idioma predeterminado para toda tu empresa." if is_es else "Choose the default language used across your company account."}</div>
+                </div>
+                <div class="row-actions">
+                    <a class="btn secondary" href="{url_for('settings.settings')}">{"Volver a Configuración" if is_es else "Back to Settings"}</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <form method="post">
+                {csrf_input()}
+                <div class="grid">
+                    <div>
+                        <label>{"Idioma Predeterminado" if is_es else "Default Language"}</label>
+                        <select name="language_preference">
+                            <option value="en" {"selected" if current_language == "en" else ""}>English</option>
+                            <option value="es" {"selected" if current_language == "es" else ""}>Español</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row-actions" style="margin-top:16px;">
+                    <button type="submit" class="btn success">{"Guardar Idioma" if is_es else "Save Language"}</button>
+                </div>
+            </form>
+        </div>
+        """
+        return render_page(content, "Configuración de Idioma" if is_es else "Language Settings")
+
+    finally:
+        conn.close()

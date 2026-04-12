@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{ _lang if _lang is defined and _lang else 'en' }}">
 <head>
 <meta charset="utf-8">
 <meta
@@ -12,6 +12,14 @@
 <title>{{ title or 'TerraLedger' }}</title>
 
 <link rel="stylesheet" href="{{ url_for('static', filename='css/help_assistant.css') }}">
+
+<script id="ui-text-json" type="application/json">
+{
+  "loading": {{ ('Cargando...' if _lang == 'es' else 'Loading...') | tojson }},
+  "unableToLoadNotifications": {{ ('No se pudieron cargar las notificaciones.' if _lang == 'es' else 'Unable to load notifications.') | tojson }},
+  "noNotifications": {{ ('Todavía no hay notificaciones.' if _lang == 'es' else 'No notifications yet.') | tojson }}
+}
+</script>
 
 <style>
 :root {
@@ -757,6 +765,10 @@ label {
     font-size: 0.75rem;
 }
 
+.help-suggestion-btn {
+    cursor: pointer;
+}
+
 /* LARGER TABLET */
 @media (max-width: 1100px) {
     .stats-grid,
@@ -1173,6 +1185,7 @@ label {
         min-width: 240px;
     }
 }
+
 </style>
 </head>
 
@@ -1182,7 +1195,7 @@ label {
 
 <div class="app-shell">
 
-    <aside class="sidebar" id="appSidebar">
+        <aside class="sidebar" id="appSidebar">
         <div class="sidebar-brand">
             <img src="/static/images/logo.png" class="sidebar-logo" alt="TerraLedger Logo">
             <div class="brand-text">
@@ -1194,25 +1207,45 @@ label {
         </div>
 
         <nav class="sidebar-nav">
-            <a class="{% if request.endpoint == 'dashboard.dashboard' %}active{% endif %}" href="{{ url_for('dashboard.dashboard') }}">Dashboard</a>
+            <a class="{% if request.endpoint == 'dashboard.dashboard' %}active{% endif %}" href="{{ url_for('dashboard.dashboard') }}">
+                {{ 'Tablero' if _lang == 'es' else 'Dashboard' }}
+            </a>
 
-            <a class="{% if request.endpoint == 'customers.customers' %}active{% endif %}" href="{{ url_for('customers.customers') }}">Customers</a>
+            <a class="{% if request.endpoint == 'customers.customers' %}active{% endif %}" href="{{ url_for('customers.customers') }}">
+                {{ 'Clientes' if _lang == 'es' else 'Customers' }}
+            </a>
 
-            <a class="{% if request.endpoint == 'employees.employees' %}active{% endif %}" href="{{ url_for('employees.employees') }}">Employees</a>
+            <a class="{% if request.endpoint == 'employees.employees' %}active{% endif %}" href="{{ url_for('employees.employees') }}">
+                {{ 'Empleados' if _lang == 'es' else 'Employees' }}
+            </a>
 
-            <a class="{% if request.endpoint and request.endpoint.startswith('employees.time_clock') %}active{% endif %}" href="{{ url_for('employees.time_clock') }}">Clock In / Out</a>
+            <a class="{% if request.endpoint and request.endpoint.startswith('employees.time_clock') %}active{% endif %}" href="{{ url_for('employees.time_clock') }}">
+                {{ 'Reloj de Entrada / Salida' if _lang == 'es' else 'Clock In / Out' }}
+            </a>
 
-            <a class="{% if request.endpoint == 'quotes.quotes' %}active{% endif %}" href="{{ url_for('quotes.quotes') }}">Quotes</a>
+            <a class="{% if request.endpoint == 'quotes.quotes' %}active{% endif %}" href="{{ url_for('quotes.quotes') }}">
+                {{ 'Cotizaciones' if _lang == 'es' else 'Quotes' }}
+            </a>
 
-            <a class="{% if request.endpoint == 'jobs.jobs' %}active{% endif %}" href="{{ url_for('jobs.jobs') }}">Jobs</a>
+            <a class="{% if request.endpoint == 'jobs.jobs' %}active{% endif %}" href="{{ url_for('jobs.jobs') }}">
+                {{ 'Trabajos' if _lang == 'es' else 'Jobs' }}
+            </a>
 
-            <a class="{% if request.endpoint == 'invoices.invoices' %}active{% endif %}" href="{{ url_for('invoices.invoices') }}">Invoices</a>
+            <a class="{% if request.endpoint == 'invoices.invoices' %}active{% endif %}" href="{{ url_for('invoices.invoices') }}">
+                {{ 'Facturas' if _lang == 'es' else 'Invoices' }}
+            </a>
 
-            <a class="{% if request.endpoint == 'messages.messages_page' %}active{% endif %}" href="{{ url_for('messages.messages_page') }}">Messages</a>
+            <a class="{% if request.endpoint == 'messages.messages_page' %}active{% endif %}" href="{{ url_for('messages.messages_page') }}">
+                {{ 'Mensajes' if _lang == 'es' else 'Messages' }}
+            </a>
 
-            <a class="{% if request.endpoint == 'calendar.calendar_page' %}active{% endif %}" href="{{ url_for('calendar.calendar_page') }}">Calendar</a>
+            <a class="{% if request.endpoint == 'calendar.calendar_page' %}active{% endif %}" href="{{ url_for('calendar.calendar_page') }}">
+                {{ 'Calendario' if _lang == 'es' else 'Calendar' }}
+            </a>
 
-            <a class="{% if request.endpoint == 'bookkeeping.bookkeeping' %}active{% endif %}" href="{{ url_for('bookkeeping.bookkeeping') }}">Bookkeeping</a>
+            <a class="{% if request.endpoint == 'bookkeeping.bookkeeping' %}active{% endif %}" href="{{ url_for('bookkeeping.bookkeeping') }}">
+                {{ 'Contabilidad' if _lang == 'es' else 'Bookkeeping' }}
+            </a>
         </nav>
     </aside>
 
@@ -1220,32 +1253,56 @@ label {
 
         <div class="topbar">
             <div class="topbar-left">
-                <button class="btn secondary mobile-menu-btn" id="mobileMenuButton" type="button">Menu</button>
+                <button class="btn secondary mobile-menu-btn" id="mobileMenuButton" type="button">
+                    {{ 'Menú' if _lang == 'es' else 'Menu' }}
+                </button>
             </div>
 
             <div class="topbar-right">
                 <div class="notification-menu-wrap">
-                    <button id="notificationBellButton" class="btn secondary notification-bell-btn" type="button" title="Notifications">
+                    <button
+                        id="notificationBellButton"
+                        class="btn secondary notification-bell-btn"
+                        type="button"
+                        title="{{ 'Notificaciones' if _lang == 'es' else 'Notifications' }}"
+                    >
                         🔔
                         <span id="notificationBellCount" class="notification-count" style="display:none;">0</span>
                     </button>
 
                     <div id="notificationMenu" class="notification-menu">
                         <div class="notification-menu-header">
-                            <strong>Notifications</strong>
-                            <a href="/notifications" class="small" style="text-decoration:none;">View All</a>
+                            <strong>{{ 'Notificaciones' if _lang == 'es' else 'Notifications' }}</strong>
+                            <a href="/notifications" class="small" style="text-decoration:none;">
+                                {{ 'Ver Todas' if _lang == 'es' else 'View All' }}
+                            </a>
                         </div>
 
                         <div id="notificationMenuBody" class="notification-menu-body">
-                            <div class="muted">Loading...</div>
+                            <div class="muted">{{ 'Cargando...' if _lang == 'es' else 'Loading...' }}</div>
                         </div>
                     </div>
                 </div>
 
-                <button class="btn secondary" type="button" onclick="openHelpAssistant()">Help</button>
+                <form method="post" action="{{ url_for('settings.settings_language') }}" style="display:inline;">
+                    {{ csrf_input() }}
+                    <input type="hidden" name="language_preference" value="{{ 'en' if _lang == 'es' else 'es' }}">
+                    <button type="submit" class="btn secondary" style="min-width:52px;">
+                        {{ 'EN' if _lang == 'es' else 'ES' }}
+                    </button>
+                </form>
+
+                <button class="btn secondary" type="button" onclick="openHelpAssistant()">
+                    {{ 'Ayuda' if _lang == 'es' else 'Help' }}
+                </button>
 
                 <div class="company-menu-wrap">
-                    <button id="companyMenuButtonTop" class="btn secondary" type="button" title="{{ session.get('company_name') }}">
+                    <button
+                        id="companyMenuButtonTop"
+                        class="btn secondary"
+                        type="button"
+                        title="{{ session.get('company_name') }}"
+                    >
                         {{ session.get('company_name') }} ▼
                     </button>
 
@@ -1255,13 +1312,30 @@ label {
                             <div style="font-size:.9rem; color:var(--text-soft);">{{ session.get('user_name') }}</div>
                         </div>
 
-                        <a class="company-menu-link" href="{{ url_for('payment_setup.payment_setup') }}">Payment Setup</a>
-                        <a class="company-menu-link" href="{{ url_for('messages.messaging_configuration') }}">Messaging Configuration</a>
-                        <a class="company-menu-link" href="{{ url_for('material_usage.annual_reports') }}">Annual Reports</a>
-                        <a class="company-menu-link" href="{{ url_for('settings.settings_1099') }}">1099 Center</a>
-                        <a class="company-menu-link" href="{{ url_for('settings.settings') }}">Settings</a>
-                        <a class="company-menu-link" href="{{ url_for('legal.terms') }}">Legal</a>
-                        <a class="company-menu-link danger" href="{{ url_for('auth.logout') }}">Logout</a>
+                        <a class="company-menu-link" href="{{ url_for('payment_setup.payment_setup') }}">
+                            {{ 'Configuración de Pagos' if _lang == 'es' else 'Payment Setup' }}
+                        </a>
+                        <a class="company-menu-link" href="{{ url_for('messages.messaging_configuration') }}">
+                            {{ 'Configuración de Mensajes' if _lang == 'es' else 'Messaging Configuration' }}
+                        </a>
+                        <a class="company-menu-link" href="{{ url_for('material_usage.annual_reports') }}">
+                            {{ 'Reportes Anuales' if _lang == 'es' else 'Annual Reports' }}
+                        </a>
+                        <a class="company-menu-link" href="{{ url_for('settings.settings_1099') }}">
+                            {{ 'Centro 1099' if _lang == 'es' else '1099 Center' }}
+                        </a>
+                        <a class="company-menu-link" href="{{ url_for('settings.settings_language') }}">
+                            {{ 'Idioma' if _lang == 'es' else 'Language' }}
+                        </a>
+                        <a class="company-menu-link" href="{{ url_for('settings.settings') }}">
+                            {{ 'Configuración' if _lang == 'es' else 'Settings' }}
+                        </a>
+                        <a class="company-menu-link" href="{{ url_for('legal.terms') }}">
+                            {{ 'Legal' if _lang == 'es' else 'Legal' }}
+                        </a>
+                        <a class="company-menu-link danger" href="{{ url_for('auth.logout') }}">
+                            {{ 'Cerrar Sesión' if _lang == 'es' else 'Logout' }}
+                        </a>
                     </div>
                 </div>
             </div>
@@ -1291,28 +1365,61 @@ label {
     <div class="help-assistant-panel">
         <div class="help-assistant-header">
             <div>
-                <div class="help-assistant-title">TerraLedger Assistant</div>
+                <div class="help-assistant-title">
+                    {{ 'Asistente de TerraLedger' if _lang == 'es' else 'TerraLedger Assistant' }}
+                </div>
                 <div class="help-assistant-subtitle">
-                    Ask about quotes, invoices, jobs, payroll, bookkeeping, users, employees, and settings.
+                    {{ 'Pregunta sobre cotizaciones, facturas, trabajos, nómina, contabilidad, usuarios, empleados y configuración.' if _lang == 'es' else 'Ask about quotes, invoices, jobs, payroll, bookkeeping, users, employees, and settings.' }}
                 </div>
             </div>
             <div class="help-assistant-header-actions">
-                <button type="button" class="btn secondary" onclick="clearHelpAssistantChat()">Clear</button>
-                <button type="button" class="btn secondary" onclick="closeHelpAssistant()">Close</button>
+                <button type="button" class="btn secondary" onclick="clearHelpAssistantChat()">
+                    {{ 'Limpiar' if _lang == 'es' else 'Clear' }}
+                </button>
+                <button type="button" class="btn secondary" onclick="closeHelpAssistant()">
+                    {{ 'Cerrar' if _lang == 'es' else 'Close' }}
+                </button>
             </div>
         </div>
 
         <div id="helpAssistantMessages" class="help-assistant-messages">
             <div class="help-assistant-message assistant">
-                Hi — I’m your TerraLedger assistant. Ask me how to do anything in the system.
+                {{ 'Hola — soy tu asistente de TerraLedger. Pregúntame cómo hacer cualquier cosa en el sistema.' if _lang == 'es' else 'Hi — I’m your TerraLedger assistant. Ask me how to do anything in the system.' }}
             </div>
         </div>
 
         <div class="help-assistant-suggestions">
-            <button type="button" onclick="sendSuggestedHelpPrompt('How do I create an invoice?')">How do I create an invoice?</button>
-            <button type="button" onclick="sendSuggestedHelpPrompt('How do I convert a quote into an invoice?')">Convert quote to invoice</button>
-            <button type="button" onclick="sendSuggestedHelpPrompt('How do I add an employee?')">How do I add an employee?</button>
-            <button type="button" onclick="sendSuggestedHelpPrompt('How do I record an expense?')">How do I record an expense?</button>
+            <button
+                type="button"
+                class="help-suggestion-btn"
+                data-prompt="{{ '¿Cómo creo una factura?' if _lang == 'es' else 'How do I create an invoice?' }}"
+            >
+                {{ '¿Cómo creo una factura?' if _lang == 'es' else 'How do I create an invoice?' }}
+            </button>
+
+            <button
+                type="button"
+                class="help-suggestion-btn"
+                data-prompt="{{ '¿Cómo convierto una cotización en factura?' if _lang == 'es' else 'How do I convert a quote into an invoice?' }}"
+            >
+                {{ 'Convertir cotización a factura' if _lang == 'es' else 'Convert quote to invoice' }}
+            </button>
+
+            <button
+                type="button"
+                class="help-suggestion-btn"
+                data-prompt="{{ '¿Cómo agrego un empleado?' if _lang == 'es' else 'How do I add an employee?' }}"
+            >
+                {{ '¿Cómo agrego un empleado?' if _lang == 'es' else 'How do I add an employee?' }}
+            </button>
+
+            <button
+                type="button"
+                class="help-suggestion-btn"
+                data-prompt="{{ '¿Cómo registro un gasto?' if _lang == 'es' else 'How do I record an expense?' }}"
+            >
+                {{ '¿Cómo registro un gasto?' if _lang == 'es' else 'How do I record an expense?' }}
+            </button>
         </div>
 
         <div class="help-assistant-input-wrap">
@@ -1320,15 +1427,34 @@ label {
                 id="helpAssistantInput"
                 class="help-assistant-input"
                 rows="3"
-                placeholder="Type your question here..."
+                placeholder="{{ 'Escribe tu pregunta aquí...' if _lang == 'es' else 'Type your question here...' }}"
             ></textarea>
-            <button type="button" class="btn" onclick="submitHelpAssistantMessage()">Send</button>
+            <button type="button" class="btn" onclick="submitHelpAssistantMessage()">
+                {{ 'Enviar' if _lang == 'es' else 'Send' }}
+            </button>
         </div>
     </div>
 </div>
 
+<script id="ui-text-json" type="application/json">
+{
+    "loading": {{ ('Cargando...' if _lang == 'es' else 'Loading...') | tojson }},
+    "unableToLoadNotifications": {{ ('No se pudieron cargar las notificaciones.' if _lang == 'es' else 'Unable to load notifications.') | tojson }},
+    "noNotifications": {{ ('Todavía no hay notificaciones.' if _lang == 'es' else 'No notifications yet.') | tojson }}
+}
+</script>
+
 <script>
 document.addEventListener("DOMContentLoaded", function () {
+    const uiTextEl = document.getElementById("ui-text-json");
+    const uiText = uiTextEl
+        ? JSON.parse(uiTextEl.textContent)
+        : {
+            loading: "Loading...",
+            unableToLoadNotifications: "Unable to load notifications.",
+            noNotifications: "No notifications yet."
+        };
+
     const body = document.body;
     body.classList.remove("sidebar-open");
 
@@ -1376,6 +1502,15 @@ document.addEventListener("DOMContentLoaded", function () {
         topMenu.style.display = topMenu.style.display === "block" ? "none" : "block";
     }
 
+    function escapeHtml(value) {
+        return String(value == null ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
+
     async function loadNotificationsIntoMenu() {
         if (!notificationMenuBody) return;
 
@@ -1390,14 +1525,18 @@ document.addEventListener("DOMContentLoaded", function () {
             const data = await response.json();
 
             if (!data.ok) {
-                notificationMenuBody.innerHTML = "<div class='muted' style='padding:8px;'>Unable to load notifications.</div>";
+                notificationMenuBody.innerHTML =
+                    "<div class='muted' style='padding:8px;'>" +
+                    uiText.unableToLoadNotifications +
+                    "</div>";
                 return;
             }
 
             if (notificationBellCount) {
                 if (data.unread_count > 0) {
                     notificationBellCount.style.display = "inline-flex";
-                    notificationBellCount.textContent = data.unread_count > 99 ? "99+" : String(data.unread_count);
+                    notificationBellCount.textContent =
+                        data.unread_count > 99 ? "99+" : String(data.unread_count);
                 } else {
                     notificationBellCount.style.display = "none";
                     notificationBellCount.textContent = "0";
@@ -1405,23 +1544,30 @@ document.addEventListener("DOMContentLoaded", function () {
             }
 
             if (!data.items || !data.items.length) {
-                notificationMenuBody.innerHTML = "<div class='muted' style='padding:8px;'>No notifications yet.</div>";
+                notificationMenuBody.innerHTML =
+                    "<div class='muted' style='padding:8px;'>" +
+                    uiText.noNotifications +
+                    "</div>";
                 return;
             }
 
             notificationMenuBody.innerHTML = data.items.map(item => {
                 const href = item.link && item.link.trim() ? item.link : "/notifications";
                 const unreadClass = item.is_read ? "" : "unread";
+
                 return `
-                    <a href="${href}" class="notification-menu-item ${unreadClass}">
-                        <div class="notification-menu-item-title">${item.title || ""}</div>
-                        <div class="notification-menu-item-message">${item.message || ""}</div>
-                        <div class="notification-menu-item-meta">${item.created_at || ""}</div>
+                    <a href="${escapeHtml(href)}" class="notification-menu-item ${unreadClass}">
+                        <div class="notification-menu-item-title">${escapeHtml(item.title || "")}</div>
+                        <div class="notification-menu-item-message">${escapeHtml(item.message || "")}</div>
+                        <div class="notification-menu-item-meta">${escapeHtml(item.created_at || "")}</div>
                     </a>
                 `;
             }).join("");
         } catch (err) {
-            notificationMenuBody.innerHTML = "<div class='muted' style='padding:8px;'>Unable to load notifications.</div>";
+            notificationMenuBody.innerHTML =
+                "<div class='muted' style='padding:8px;'>" +
+                uiText.unableToLoadNotifications +
+                "</div>";
         }
     }
 
@@ -1440,7 +1586,11 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         notificationMenu.style.display = "block";
-        notificationMenuBody.innerHTML = "<div class='muted' style='padding:8px;'>Loading...</div>";
+        notificationMenuBody.innerHTML =
+            "<div class='muted' style='padding:8px;'>" +
+            uiText.loading +
+            "</div>";
+
         await loadNotificationsIntoMenu();
     }
 
@@ -1457,6 +1607,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function toggleSidebar(e) {
         if (e) e.stopPropagation();
+
         if (body.classList.contains("sidebar-open")) {
             closeSidebar();
         } else {
@@ -1484,19 +1635,27 @@ document.addEventListener("DOMContentLoaded", function () {
 
     if (mobileMenuButton) {
         mobileMenuButton.addEventListener("click", toggleSidebar);
-        mobileMenuButton.addEventListener("touchend", function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            toggleSidebar();
-        }, { passive: false });
+        mobileMenuButton.addEventListener(
+            "touchend",
+            function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleSidebar();
+            },
+            { passive: false }
+        );
     }
 
     if (mobileSidebarOverlay) {
         mobileSidebarOverlay.addEventListener("click", closeSidebar);
-        mobileSidebarOverlay.addEventListener("touchend", function (e) {
-            e.preventDefault();
-            closeSidebar();
-        }, { passive: false });
+        mobileSidebarOverlay.addEventListener(
+            "touchend",
+            function (e) {
+                e.preventDefault();
+                closeSidebar();
+            },
+            { passive: false }
+        );
     }
 
     if (appSidebar) {
@@ -1507,13 +1666,23 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         });
 
-        appSidebar.addEventListener("touchend", function (e) {
-            const clickedLink = e.target.closest("a");
-            if (window.innerWidth <= 820 && clickedLink) {
-                closeSidebar();
-            }
-        }, { passive: true });
+        appSidebar.addEventListener(
+            "touchend",
+            function (e) {
+                const clickedLink = e.target.closest("a");
+                if (window.innerWidth <= 820 && clickedLink) {
+                    closeSidebar();
+                }
+            },
+            { passive: true }
+        );
     }
+
+    document.querySelectorAll(".help-suggestion-btn").forEach(btn => {
+        btn.addEventListener("click", function () {
+            sendSuggestedHelpPrompt(this.dataset.prompt || "");
+        });
+    });
 
     document.addEventListener("click", function () {
         closeCompanyMenu();

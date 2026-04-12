@@ -753,6 +753,19 @@ def ensure_billing_tables():
     conn.commit()
     conn.close()
 
+def ensure_company_language_column():
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            """
+            ALTER TABLE company_profile
+            ADD COLUMN IF NOT EXISTS language_preference TEXT DEFAULT 'en'
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
 
 def ensure_job_item_columns():
     conn = get_db_connection()

@@ -125,3 +125,29 @@ def fix_invoice_statuses():
         conn.close()
 
     return redirect(url_for("invoices.invoices"))
+
+@admin_bp.route("/admin/fix_company_language")
+@login_required
+def fix_company_language():
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            """
+            ALTER TABLE company_profile
+            ADD COLUMN IF NOT EXISTS language_preference TEXT DEFAULT 'en'
+            """
+        )
+        conn.execute(
+            """
+            UPDATE company_profile
+            SET language_preference = 'en'
+            WHERE language_preference IS NULL OR TRIM(language_preference) = ''
+            """
+        )
+        conn.commit()
+        return "company_profile.language_preference fixed successfully."
+    except Exception as e:
+        conn.rollback()
+        return f"Error: {e}"
+    finally:
+        conn.close()
