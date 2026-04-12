@@ -277,11 +277,17 @@ def dashboard():
 
         upcoming_jobs = conn.execute(
             """
-            SELECT j.id, j.title, j.status, c.name AS customer_name
+            SELECT
+                j.id,
+                j.title,
+                j.status,
+                j.scheduled_date,
+                j.scheduled_start_time,
+                c.name AS customer_name
             FROM jobs j
             JOIN customers c ON j.customer_id = c.id
             WHERE j.company_id = %s
-            ORDER BY j.id DESC
+            ORDER BY j.scheduled_date ASC NULLS LAST, j.id ASC
             LIMIT 8
             """,
             (cid,),
@@ -375,6 +381,7 @@ def dashboard():
             <td>#{r['id']}</td>
             <td>{_safe_text(r['title'])}</td>
             <td>{_safe_text(r['customer_name'])}</td>
+            <td>{_safe_text(r['scheduled_date'])}</td>
             <td>{_safe_text(r['status'])}</td>
             <td>
                 <a class='btn secondary small dashboard-btn' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
@@ -446,6 +453,8 @@ def dashboard():
             </div>
             <div class='mobile-list-grid'>
                 <div><span>Customer</span><strong>{_safe_text(r['customer_name'])}</strong></div>
+                <div><span>Date</span><strong>{_safe_text(r['scheduled_date'])}</strong></div>
+                <div><span>Start</span><strong>{_safe_text(r['scheduled_start_time'])}</strong></div>
                 <div><span>Status</span><strong>{_safe_text(r['status'])}</strong></div>
             </div>
             <div class='mobile-list-actions'>
@@ -831,6 +840,7 @@ def dashboard():
                             <th>ID</th>
                             <th>Title</th>
                             <th>Customer</th>
+                            <th>Date</th>
                             <th>Status</th>
                             <th></th>
                         </tr>

@@ -2435,7 +2435,7 @@ def edit_recurring_schedule(schedule_id):
          AND i.company_id = j.company_id
         WHERE j.company_id = %s
           AND j.recurring_schedule_id = %s
-        ORDER BY j.scheduled_date DESC NULLS LAST, j.id DESC
+        ORDER BY j.scheduled_date ASC NULLS LAST, j.id ASC
         LIMIT 25
         """,
         (cid, schedule_id),
