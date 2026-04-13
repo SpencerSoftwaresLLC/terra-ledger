@@ -9,6 +9,26 @@ print("NOTIFICATIONS ROUTES LOADED", flush=True)
 notifications_bp = Blueprint("notifications", __name__)
 
 
+# =========================
+# Language Helpers
+# =========================
+
+def _lang():
+    return "es" if session.get("language") == "es" else "en"
+
+
+def _is_es():
+    return _lang() == "es"
+
+
+def _t(en, es):
+    return es if _is_es() else en
+
+
+# =========================
+# Table / Data Helpers
+# =========================
+
 def ensure_notifications_table():
     conn = get_db_connection()
     try:
@@ -115,6 +135,10 @@ def get_unread_notification_count(company_id, user_id=None):
         conn.close()
 
 
+# =========================
+# Routes
+# =========================
+
 @notifications_bp.route("/notifications")
 @login_required
 @subscription_required
@@ -123,7 +147,7 @@ def notifications_page():
     user_id = session.get("user_id")
 
     if not company_id:
-        flash("Company session not found.")
+        flash(_t("Company session not found.", "No se encontró la sesión de la empresa."))
         return redirect(url_for("dashboard.dashboard"))
 
     ensure_notifications_table()
@@ -133,7 +157,7 @@ def notifications_page():
 
     cards = ""
     for row in rows:
-        badge = "Unread" if not row["is_read"] else "Read"
+        badge = _t("Unread", "No leída") if not row["is_read"] else _t("Read", "Leída")
         badge_class = "unread" if not row["is_read"] else "read"
 
         actions = ""
@@ -141,13 +165,13 @@ def notifications_page():
             actions += f"""
             <form method="post" action="{url_for('notifications.mark_notification_read', notification_id=row['id'])}" class="inline-form">
                 <input type="hidden" name="csrf_token" value="{page_csrf}">
-                <button class="btn secondary small" type="submit">Mark Read</button>
+                <button class="btn secondary small" type="submit">{_t("Mark Read", "Marcar como leída")}</button>
             </form>
             """
 
         if row["link"]:
             actions += f"""
-            <a class="btn small" href="{row['link']}">Open</a>
+            <a class="btn small" href="{row['link']}">{_t("Open", "Abrir")}</a>
             """
 
         cards += f"""
@@ -167,6 +191,14 @@ def notifications_page():
             </div>
         </div>
         """
+
+    page_title = _t("Notifications", "Notificaciones")
+    page_subtitle = _t(
+        "Recent activity across messages and other events.",
+        "Actividad reciente en mensajes y otros eventos."
+    )
+    mark_all_read_label = _t("Mark All Read", "Marcar todas como leídas")
+    no_notifications_label = _t("No notifications yet.", "Todavía no hay notificaciones.")
 
     content = f"""
     <style>
@@ -249,13 +281,13 @@ def notifications_page():
         <div class="card">
             <div class="section-head">
                 <div>
-                    <h1 style="margin-bottom:6px;">Notifications</h1>
-                    <div class="muted">Recent activity across messages and other events.</div>
+                    <h1 style="margin-bottom:6px;">{page_title}</h1>
+                    <div class="muted">{page_subtitle}</div>
                 </div>
                 <div class="row-actions">
                     <form method="post" action="{url_for('notifications.mark_all_notifications_read')}" class="inline-form">
                         <input type="hidden" name="csrf_token" value="{page_csrf}">
-                        <button class="btn secondary" type="submit">Mark All Read</button>
+                        <button class="btn secondary" type="submit">{mark_all_read_label}</button>
                     </form>
                 </div>
             </div>
@@ -263,12 +295,12 @@ def notifications_page():
 
         <div class="card">
             <div class="notification-list">
-                {cards or "<div class='muted'>No notifications yet.</div>"}
+                {cards or f"<div class='muted'>{no_notifications_label}</div>"}
             </div>
         </div>
     </div>
     """
-    return render_page(content, "Notifications")
+    return render_page(content, page_title)
 
 
 @notifications_bp.route("/notifications/mark-read/<int:notification_id>", methods=["POST"])
@@ -279,7 +311,7 @@ def mark_notification_read(notification_id):
     user_id = session.get("user_id")
 
     if not company_id:
-        flash("Company session not found.")
+        flash(_t("Company session not found.", "No se encontró la sesión de la empresa."))
         return redirect(url_for("dashboard.dashboard"))
 
     ensure_notifications_table()
@@ -297,7 +329,7 @@ def mark_notification_read(notification_id):
     finally:
         conn.close()
 
-    flash("Notification marked as read.")
+    flash(_t("Notification marked as read.", "Notificación marcada como leída."))
     return redirect(request.referrer or url_for("notifications.notifications_page"))
 
 
@@ -309,7 +341,7 @@ def mark_all_notifications_read():
     user_id = session.get("user_id")
 
     if not company_id:
-        flash("Company session not found.")
+        flash(_t("Company session not found.", "No se encontró la sesión de la empresa."))
         return redirect(url_for("dashboard.dashboard"))
 
     ensure_notifications_table()
@@ -327,7 +359,7 @@ def mark_all_notifications_read():
     finally:
         conn.close()
 
-    flash("Notifications marked as read.")
+    flash(_t("Notifications marked as read.", "Notificaciones marcadas como leídas."))
     return redirect(request.referrer or url_for("notifications.notifications_page"))
 
 
@@ -355,10 +387,22 @@ def notifications_dropdown():
             "link": row["link"] or "",
             "is_read": bool(row["is_read"]),
             "created_at": str(row["created_at"] or ""),
+            "badge_label": _t("Unread", "No leída") if not row["is_read"] else _t("Read", "Leída"),
+            "open_label": _t("Open", "Abrir"),
+            "mark_read_label": _t("Mark Read", "Marcar como leída"),
         })
 
     return jsonify({
         "ok": True,
         "items": items,
         "unread_count": unread_count,
+        "labels": {
+            "notifications": _t("Notifications", "Notificaciones"),
+            "no_notifications": _t("No notifications yet.", "Todavía no hay notificaciones."),
+            "mark_all_read": _t("Mark All Read", "Marcar todas como leídas"),
+            "unread": _t("Unread", "No leída"),
+            "read": _t("Read", "Leída"),
+            "open": _t("Open", "Abrir"),
+            "mark_read": _t("Mark Read", "Marcar como leída"),
+        }
     })

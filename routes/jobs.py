@@ -17,32 +17,40 @@ from utils.recurring import auto_generate_recurring_jobs
 jobs_bp = Blueprint("jobs", __name__)
 
 
+def _is_es():
+    return str(session.get("language") or "en").strip().lower() == "es"
+
+
+def _t(en_text, es_text):
+    return es_text if _is_es() else en_text
+
+
 ITEM_TYPE_LABELS = {
-    "mulch": "Mulch",
-    "stone": "Stone",
-    "dump_fee": "Dump Fee",
-    "plants": "Plants",
-    "trees": "Trees",
-    "soil": "Soil",
-    "fertilizer": "Fertilizer",
-    "hardscape_material": "Hardscape Material",
-    "labor": "Labor",
-    "equipment": "Equipment",
-    "delivery": "Delivery",
-    "fuel": "Fuel",
-    "misc": "Misc",
-    "material": "Material",
+    "mulch": {"en": "Mulch", "es": "Mantillo"},
+    "stone": {"en": "Stone", "es": "Piedra"},
+    "dump_fee": {"en": "Dump Fee", "es": "Tarifa de vertedero"},
+    "plants": {"en": "Plants", "es": "Plantas"},
+    "trees": {"en": "Trees", "es": "Árboles"},
+    "soil": {"en": "Soil", "es": "Tierra"},
+    "fertilizer": {"en": "Fertilizer", "es": "Fertilizante"},
+    "hardscape_material": {"en": "Hardscape Material", "es": "Material de paisajismo duro"},
+    "labor": {"en": "Labor", "es": "Mano de obra"},
+    "equipment": {"en": "Equipment", "es": "Equipo"},
+    "delivery": {"en": "Delivery", "es": "Entrega"},
+    "fuel": {"en": "Fuel", "es": "Combustible"},
+    "misc": {"en": "Misc", "es": "Varios"},
+    "material": {"en": "Material", "es": "Material"},
 }
 
 JOB_SERVICE_TYPE_LABELS = {
-    "mowing": "Mowing",
-    "mulch": "Mulch",
-    "cleanup": "Cleanup",
-    "installation": "Installation",
-    "hardscape": "Hardscape",
-    "snow_removal": "Snow Removal",
-    "fertilizing": "Fertilizing",
-    "other": "Other",
+    "mowing": {"en": "Mowing", "es": "Corte de césped"},
+    "mulch": {"en": "Mulch", "es": "Mantillo"},
+    "cleanup": {"en": "Cleanup", "es": "Limpieza"},
+    "installation": {"en": "Installation", "es": "Instalación"},
+    "hardscape": {"en": "Hardscape", "es": "Paisajismo duro"},
+    "snow_removal": {"en": "Snow Removal", "es": "Remoción de nieve"},
+    "fertilizing": {"en": "Fertilizing", "es": "Fertilización"},
+    "other": {"en": "Other", "es": "Otro"},
 }
 
 
@@ -325,7 +333,8 @@ def normalize_service_type(value):
 
 def display_service_type(value):
     key = normalize_service_type(value)
-    return JOB_SERVICE_TYPE_LABELS.get(key, "Other")
+    label = JOB_SERVICE_TYPE_LABELS.get(key, JOB_SERVICE_TYPE_LABELS["other"])
+    return label["es"] if _is_es() else label["en"]
 
 
 def service_type_badge_class(value):
@@ -344,7 +353,8 @@ def service_type_select_options(selected_value="other"):
     options = []
     for key, label in JOB_SERVICE_TYPE_LABELS.items():
         selected_attr = " selected" if key == selected_value else ""
-        options.append(f"<option value='{key}'{selected_attr}>{escape(label)}</option>")
+        display_label = label["es"] if _is_es() else label["en"]
+        options.append(f"<option value='{key}'{selected_attr}>{escape(display_label)}</option>")
     return "".join(options)
 
 
@@ -360,14 +370,14 @@ def interval_mode_from_weeks(interval_weeks):
 def interval_label(interval_weeks):
     weeks = safe_int(interval_weeks, 1)
     if weeks <= 1:
-        return "Weekly"
+        return _t("Weekly", "Semanal")
     if weeks == 2:
-        return "Every 2 Weeks"
-    return f"Every {weeks} Weeks"
+        return _t("Every 2 Weeks", "Cada 2 semanas")
+    return _t(f"Every {weeks} Weeks", f"Cada {weeks} semanas")
 
 
 def schedule_status_badge(active):
-    return "Active" if active else "Paused"
+    return _t("Active", "Activo") if active else _t("Paused", "Pausado")
 
 
 def schedule_status_class(active):
@@ -386,12 +396,12 @@ def derive_interval_weeks_from_form(form):
 
 def recurring_schedule_title_default(title):
     title = clean_text_input(title)
-    return title or "Recurring Mowing"
+    return title or _t("Recurring Mowing", "Corte recurrente de césped")
 
 
 def default_mowing_status(value="Scheduled"):
     text = clean_text_input(value)
-    return text or "Scheduled"
+    return text or _t("Scheduled", "Programado")
 
 
 def _time_to_minutes(value):
@@ -440,6 +450,7 @@ def check_schedule_conflict(conn, company_id, scheduled_date, start_time, end_ti
 
     return None
 
+
 def upcoming_schedule_preview(start_date_value, interval_weeks, count=3, end_date_value=None):
     preview = []
 
@@ -459,11 +470,14 @@ def upcoming_schedule_preview(start_date_value, interval_weeks, count=3, end_dat
 
     return ", ".join(preview)
 
+
 def display_item_type(value):
     key = clean_text_input(value).lower()
     if key in ITEM_TYPE_LABELS:
-        return ITEM_TYPE_LABELS[key]
-    return key.replace("_", " ").title() if key else "Material"
+        label = ITEM_TYPE_LABELS[key]
+        return label["es"] if _is_es() else label["en"]
+    return key.replace("_", " ").title() if key else _t("Material", "Material")
+
 
 def _safe_float(value, default=0.0):
     try:
@@ -485,15 +499,15 @@ def default_unit_for_item_type(item_type):
     key = clean_text_input(item_type).lower()
 
     if key == "mulch":
-        return "Yards"
+        return _t("Yards", "Yardas")
     if key == "stone":
-        return "Tons"
+        return _t("Tons", "Toneladas")
     if key == "soil":
-        return "Yards"
+        return _t("Yards", "Yardas")
     if key == "fertilizer":
-        return "Bags"
+        return _t("Bags", "Bolsas")
     if key == "hardscape_material":
-        return "Tons"
+        return _t("Tons", "Toneladas")
     if key == "plants":
         return "EA"
     if key == "trees":
@@ -501,15 +515,15 @@ def default_unit_for_item_type(item_type):
     if key == "labor":
         return "hr"
     if key == "dump_fee":
-        return "fee"
+        return _t("fee", "tarifa")
 
     return ""
 
 
 def build_job_update_email(job, update_type):
     company_name = clean_text_input(session.get("company_name")) or "TerraLedger"
-    customer_name = clean_text_input(job.get("customer_name")) or "Customer"
-    job_title = clean_text_input(job.get("title")) or "your scheduled job"
+    customer_name = clean_text_input(job.get("customer_name")) or _t("Customer", "Cliente")
+    job_title = clean_text_input(job.get("title")) or _t("your scheduled job", "tu trabajo programado")
     scheduled_date = clean_text_input(job.get("scheduled_date"))
     start_time = clean_text_input(job.get("scheduled_start_time"))
     end_time = clean_text_input(job.get("scheduled_end_time"))
@@ -519,34 +533,52 @@ def build_job_update_email(job, update_type):
 
     schedule_line = ""
     if scheduled_date and start_time and end_time:
-        schedule_line = f"{scheduled_date} from {start_time} to {end_time}"
+        schedule_line = _t(
+            f"{scheduled_date} from {start_time} to {end_time}",
+            f"{scheduled_date} de {start_time} a {end_time}",
+        )
     elif scheduled_date and start_time:
-        schedule_line = f"{scheduled_date} at {start_time}"
+        schedule_line = _t(
+            f"{scheduled_date} at {start_time}",
+            f"{scheduled_date} a las {start_time}",
+        )
     elif scheduled_date:
         schedule_line = scheduled_date
 
     if update_type == "on_the_way":
-        subject = f"{company_name}: We are on the way"
-        intro = f"Hello {customer_name},<br><br>We are on the way for <strong>{escape(job_title)}</strong>."
+        subject = _t(f"{company_name}: We are on the way", f"{company_name}: Vamos en camino")
+        intro = _t(
+            f"Hello {customer_name},<br><br>We are on the way for <strong>{escape(job_title)}</strong>.",
+            f"Hola {customer_name},<br><br>Vamos en camino para <strong>{escape(job_title)}</strong>.",
+        )
     elif update_type == "job_started":
-        subject = f"{company_name}: Job started"
-        intro = f"Hello {customer_name},<br><br>We have started <strong>{escape(job_title)}</strong>."
+        subject = _t(f"{company_name}: Job started", f"{company_name}: Trabajo iniciado")
+        intro = _t(
+            f"Hello {customer_name},<br><br>We have started <strong>{escape(job_title)}</strong>.",
+            f"Hola {customer_name},<br><br>Hemos comenzado <strong>{escape(job_title)}</strong>.",
+        )
     elif update_type == "job_completed":
-        subject = f"{company_name}: Job completed"
-        intro = f"Hello {customer_name},<br><br>Your job <strong>{escape(job_title)}</strong> has been completed."
+        subject = _t(f"{company_name}: Job completed", f"{company_name}: Trabajo completado")
+        intro = _t(
+            f"Hello {customer_name},<br><br>Your job <strong>{escape(job_title)}</strong> has been completed.",
+            f"Hola {customer_name},<br><br>Tu trabajo <strong>{escape(job_title)}</strong> ha sido completado.",
+        )
     else:
-        subject = f"{company_name}: Job update"
-        intro = f"Hello {customer_name},<br><br>Here is an update for <strong>{escape(job_title)}</strong>."
+        subject = _t(f"{company_name}: Job update", f"{company_name}: Actualización del trabajo")
+        intro = _t(
+            f"Hello {customer_name},<br><br>Here is an update for <strong>{escape(job_title)}</strong>.",
+            f"Hola {customer_name},<br><br>Aquí tienes una actualización para <strong>{escape(job_title)}</strong>.",
+        )
 
     details = []
     if service_type_label:
-        details.append(f"<strong>Service Type:</strong> {escape(service_type_label)}")
+        details.append(f"<strong>{escape(_t('Service Type:', 'Tipo de servicio:'))}</strong> {escape(service_type_label)}")
     if schedule_line:
-        details.append(f"<strong>Scheduled:</strong> {escape(schedule_line)}")
+        details.append(f"<strong>{escape(_t('Scheduled:', 'Programado:'))}</strong> {escape(schedule_line)}")
     if address:
-        details.append(f"<strong>Address:</strong> {escape(address)}")
+        details.append(f"<strong>{escape(_t('Address:', 'Dirección:'))}</strong> {escape(address)}")
     if assigned_to:
-        details.append(f"<strong>Assigned To:</strong> {escape(assigned_to)}")
+        details.append(f"<strong>{escape(_t('Assigned To:', 'Asignado a:'))}</strong> {escape(assigned_to)}")
 
     details_html = "<br>".join(details)
 
@@ -555,37 +587,37 @@ def build_job_update_email(job, update_type):
         {intro}
         {'<br><br>' + details_html if details_html else ''}
         <br><br>
-        Thank you,<br>
+        {escape(_t('Thank you,', 'Gracias,'))}<br>
         {escape(company_name)}
     </div>
     """
 
     text_parts = [
-        f"Hello {customer_name},",
+        _t(f"Hello {customer_name},", f"Hola {customer_name},"),
         "",
     ]
 
     if update_type == "on_the_way":
-        text_parts.append(f"We are on the way for {job_title}.")
+        text_parts.append(_t(f"We are on the way for {job_title}.", f"Vamos en camino para {job_title}."))
     elif update_type == "job_started":
-        text_parts.append(f"We have started {job_title}.")
+        text_parts.append(_t(f"We have started {job_title}.", f"Hemos comenzado {job_title}."))
     elif update_type == "job_completed":
-        text_parts.append(f"Your job {job_title} has been completed.")
+        text_parts.append(_t(f"Your job {job_title} has been completed.", f"Tu trabajo {job_title} ha sido completado."))
     else:
-        text_parts.append(f"Here is an update for {job_title}.")
+        text_parts.append(_t(f"Here is an update for {job_title}.", f"Aquí tienes una actualización para {job_title}."))
 
     if service_type_label:
-        text_parts.append(f"Service Type: {service_type_label}")
+        text_parts.append(_t(f"Service Type: {service_type_label}", f"Tipo de servicio: {service_type_label}"))
     if schedule_line:
-        text_parts.append(f"Scheduled: {schedule_line}")
+        text_parts.append(_t(f"Scheduled: {schedule_line}", f"Programado: {schedule_line}"))
     if address:
-        text_parts.append(f"Address: {address}")
+        text_parts.append(_t(f"Address: {address}", f"Dirección: {address}"))
     if assigned_to:
-        text_parts.append(f"Assigned To: {assigned_to}")
+        text_parts.append(_t(f"Assigned To: {assigned_to}", f"Asignado a: {assigned_to}"))
 
     text_parts.extend([
         "",
-        "Thank you,",
+        _t("Thank you,", "Gracias,"),
         company_name,
     ])
 
@@ -613,7 +645,8 @@ def send_job_update_email(company_id, customer_email, job, update_type, user_id=
 
 def get_schedule_job_title(schedule_row):
     title = clean_text_input(schedule_row.get("title")) if hasattr(schedule_row, "get") else clean_text_input(schedule_row["title"])
-    return title or "Recurring Mowing"
+    return title or _t("Recurring Mowing", "Corte recurrente de césped")
+
 
 def get_recurring_schedule_items(conn, company_id, schedule_id):
     return conn.execute(
@@ -649,21 +682,21 @@ def copy_recurring_schedule_items_to_job(conn, schedule_id, company_id, job_id):
             continue
 
         if item_type == "mulch" and not unit:
-            unit = "Yards"
+            unit = _t("Yards", "Yardas")
         elif item_type == "stone" and not unit:
-            unit = "Tons"
+            unit = _t("Tons", "Toneladas")
         elif item_type == "soil" and not unit:
-            unit = "Yards"
+            unit = _t("Yards", "Yardas")
         elif item_type == "hardscape_material" and not unit:
-            unit = "Tons"
+            unit = _t("Tons", "Toneladas")
         elif item_type == "fuel" and not unit:
-            unit = "Gallons"
+            unit = _t("Gallons", "Galones")
         elif item_type == "delivery" and not unit:
-            unit = "Miles"
+            unit = _t("Miles", "Millas")
         elif item_type == "labor" and not unit:
-            unit = "Hours"
+            unit = _t("Hours", "Horas")
         elif item_type == "equipment" and not unit:
-            unit = "Rentals"
+            unit = _t("Rentals", "Alquileres")
         elif item_type in ["plants", "trees", "misc", "dump_fee"]:
             unit = ""
 
@@ -741,7 +774,10 @@ def create_job_from_recurring_schedule(conn, schedule_row, scheduled_date):
     title = get_schedule_job_title(schedule_row)
     service_type = normalize_service_type(schedule_row["service_type"] or "mowing")
     notes = clean_text_input(schedule_row["notes"])
-    schedule_note = f"Auto-generated from recurring mowing schedule #{schedule_row['id']}."
+    schedule_note = _t(
+        f"Auto-generated from recurring mowing schedule #{schedule_row['id']}.",
+        f"Generado automáticamente desde el programa recurrente de corte #{schedule_row['id']}.",
+    )
     notes_final = schedule_note if not notes else f"{schedule_note}\n\n{notes}"
 
     cur = conn.cursor()
@@ -812,23 +848,23 @@ def create_job_from_recurring_schedule(conn, schedule_row, scheduled_date):
             qty = 1.0
 
         if item_type == "mulch" and not unit:
-            unit = "Yards"
+            unit = _t("Yards", "Yardas")
         elif item_type == "stone" and not unit:
-            unit = "Tons"
+            unit = _t("Tons", "Toneladas")
         elif item_type == "soil" and not unit:
-            unit = "Yards"
+            unit = _t("Yards", "Yardas")
         elif item_type == "hardscape_material" and not unit:
-            unit = "Tons"
+            unit = _t("Tons", "Toneladas")
         elif item_type == "fuel" and not unit:
-            unit = "Gallons"
+            unit = _t("Gallons", "Galones")
         elif item_type == "delivery" and not unit:
-            unit = "Miles"
+            unit = _t("Miles", "Millas")
         elif item_type == "labor" and not unit:
-            unit = "Hours"
+            unit = _t("Hours", "Horas")
         elif item_type == "equipment" and not unit:
-            unit = "Rentals"
+            unit = _t("Rentals", "Alquileres")
         elif item_type == "fertilizer" and not unit:
-            unit = "Bags"
+            unit = _t("Bags", "Bolsas")
         elif item_type in ["plants", "trees", "misc", "dump_fee"]:
             unit = ""
 
@@ -923,7 +959,7 @@ def jobs():
 
         if not customer_id:
             conn.close()
-            flash("Please select a customer from the search results.")
+            flash(_t("Please select a customer from the search results.", "Selecciona un cliente de los resultados de búsqueda."))
             return redirect(url_for("jobs.jobs"))
 
         title = clean_text_input(request.form.get("title", ""))
@@ -932,13 +968,13 @@ def jobs():
         scheduled_start_time = clean_text_input(request.form.get("scheduled_start_time", ""))
         scheduled_end_time = clean_text_input(request.form.get("scheduled_end_time", ""))
         assigned_to = clean_text_input(request.form.get("assigned_to", ""))
-        status = clean_text_input(request.form.get("status", "Scheduled")) or "Scheduled"
+        status = clean_text_input(request.form.get("status", _t("Scheduled", "Programado"))) or _t("Scheduled", "Programado")
         address = clean_text_input(request.form.get("address", ""))
         notes = clean_text_input(request.form.get("notes", ""))
 
         if not title:
             conn.close()
-            flash("Job title is required.")
+            flash(_t("Job title is required.", "El título del trabajo es obligatorio."))
             return redirect(url_for("jobs.jobs"))
 
         conflict = check_schedule_conflict(
@@ -953,8 +989,10 @@ def jobs():
         if conflict:
             conn.close()
             flash(
-                f"Schedule conflict: '{conflict['title']}' is already scheduled for {assigned_to} "
-                f"from {conflict['start']} to {conflict['end']}."
+                _t(
+                    f"Schedule conflict: '{conflict['title']}' is already scheduled for {assigned_to} from {conflict['start']} to {conflict['end']}.",
+                    f"Conflicto de horario: '{conflict['title']}' ya está programado para {assigned_to} de {conflict['start']} a {conflict['end']}.",
+                )
             )
             return redirect(url_for("jobs.jobs"))
 
@@ -1002,10 +1040,10 @@ def jobs():
         conn.close()
 
         if not job_id:
-            flash("Could not create job.")
+            flash(_t("Could not create job.", "No se pudo crear el trabajo."))
             return redirect(url_for("jobs.jobs"))
 
-        flash("Job created.")
+        flash(_t("Job created.", "Trabajo creado."))
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     rows = conn.execute(
@@ -1095,21 +1133,22 @@ def jobs():
         if r["recurring_schedule_id"]:
             recurring_link_html = (
                 f"<div class='small muted' style='margin-top:4px;'>"
-                f"Recurring: <a href='/jobs/recurring/{r['recurring_schedule_id']}/edit'>"
-                f"Schedule #{r['recurring_schedule_id']}</a></div>"
+                f"{escape(_t('Recurring:', 'Recurrente:'))} "
+                f"<a href='/jobs/recurring/{r['recurring_schedule_id']}/edit'>"
+                f"{escape(_t('Schedule', 'Programa'))} #{r['recurring_schedule_id']}</a></div>"
             )
 
         invoice_action_html = ""
         if r["invoice_id"]:
-            invoice_label = clean_text_input(r["invoice_number"]) or f"Invoice #{r['invoice_id']}"
+            invoice_label = clean_text_input(r["invoice_number"]) or f"{_t('Invoice', 'Factura')} #{r['invoice_id']}"
             invoice_action_html = (
                 f"<a class='btn secondary small' href='{url_for('invoices.view_invoice', invoice_id=r['invoice_id'])}'>"
-                f"View {escape(invoice_label)}</a>"
+                f"{escape(_t('View', 'Ver'))} {escape(invoice_label)}</a>"
             )
         else:
             invoice_action_html = (
                 f"<a class='btn success small' href='{url_for('jobs.convert_job_to_invoice', job_id=r['id'])}'>"
-                f"Convert to Invoice</a>"
+                f"{escape(_t('Convert to Invoice', 'Convertir en factura'))}</a>"
             )
 
         job_row_list.append(
@@ -1132,15 +1171,15 @@ def jobs():
                 <td class='money jobs-profit'>${safe_float(r['profit']):.2f}</td>
                 <td class='wrap'>
                     <div class='static-actions'>
-                        <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
-                        <a class='btn warning small' href='{url_for("jobs.edit_job", job_id=r["id"])}'>Edit Job</a>
+                        <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>{_t("View", "Ver")}</a>
+                        <a class='btn warning small' href='{url_for("jobs.edit_job", job_id=r["id"])}'>{_t("Edit Job", "Editar trabajo")}</a>
                         {invoice_action_html}
                         <form method='post'
                               action='{url_for("jobs.delete_job", job_id=r["id"])}'
                               style='margin:0;'
-                              onsubmit="return confirm('Delete this job and all items?');">
+                              onsubmit="return confirm('{_t("Delete this job and all items?", "¿Eliminar este trabajo y todos sus artículos?")}');">
                             <input type="hidden" name="csrf_token" value="{delete_csrf}">
-                            <button class='btn danger small' type='submit'>Delete Job</button>
+                            <button class='btn danger small' type='submit'>{_t("Delete Job", "Eliminar trabajo")}</button>
                         </form>
                     </div>
                 </td>
@@ -1152,21 +1191,22 @@ def jobs():
         if r["recurring_schedule_id"]:
             mobile_recurring = (
                 f"<div style='margin-top:6px;' class='muted small'>"
-                f"Recurring: <a href='/jobs/recurring/{r['recurring_schedule_id']}/edit'>"
-                f"Schedule #{r['recurring_schedule_id']}</a></div>"
+                f"{escape(_t('Recurring:', 'Recurrente:'))} "
+                f"<a href='/jobs/recurring/{r['recurring_schedule_id']}/edit'>"
+                f"{escape(_t('Schedule', 'Programa'))} #{r['recurring_schedule_id']}</a></div>"
             )
 
         mobile_invoice_action_html = ""
         if r["invoice_id"]:
-            invoice_label = clean_text_input(r["invoice_number"]) or f"Invoice #{r['invoice_id']}"
+            invoice_label = clean_text_input(r["invoice_number"]) or f"{_t('Invoice', 'Factura')} #{r['invoice_id']}"
             mobile_invoice_action_html = (
                 f"<a class='btn secondary small' href='{url_for('invoices.view_invoice', invoice_id=r['invoice_id'])}'>"
-                f"View {escape(invoice_label)}</a>"
+                f"{escape(_t('View', 'Ver'))} {escape(invoice_label)}</a>"
             )
         else:
             mobile_invoice_action_html = (
                 f"<a class='btn success small' href='{url_for('jobs.convert_job_to_invoice', job_id=r['id'])}'>"
-                f"Convert to Invoice</a>"
+                f"{escape(_t('Convert to Invoice', 'Convertir en factura'))}</a>"
             )
 
         job_mobile_card_list.append(
@@ -1179,30 +1219,30 @@ def jobs():
 
                 <div style='margin:-2px 0 10px 0; display:flex; flex-wrap:wrap; gap:8px;'>
                     <span class='service-chip {service_type_class}'>{escape(service_type_label)}</span>
-                    {'<span class="service-chip mowing">Recurring</span>' if r["recurring_schedule_id"] else ''}
+                    {'<span class="service-chip mowing">' + escape(_t("Recurring", "Recurrente")) + '</span>' if r["recurring_schedule_id"] else ''}
                 </div>
 
                 <div class='mobile-list-grid'>
-                    <div><span>Customer</span><strong>{escape(clean_text_display(r['customer_name']))}</strong></div>
-                    <div><span>Date</span><strong>{escape(clean_text_display(r['scheduled_date']))}</strong></div>
-                    <div><span>Start</span><strong>{escape(clean_text_display(r['scheduled_start_time']))}</strong></div>
-                    <div><span>End</span><strong>{escape(clean_text_display(r['scheduled_end_time']))}</strong></div>
-                    <div><span>Assigned To</span><strong>{escape(clean_text_display(r['assigned_to']))}</strong></div>
-                    <div><span>Revenue</span><strong>${safe_float(r['revenue']):.2f}</strong></div>
-                    <div><span>Costs</span><strong>${safe_float(r['cost_total']):.2f}</strong></div>
-                    <div><span>Profit/Loss</span><strong>${safe_float(r['profit']):.2f}</strong></div>
+                    <div><span>{_t("Customer", "Cliente")}</span><strong>{escape(clean_text_display(r['customer_name']))}</strong></div>
+                    <div><span>{_t("Date", "Fecha")}</span><strong>{escape(clean_text_display(r['scheduled_date']))}</strong></div>
+                    <div><span>{_t("Start", "Inicio")}</span><strong>{escape(clean_text_display(r['scheduled_start_time']))}</strong></div>
+                    <div><span>{_t("End", "Fin")}</span><strong>{escape(clean_text_display(r['scheduled_end_time']))}</strong></div>
+                    <div><span>{_t("Assigned To", "Asignado a")}</span><strong>{escape(clean_text_display(r['assigned_to']))}</strong></div>
+                    <div><span>{_t("Revenue", "Ingresos")}</span><strong>${safe_float(r['revenue']):.2f}</strong></div>
+                    <div><span>{_t("Costs", "Costos")}</span><strong>${safe_float(r['cost_total']):.2f}</strong></div>
+                    <div><span>{_t("Profit/Loss", "Ganancia/Pérdida")}</span><strong>${safe_float(r['profit']):.2f}</strong></div>
                 </div>
 
                 <div class='mobile-list-actions'>
-                    <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
-                    <a class='btn warning small' href='{url_for("jobs.edit_job", job_id=r["id"])}'>Edit Job</a>
+                    <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>{_t("View", "Ver")}</a>
+                    <a class='btn warning small' href='{url_for("jobs.edit_job", job_id=r["id"])}'>{_t("Edit Job", "Editar trabajo")}</a>
                     {mobile_invoice_action_html}
                     <form method='post'
                           action='{url_for("jobs.delete_job", job_id=r["id"])}'
                           style='margin:0;'
-                          onsubmit="return confirm('Delete this job and all items?');">
+                          onsubmit="return confirm('{_t("Delete this job and all items?", "¿Eliminar este trabajo y todos sus artículos?")}');">
                         <input type="hidden" name="csrf_token" value="{delete_csrf}">
-                        <button class='btn danger small' type='submit'>Delete Job</button>
+                        <button class='btn danger small' type='submit'>{_t("Delete Job", "Eliminar trabajo")}</button>
                     </form>
                 </div>
             </div>
@@ -1239,10 +1279,10 @@ def jobs():
             <tr>
                 <td>#{r['id']}</td>
                 <td class='wrap'>
-                    {escape(clean_text_display(r['title'], 'Recurring Mowing'))}
-                    <div class='small muted' style='margin-top:4px;'>Mowing Default</div>
+                    {escape(clean_text_display(r['title'], _t('Recurring Mowing', 'Corte recurrente de césped')))}
+                    <div class='small muted' style='margin-top:4px;'>{_t("Mowing Default", "Predeterminado de corte de césped")}</div>
                 </td>
-                <td><span class='service-chip mowing'>Mowing</span></td>
+                <td><span class='service-chip mowing'>{_t("Mowing", "Corte de césped")}</span></td>
                 <td class='wrap'>{escape(clean_text_display(r['customer_name']))}</td>
                 <td>{escape(interval_label(r['interval_weeks']))}</td>
                 <td>{escape(clean_text_display(effective_next_run))}</td>
@@ -1254,26 +1294,26 @@ def jobs():
                 <td class='money jobs-profit'>${safe_float(r['total_profit']):.2f}</td>
                 <td class='wrap'>
                     <div class='static-actions'>
-                        <a class='btn secondary small' href='{edit_url}'>Edit Schedule</a>
+                        <a class='btn secondary small' href='{edit_url}'>{_t("Edit Schedule", "Editar programa")}</a>
 
                         <form method='post' action='{generate_url}' style='margin:0;'>
                             <input type="hidden" name="csrf_token" value="{generate_now_csrf}">
-                            <button class='btn success small' type='submit' {"disabled" if not is_active else ""}>Generate Now</button>
+                            <button class='btn success small' type='submit' {"disabled" if not is_active else ""}>{_t("Generate Now", "Generar ahora")}</button>
                         </form>
 
                         <form method='post' action='{toggle_url}' style='margin:0;'>
                             <input type="hidden" name="csrf_token" value="{toggle_csrf}">
                             <button class='btn warning small' type='submit'>
-                                {"Pause" if is_active else "Resume"}
+                                {_t("Pause", "Pausar") if is_active else _t("Resume", "Reanudar")}
                             </button>
                         </form>
 
                         <form method='post'
                               action='{delete_url}'
                               style='margin:0;'
-                              onsubmit="return confirm('Delete this recurring mowing schedule and all non-invoiced generated jobs?');">
+                              onsubmit="return confirm('{_t("Delete this recurring mowing schedule and all non-invoiced generated jobs?", "¿Eliminar este programa recurrente de corte y todos los trabajos generados no facturados?")}');">
                             <input type="hidden" name="csrf_token" value="{delete_csrf}">
-                            <button class='btn danger small' type='submit'>Delete</button>
+                            <button class='btn danger small' type='submit'>{_t("Delete", "Eliminar")}</button>
                         </form>
                     </div>
                 </td>
@@ -1285,45 +1325,45 @@ def jobs():
             f"""
             <div class='mobile-list-card'>
                 <div class='mobile-list-top'>
-                    <div class='mobile-list-title'>#{r['id']} - {escape(clean_text_display(r['title'], 'Recurring Mowing'))}</div>
+                    <div class='mobile-list-title'>#{r['id']} - {escape(clean_text_display(r['title'], _t('Recurring Mowing', 'Corte recurrente de césped')))}</div>
                     <div>{active_chip}</div>
                 </div>
 
                 <div style='margin:-2px 0 10px 0; display:flex; gap:8px; flex-wrap:wrap;'>
-                    <span class='service-chip mowing'>Mowing</span>
+                    <span class='service-chip mowing'>{_t("Mowing", "Corte de césped")}</span>
                     <span class='service-chip default'>{escape(interval_label(r['interval_weeks']))}</span>
                 </div>
 
                 <div class='mobile-list-grid'>
-                    <div><span>Customer</span><strong>{escape(clean_text_display(r['customer_name']))}</strong></div>
-                    <div><span>Next Run</span><strong>{escape(clean_text_display(effective_next_run))}</strong></div>
-                    <div><span>Assigned To</span><strong>{escape(clean_text_display(r['assigned_to']))}</strong></div>
-                    <div><span>Jobs Generated</span><strong>{safe_int(r['generated_jobs_count'], 0)}</strong></div>
-                    <div><span>Total Revenue</span><strong>${safe_float(r['total_revenue']):.2f}</strong></div>
-                    <div><span>Total Costs</span><strong>${safe_float(r['total_cost']):.2f}</strong></div>
-                    <div><span>Total Profit</span><strong>${safe_float(r['total_profit']):.2f}</strong></div>
-                    <div><span>Upcoming</span><strong>{escape(next_preview or '-')}</strong></div>
+                    <div><span>{_t("Customer", "Cliente")}</span><strong>{escape(clean_text_display(r['customer_name']))}</strong></div>
+                    <div><span>{_t("Next Run", "Próxima ejecución")}</span><strong>{escape(clean_text_display(effective_next_run))}</strong></div>
+                    <div><span>{_t("Assigned To", "Asignado a")}</span><strong>{escape(clean_text_display(r['assigned_to']))}</strong></div>
+                    <div><span>{_t("Jobs Generated", "Trabajos generados")}</span><strong>{safe_int(r['generated_jobs_count'], 0)}</strong></div>
+                    <div><span>{_t("Total Revenue", "Ingresos totales")}</span><strong>${safe_float(r['total_revenue']):.2f}</strong></div>
+                    <div><span>{_t("Total Costs", "Costos totales")}</span><strong>${safe_float(r['total_cost']):.2f}</strong></div>
+                    <div><span>{_t("Total Profit", "Ganancia total")}</span><strong>${safe_float(r['total_profit']):.2f}</strong></div>
+                    <div><span>{_t("Upcoming", "Próximas")}</span><strong>{escape(next_preview or '-')}</strong></div>
                 </div>
 
                 <div class='mobile-list-actions'>
-                    <a class='btn secondary small' href='{edit_url}'>Edit Schedule</a>
+                    <a class='btn secondary small' href='{edit_url}'>{_t("Edit Schedule", "Editar programa")}</a>
 
                     <form method='post' action='{generate_url}' style='margin:0;'>
                         <input type="hidden" name="csrf_token" value="{generate_now_csrf}">
-                        <button class='btn success small' type='submit' {"disabled" if not is_active else ""}>Generate</button>
+                        <button class='btn success small' type='submit' {"disabled" if not is_active else ""}>{_t("Generate", "Generar")}</button>
                     </form>
 
                     <form method='post' action='{toggle_url}' style='margin:0;'>
                         <input type="hidden" name="csrf_token" value="{toggle_csrf}">
-                        <button class='btn warning small' type='submit'>{"Pause" if is_active else "Resume"}</button>
+                        <button class='btn warning small' type='submit'>{_t("Pause", "Pausar") if is_active else _t("Resume", "Reanudar")}</button>
                     </form>
 
                     <form method='post'
                           action='{delete_url}'
                           style='margin:0;'
-                          onsubmit="return confirm('Delete this recurring mowing schedule and all non-invoiced generated jobs?');">
+                          onsubmit="return confirm('{_t("Delete this recurring mowing schedule and all non-invoiced generated jobs?", "¿Eliminar este programa recurrente de corte y todos los trabajos generados no facturados?")}');">
                         <input type="hidden" name="csrf_token" value="{delete_csrf}">
-                        <button class='btn danger small' type='submit'>Delete</button>
+                        <button class='btn danger small' type='submit'>{_t("Delete", "Eliminar")}</button>
                     </form>
                 </div>
             </div>
@@ -1657,10 +1697,10 @@ def jobs():
     <div class='jobs-page'>
         <div class='card'>
             <div class='jobs-section-head'>
-                <h1 style='margin:0;'>Jobs</h1>
+                <h1 style='margin:0;'>{_t("Jobs", "Trabajos")}</h1>
                 <div class='row-actions'>
-                    <a class='btn secondary' href='{url_for("jobs.export_jobs")}'>Export CSV</a>
-                    <a class='btn warning' href='{url_for("jobs.finished_jobs")}'>Finished Jobs</a>
+                    <a class='btn secondary' href='{url_for("jobs.export_jobs")}'>{_t("Export CSV", "Exportar CSV")}</a>
+                    <a class='btn warning' href='{url_for("jobs.finished_jobs")}'>{_t("Finished Jobs", "Trabajos terminados")}</a>
                 </div>
             </div>
 
@@ -1668,12 +1708,12 @@ def jobs():
                 <input type="hidden" name="csrf_token" value="{create_job_csrf}">
                 <div class='grid'>
                     <div class='customer-search-wrap'>
-                        <label>Customer</label>
+                        <label>{_t("Customer", "Cliente")}</label>
 
                         <div class='customer-search-input-wrap'>
                             <input type='text'
                                 id='job_customer_search'
-                                placeholder='Search customer name, company, or email...'
+                                placeholder='{escape(_t("Search customer name, company, or email...", "Buscar nombre del cliente, empresa o correo..."))}'
                                 autocomplete='off'
                                 required>
                             <input type='hidden' name='customer_id' id='job_customer_id' required>
@@ -1682,83 +1722,83 @@ def jobs():
                     </div>
 
                     <div>
-                        <label>Title</label>
-                        <input name='title' id='title' required placeholder='Example: Weekly Front Yard Mowing'>
+                        <label>{_t("Title", "Título")}</label>
+                        <input name='title' id='title' required placeholder='{escape(_t("Example: Weekly Front Yard Mowing", "Ejemplo: Corte semanal del jardín delantero"))}'>
                     </div>
 
                     <div>
-                        <label>Service Type</label>
+                        <label>{_t("Service Type", "Tipo de servicio")}</label>
                         <select name='service_type' id='service_type'>
                             {service_type_select_options("mowing")}
                         </select>
-                        <div class='service-help'>Mowing defaults are built in, and mowing jobs get a green mowing badge across Jobs and Calendar.</div>
+                        <div class='service-help'>{_t("Mowing defaults are built in, and mowing jobs get a green mowing badge across Jobs and Calendar.", "Los valores predeterminados de corte ya están incluidos, y los trabajos de corte muestran una insignia verde en Trabajos y Calendario.")}</div>
                     </div>
 
                     <div>
-                        <label>Scheduled Date</label>
+                        <label>{_t("Scheduled Date", "Fecha programada")}</label>
                         <input type='date' name='scheduled_date'>
                     </div>
 
                     <div>
-                        <label>Start Time</label>
+                        <label>{_t("Start Time", "Hora de inicio")}</label>
                         <input type='time' name='scheduled_start_time'>
                     </div>
 
                     <div>
-                        <label>End Time</label>
+                        <label>{_t("End Time", "Hora de fin")}</label>
                         <input type='time' name='scheduled_end_time'>
                     </div>
 
                     <div>
-                        <label>Assigned To</label>
-                        <input name='assigned_to' placeholder='Crew / Employee'>
+                        <label>{_t("Assigned To", "Asignado a")}</label>
+                        <input name='assigned_to' placeholder='{escape(_t("Crew / Employee", "Cuadrilla / Empleado"))}'>
                     </div>
 
                     <div>
-                        <label>Status</label>
+                        <label>{_t("Status", "Estado")}</label>
                         <select name='status'>
-                            <option>Scheduled</option>
-                            <option>In Progress</option>
-                            <option>Completed</option>
-                            <option>Invoiced</option>
+                            <option>{_t("Scheduled", "Programado")}</option>
+                            <option>{_t("In Progress", "En progreso")}</option>
+                            <option>{_t("Completed", "Completado")}</option>
+                            <option>{_t("Invoiced", "Facturado")}</option>
                         </select>
                     </div>
 
                     <div>
-                        <label>Address</label>
+                        <label>{_t("Address", "Dirección")}</label>
                         <input name='address'>
                     </div>
                 </div>
 
                 <div class='quick-fill-row'>
-                    <button class='quick-fill-chip' type='button' onclick="applyJobTemplate('mowing')">Use Mowing</button>
-                    <button class='quick-fill-chip' type='button' onclick="applyJobTemplate('mulch')">Use Mulch</button>
-                    <button class='quick-fill-chip' type='button' onclick="applyJobTemplate('cleanup')">Use Cleanup</button>
-                    <button class='quick-fill-chip' type='button' onclick="applyJobTemplate('installation')">Use Installation</button>
+                    <button class='quick-fill-chip' type='button' onclick="applyJobTemplate('mowing')">{_t("Use Mowing", "Usar corte")}</button>
+                    <button class='quick-fill-chip' type='button' onclick="applyJobTemplate('mulch')">{_t("Use Mulch", "Usar mantillo")}</button>
+                    <button class='quick-fill-chip' type='button' onclick="applyJobTemplate('cleanup')">{_t("Use Cleanup", "Usar limpieza")}</button>
+                    <button class='quick-fill-chip' type='button' onclick="applyJobTemplate('installation')">{_t("Use Installation", "Usar instalación")}</button>
                 </div>
 
                 <br>
-                <label>Notes</label>
+                <label>{_t("Notes", "Notas")}</label>
                 <textarea name='notes'></textarea>
                 <br>
-                <button class='btn'>Create Job</button>
+                <button class='btn'>{_t("Create Job", "Crear trabajo")}</button>
             </form>
         </div>
 
         <div class='card'>
             <div class='recurring-card-head'>
                 <div>
-                    <h2 style='margin:0;'>Recurring Mowing Schedules</h2>
-                    <p class='muted' style='margin:6px 0 0 0;'>Weekly, every 2 weeks, or your own custom week interval. Jobs continue generating automatically until you pause the schedule.</p>
+                    <h2 style='margin:0;'>{_t("Recurring Mowing Schedules", "Programas recurrentes de corte de césped")}</h2>
+                    <p class='muted' style='margin:6px 0 0 0;'>{_t("Weekly, every 2 weeks, or your own custom week interval. Jobs continue generating automatically until you pause the schedule.", "Semanal, cada 2 semanas o tu propio intervalo personalizado en semanas. Los trabajos siguen generándose automáticamente hasta que pauses el programa.")}</p>
                 </div>
                 <div style='display:flex; gap:8px; flex-wrap:wrap;'>
-                    <span class='service-chip mowing'>Mowing Default</span>
-                    <span class='service-chip default'>Auto-Generates Jobs</span>
+                    <span class='service-chip mowing'>{_t("Mowing Default", "Predeterminado de corte")}</span>
+                    <span class='service-chip default'>{_t("Auto-Generates Jobs", "Genera trabajos automáticamente")}</span>
                 </div>
             </div>
 
             <div class='recurring-default-note'>
-                Recurring mowing schedules default to <strong>Mowing</strong>, create future jobs automatically, and each generated job links back to its parent recurring schedule. End date is optional. Leave it blank to keep generating until paused. Generated visits should be invoiced one visit at a time from the visit job itself.
+                {_t("Recurring mowing schedules default to ", "Los programas recurrentes de corte usan por defecto ")}<strong>{_t("Mowing", "Corte de césped")}</strong>{_t(", create future jobs automatically, and each generated job links back to its parent recurring schedule. End date is optional. Leave it blank to keep generating until paused. Generated visits should be invoiced one visit at a time from the visit job itself.", ", crean trabajos futuros automáticamente, y cada trabajo generado queda vinculado a su programa recurrente principal. La fecha final es opcional. Déjala vacía para seguir generando hasta pausar. Las visitas generadas deben facturarse una por una desde el mismo trabajo de la visita.")}
             </div>
 
             <form method='post' action='{url_for("jobs.create_recurring_schedule")}' style='margin-top:16px;'>
@@ -1766,12 +1806,12 @@ def jobs():
 
                 <div class='grid'>
                     <div class='customer-search-wrap'>
-                        <label>Customer</label>
+                        <label>{_t("Customer", "Cliente")}</label>
 
                         <div class='customer-search-input-wrap'>
                             <input type='text'
                                 id='recurring_customer_search'
-                                placeholder='Search customer name, company, or email...'
+                                placeholder='{escape(_t("Search customer name, company, or email...", "Buscar nombre del cliente, empresa o correo..."))}'
                                 autocomplete='off'
                                 required>
                             <input type='hidden' name='customer_id' id='recurring_customer_id' required>
@@ -1780,82 +1820,82 @@ def jobs():
                     </div>
 
                     <div>
-                        <label>Schedule Title</label>
-                        <input name='title' id='recurring_title' value='Recurring Mowing' required>
+                        <label>{_t("Schedule Title", "Título del programa")}</label>
+                        <input name='title' id='recurring_title' value='{escape(_t("Recurring Mowing", "Corte recurrente de césped"))}' required>
                     </div>
 
                     <div>
-                        <label>Service Type</label>
+                        <label>{_t("Service Type", "Tipo de servicio")}</label>
                         <select name='service_type'>
                             {service_type_select_options("mowing")}
                         </select>
                     </div>
 
                     <div>
-                        <label>Start Date</label>
+                        <label>{_t("Start Date", "Fecha de inicio")}</label>
                         <input type='date' name='start_date' value='{date.today().isoformat()}' required>
                     </div>
 
                     <div>
-                        <label>Interval</label>
+                        <label>{_t("Interval", "Intervalo")}</label>
                         <select name='interval_mode' id='interval_mode' onchange='toggleCustomInterval()'>
-                            <option value='weekly'>Weekly</option>
-                            <option value='every_2'>Every 2 Weeks</option>
-                            <option value='custom'>Custom Week Interval</option>
+                            <option value='weekly'>{_t("Weekly", "Semanal")}</option>
+                            <option value='every_2'>{_t("Every 2 Weeks", "Cada 2 semanas")}</option>
+                            <option value='custom'>{_t("Custom Week Interval", "Intervalo personalizado en semanas")}</option>
                         </select>
                     </div>
 
                     <div id='custom_interval_wrap' style='display:none;'>
-                        <label>Custom Weeks</label>
+                        <label>{_t("Custom Weeks", "Semanas personalizadas")}</label>
                         <input type='number' name='custom_interval_weeks' id='custom_interval_weeks' min='1' step='1' value='3'>
                     </div>
 
                     <div>
-                        <label>End Date (Optional)</label>
+                        <label>{_t("End Date (Optional)", "Fecha de fin (opcional)")}</label>
                         <input type='date' name='end_date'>
                     </div>
 
                     <div>
-                        <label>Start Time</label>
+                        <label>{_t("Start Time", "Hora de inicio")}</label>
                         <input type='time' name='scheduled_start_time'>
                     </div>
 
                     <div>
-                        <label>End Time</label>
+                        <label>{_t("End Time", "Hora de fin")}</label>
                         <input type='time' name='scheduled_end_time'>
                     </div>
 
                     <div>
-                        <label>Assigned To</label>
-                        <input name='assigned_to' placeholder='Crew / Employee'>
+                        <label>{_t("Assigned To", "Asignado a")}</label>
+                        <input name='assigned_to' placeholder='{escape(_t("Crew / Employee", "Cuadrilla / Empleado"))}'>
                     </div>
 
                     <div>
-                        <label>Default Job Status</label>
+                        <label>{_t("Default Job Status", "Estado predeterminado del trabajo")}</label>
                         <select name='status_default'>
-                            <option selected>Scheduled</option>
-                            <option>In Progress</option>
-                            <option>Completed</option>
-                            <option>Invoiced</option>
+                            <option selected>{_t("Scheduled", "Programado")}</option>
+                            <option>{_t("In Progress", "En progreso")}</option>
+                            <option>{_t("Completed", "Completado")}</option>
+                            <option>{_t("Invoiced", "Facturado")}</option>
                         </select>
                     </div>
 
                     <div>
-                        <label>Address</label>
+                        <label>{_t("Address", "Dirección")}</label>
                         <input name='address'>
                     </div>
                 </div>
 
                 <br>
-                <label>Notes</label>
-                <textarea name='notes' placeholder='Notes that should carry onto each generated mowing job'></textarea>
+                <label>{_t("Notes", "Notas")}</label>
+                <textarea name='notes' placeholder='{escape(_t("Notes that should carry onto each generated mowing job", "Notas que deben copiarse a cada trabajo de corte generado"))}'></textarea>
                 <br>
-                <button class='btn success'>Create Recurring Mowing Schedule</button>
+                <button class='btn success'>{_t("Create Recurring Mowing Schedule", "Crear programa recurrente de corte")}</button>
             </form>
         </div>
 
         <div class='card'>
-            <h2>Recurring Schedule List</h2>
+            <h2>{_t("Recurring Schedule List", "Lista de programas recurrentes")}</h2>
 
             <div class='static-table-wrap desktop-only'>
                 <table class='static-table'>
@@ -1876,32 +1916,32 @@ def jobs():
                     </colgroup>
                     <tr>
                         <th>ID</th>
-                        <th class='wrap'>Title</th>
-                        <th>Service</th>
-                        <th class='wrap'>Customer</th>
-                        <th>Interval</th>
-                        <th>Next Run</th>
-                        <th class='wrap'>Assigned To</th>
-                        <th>Status</th>
-                        <th class='center'>Jobs</th>
-                        <th class='money'>Revenue</th>
-                        <th class='money'>Costs</th>
-                        <th class='money'>Profit</th>
-                        <th class='wrap'>Actions</th>
+                        <th class='wrap'>{_t("Title", "Título")}</th>
+                        <th>{_t("Service", "Servicio")}</th>
+                        <th class='wrap'>{_t("Customer", "Cliente")}</th>
+                        <th>{_t("Interval", "Intervalo")}</th>
+                        <th>{_t("Next Run", "Próxima ejecución")}</th>
+                        <th class='wrap'>{_t("Assigned To", "Asignado a")}</th>
+                        <th>{_t("Status", "Estado")}</th>
+                        <th class='center'>{_t("Jobs", "Trabajos")}</th>
+                        <th class='money'>{_t("Revenue", "Ingresos")}</th>
+                        <th class='money'>{_t("Costs", "Costos")}</th>
+                        <th class='money'>{_t("Profit", "Ganancia")}</th>
+                        <th class='wrap'>{_t("Actions", "Acciones")}</th>
                     </tr>
-                    {recurring_rows_html or '<tr><td colspan="13" class="muted">No recurring mowing schedules yet.</td></tr>'}
+                    {recurring_rows_html or f'<tr><td colspan="13" class="muted">{_t("No recurring mowing schedules yet.", "Todavía no hay programas recurrentes de corte.")}</td></tr>'}
                 </table>
             </div>
 
             <div class='mobile-only'>
                 <div class='mobile-list'>
-                    {recurring_mobile_cards or "<div class='mobile-list-card'>No recurring mowing schedules yet.</div>"}
+                    {recurring_mobile_cards or f"<div class='mobile-list-card'>{_t('No recurring mowing schedules yet.', 'Tod_avía no hay programas recurrentes de corte.')}</div>"}
                 </div>
             </div>
         </div>
 
         <div class='card'>
-            <h2>Job List</h2>
+            <h2>{_t("Job List", "Lista de trabajos")}</h2>
 
             <div class='static-table-wrap desktop-only'>
                 <table class='static-table'>
@@ -1922,26 +1962,26 @@ def jobs():
                     </colgroup>
                     <tr>
                         <th>ID</th>
-                        <th class='wrap'>Title</th>
-                        <th>Service</th>
-                        <th class='wrap'>Customer</th>
-                        <th>Date</th>
-                        <th>Start</th>
-                        <th>End</th>
-                        <th class='wrap'>Assigned To</th>
-                        <th>Status</th>
-                        <th class='money'>Revenue</th>
-                        <th class='money'>Costs</th>
-                        <th class='money'>Profit/Loss</th>
-                        <th class='wrap'>Actions</th>
+                        <th class='wrap'>{_t("Title", "Título")}</th>
+                        <th>{_t("Service", "Servicio")}</th>
+                        <th class='wrap'>{_t("Customer", "Cliente")}</th>
+                        <th>{_t("Date", "Fecha")}</th>
+                        <th>{_t("Start", "Inicio")}</th>
+                        <th>{_t("End", "Fin")}</th>
+                        <th class='wrap'>{_t("Assigned To", "Asignado a")}</th>
+                        <th>{_t("Status", "Estado")}</th>
+                        <th class='money'>{_t("Revenue", "Ingresos")}</th>
+                        <th class='money'>{_t("Costs", "Costos")}</th>
+                        <th class='money'>{_t("Profit/Loss", "Ganancia/Pérdida")}</th>
+                        <th class='wrap'>{_t("Actions", "Acciones")}</th>
                     </tr>
-                    {job_rows or '<tr><td colspan="13" class="muted">No jobs yet.</td></tr>'}
+                    {job_rows or f'<tr><td colspan="13" class="muted">{_t("No jobs yet.", "Todavía no hay trabajos.")}</td></tr>'}
                 </table>
             </div>
 
             <div class='mobile-only'>
                 <div class='mobile-list'>
-                    {job_mobile_cards or "<div class='mobile-list-card'>No jobs yet.</div>"}
+                    {job_mobile_cards or f"<div class='mobile-list-card'>{_t('No jobs yet.', 'Todavía no hay trabajos.')}</div>"}
                 </div>
             </div>
         </div>
@@ -1949,6 +1989,9 @@ def jobs():
 
     <script>
         const customers = {json.dumps(customer_list)};
+        const textNoCustomersFound = {json.dumps(_t("No customers found", "No se encontraron clientes"))};
+        const textUnnamedCustomer = {json.dumps(_t("Unnamed Customer", "Cliente sin nombre"))};
+        const textRecurring = {json.dumps(_t("Recurring", "Recurrente"))};
 
         function escapeHtml(text) {{
             return String(text || "")
@@ -1977,14 +2020,14 @@ def jobs():
 
             function renderResults(matches) {{
                 if (!matches.length) {{
-                    resultsBox.innerHTML = "<div class='customer-result-item muted'>No customers found</div>";
+                    resultsBox.innerHTML = `<div class='customer-result-item muted'>${{escapeHtml(textNoCustomersFound)}}</div>`;
                     showResults();
                     return;
                 }}
 
                 resultsBox.innerHTML = matches.map(c => `
                     <div class="customer-result-item" data-id="${{c.id}}">
-                        <strong>${{escapeHtml(c.name || "Unnamed Customer")}}</strong>
+                        <strong>${{escapeHtml(c.name || textUnnamedCustomer)}}</strong>
                         ${{c.company ? `<div class="muted small">${{escapeHtml(c.company)}}</div>` : ""}}
                         ${{c.email ? `<div class="muted small">${{escapeHtml(c.email)}}</div>` : ""}}
                     </div>
@@ -2001,7 +2044,7 @@ def jobs():
                         customerIdInput.value = customer.id;
                         searchInput.value = customer.company
                             ? `${{customer.name}} - ${{customer.company}}`
-                            : (customer.name || "Unnamed Customer");
+                            : (customer.name || textUnnamedCustomer);
 
                         hideResults();
                     }});
@@ -2041,13 +2084,13 @@ def jobs():
             if ((titleInput.value || "").trim()) return;
 
             const templates = {{
-                mowing: "Weekly Mowing",
-                mulch: "Mulch Delivery / Install",
-                cleanup: "Property Cleanup",
-                installation: "Landscape Installation",
-                hardscape: "Hardscape Work",
-                snow_removal: "Snow Removal",
-                fertilizing: "Fertilizing Service",
+                mowing: {json.dumps(_t("Weekly Mowing", "Corte semanal"))},
+                mulch: {json.dumps(_t("Mulch Delivery / Install", "Entrega / instalación de mantillo"))},
+                cleanup: {json.dumps(_t("Property Cleanup", "Limpieza de propiedad"))},
+                installation: {json.dumps(_t("Landscape Installation", "Instalación de jardinería"))},
+                hardscape: {json.dumps(_t("Hardscape Work", "Trabajo de hardscape"))},
+                snow_removal: {json.dumps(_t("Snow Removal", "Remoción de nieve"))},
+                fertilizing: {json.dumps(_t("Fertilizing Service", "Servicio de fertilización"))},
                 other: ""
             }};
 
@@ -2063,7 +2106,7 @@ def jobs():
             maybeFillTitleFromService();
 
             if (serviceType === "mowing" && titleInput && !(titleInput.value || "").trim()) {{
-                titleInput.value = "Weekly Mowing";
+                titleInput.value = {json.dumps(_t("Weekly Mowing", "Corte semanal"))};
             }}
         }}
 
@@ -2085,8 +2128,7 @@ def jobs():
         toggleCustomInterval();
     </script>
     """
-    return render_page(content, "Jobs")
-
+    return render_page(content, _t("Jobs", "Trabajos"))
 
 @jobs_bp.route("/jobs/recurring/create", methods=["POST"])
 @login_required
@@ -2099,26 +2141,30 @@ def create_recurring_schedule():
     cid = session["company_id"]
 
     customer_id = request.form.get("customer_id", type=int)
-    title = recurring_schedule_title_default(request.form.get("title", "Recurring Mowing"))
+    title = recurring_schedule_title_default(
+        request.form.get("title", _t("Recurring Mowing", "Corte recurrente de césped"))
+    )
     service_type = normalize_service_type(request.form.get("service_type", "mowing"))
     start_date = clean_text_input(request.form.get("start_date", ""))
     end_date = clean_text_input(request.form.get("end_date", ""))
     scheduled_start_time = clean_text_input(request.form.get("scheduled_start_time", ""))
     scheduled_end_time = clean_text_input(request.form.get("scheduled_end_time", ""))
     assigned_to = clean_text_input(request.form.get("assigned_to", ""))
-    status_default = default_mowing_status(request.form.get("status_default", "Scheduled"))
+    status_default = default_mowing_status(
+        request.form.get("status_default", _t("Scheduled", "Programado"))
+    )
     address = clean_text_input(request.form.get("address", ""))
     notes = clean_text_input(request.form.get("notes", ""))
     interval_weeks = derive_interval_weeks_from_form(request.form)
 
     if not customer_id:
         conn.close()
-        flash("Please select a customer for the recurring mowing schedule.")
+        flash(_t("Please select a customer for the recurring mowing schedule.", "Selecciona un cliente para el programa recurrente de corte de césped."))
         return redirect(url_for("jobs.jobs"))
 
     if not start_date:
         conn.close()
-        flash("Start date is required.")
+        flash(_t("Start date is required.", "La fecha de inicio es obligatoria."))
         return redirect(url_for("jobs.jobs"))
 
     start_date_value = parse_iso_date(start_date)
@@ -2126,17 +2172,17 @@ def create_recurring_schedule():
 
     if not start_date_value:
         conn.close()
-        flash("Invalid start date.")
+        flash(_t("Invalid start date.", "Fecha de inicio no válida."))
         return redirect(url_for("jobs.jobs"))
 
     if end_date and not end_date_value:
         conn.close()
-        flash("Invalid end date.")
+        flash(_t("Invalid end date.", "Fecha de fin no válida."))
         return redirect(url_for("jobs.jobs"))
 
     if end_date_value and end_date_value < start_date_value:
         conn.close()
-        flash("End date cannot be before the start date.")
+        flash(_t("End date cannot be before the start date.", "La fecha de fin no puede ser anterior a la fecha de inicio."))
         return redirect(url_for("jobs.jobs"))
 
     cur = conn.cursor()
@@ -2190,10 +2236,13 @@ def create_recurring_schedule():
     conn.close()
 
     if not schedule_id:
-        flash("Could not create recurring mowing schedule.")
+        flash(_t("Could not create recurring mowing schedule.", "No se pudo crear el programa recurrente de corte de césped."))
         return redirect(url_for("jobs.jobs"))
 
-    flash("Recurring mowing schedule created. It will continue generating jobs on its interval until you pause it.")
+    flash(_t(
+        "Recurring mowing schedule created. It will continue generating jobs on its interval until you pause it.",
+        "Programa recurrente de corte creado. Seguirá generando trabajos según su intervalo hasta que lo pauses."
+    ))
     return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
 
@@ -2218,12 +2267,15 @@ def generate_recurring_schedule_jobs(schedule_id):
 
     if not schedule:
         conn.close()
-        flash("Recurring mowing schedule not found.")
+        flash(_t("Recurring mowing schedule not found.", "Programa recurrente de corte no encontrado."))
         return redirect(url_for("jobs.jobs"))
 
     if not bool(schedule["active"]):
         conn.close()
-        flash("This recurring mowing schedule is paused. Resume it before generating upcoming jobs.")
+        flash(_t(
+            "This recurring mowing schedule is paused. Resume it before generating upcoming jobs.",
+            "Este programa recurrente de corte está en pausa. Reanúdalo antes de generar los próximos trabajos."
+        ))
         return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
     try:
@@ -2231,10 +2283,13 @@ def generate_recurring_schedule_jobs(schedule_id):
         through_date = date.today() + timedelta(days=horizon_days if horizon_days > 0 else 90)
         created_count = auto_generate_recurring_jobs(conn, cid, through_date=through_date)
         conn.commit()
-        flash(f"Recurring generation complete. {created_count} job(s) created.")
+        flash(_t(
+            f"Recurring generation complete. {created_count} job(s) created.",
+            f"Generación recurrente completada. Se crearon {created_count} trabajo(s)."
+        ))
     except Exception as e:
         conn.rollback()
-        flash(f"Could not generate recurring jobs: {e}")
+        flash(_t(f"Could not generate recurring jobs: {e}", f"No se pudieron generar los trabajos recurrentes: {e}"))
     finally:
         conn.close()
 
@@ -2263,7 +2318,7 @@ def edit_recurring_schedule(schedule_id):
 
     if not schedule:
         conn.close()
-        flash("Recurring mowing schedule not found.")
+        flash(_t("Recurring mowing schedule not found.", "Programa recurrente de corte no encontrado."))
         return redirect(url_for("jobs.jobs"))
 
     computed_next_run_row = conn.execute(
@@ -2298,14 +2353,18 @@ def edit_recurring_schedule(schedule_id):
 
     if request.method == "POST":
         customer_id = request.form.get("customer_id", type=int)
-        title = recurring_schedule_title_default(request.form.get("title", "Recurring Mowing"))
+        title = recurring_schedule_title_default(
+            request.form.get("title", _t("Recurring Mowing", "Corte recurrente de césped"))
+        )
         service_type = normalize_service_type(request.form.get("service_type", "mowing"))
         start_date = clean_text_input(request.form.get("start_date", ""))
         end_date = clean_text_input(request.form.get("end_date", ""))
         scheduled_start_time = clean_text_input(request.form.get("scheduled_start_time", ""))
         scheduled_end_time = clean_text_input(request.form.get("scheduled_end_time", ""))
         assigned_to = clean_text_input(request.form.get("assigned_to", ""))
-        status_default = default_mowing_status(request.form.get("status_default", "Scheduled"))
+        status_default = default_mowing_status(
+            request.form.get("status_default", _t("Scheduled", "Programado"))
+        )
         address = clean_text_input(request.form.get("address", ""))
         notes = clean_text_input(request.form.get("notes", ""))
         interval_weeks = derive_interval_weeks_from_form(request.form)
@@ -2317,22 +2376,22 @@ def edit_recurring_schedule(schedule_id):
 
         if not customer_id:
             conn.close()
-            flash("Customer is required.")
+            flash(_t("Customer is required.", "El cliente es obligatorio."))
             return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
         if not start_date_value:
             conn.close()
-            flash("Valid start date is required.")
+            flash(_t("Valid start date is required.", "Se requiere una fecha de inicio válida."))
             return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
         if end_date and not end_date_value:
             conn.close()
-            flash("Invalid end date.")
+            flash(_t("Invalid end date.", "Fecha de fin no válida."))
             return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
         if end_date_value and end_date_value < start_date_value:
             conn.close()
-            flash("End date cannot be before start date.")
+            flash(_t("End date cannot be before start date.", "La fecha de fin no puede ser anterior a la fecha de inicio."))
             return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
         upcoming_generated_row = conn.execute(
@@ -2411,11 +2470,14 @@ def edit_recurring_schedule(schedule_id):
         except Exception as e:
             conn.rollback()
             conn.close()
-            flash(f"Could not update recurring mowing schedule: {e}")
+            flash(_t(
+                f"Could not update recurring mowing schedule: {e}",
+                f"No se pudo actualizar el programa recurrente de corte: {e}"
+            ))
             return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
         conn.close()
-        flash("Recurring mowing schedule updated.")
+        flash(_t("Recurring mowing schedule updated.", "Programa recurrente de corte actualizado."))
         return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
     generated_jobs = conn.execute(
@@ -2455,7 +2517,7 @@ def edit_recurring_schedule(schedule_id):
     customer_option_list = []
     for c in customers:
         selected_attr = "selected" if c["id"] == schedule["customer_id"] else ""
-        label = escape(clean_text_display(c["name"], "Customer #" + str(c["id"])))
+        label = escape(clean_text_display(c["name"], _t("Customer", "Cliente") + f" #{c['id']}"))
         customer_option_list.append(
             f"<option value='{c['id']}' {selected_attr}>{label}</option>"
         )
@@ -2474,16 +2536,16 @@ def edit_recurring_schedule(schedule_id):
         mobile_invoice_button_html = ""
 
         if j["invoice_id"]:
-            invoice_label = clean_text_input(j["invoice_number"]) or f"Invoice #{j['invoice_id']}"
+            invoice_label = clean_text_input(j["invoice_number"]) or f"{_t('Invoice', 'Factura')} #{j['invoice_id']}"
             invoice_button_html = (
                 f"<a class='btn secondary small' href='{url_for('invoices.view_invoice', invoice_id=j['invoice_id'])}'>"
-                f"View {escape(invoice_label)}</a>"
+                f"{_t('View', 'Ver')} {escape(invoice_label)}</a>"
             )
             mobile_invoice_button_html = invoice_button_html
         elif clean_text_input(j["status"]) != "Invoiced":
             invoice_button_html = (
                 f"<a class='btn success small' href='{url_for('jobs.convert_job_to_invoice', job_id=j['id'])}'>"
-                f"Invoice This Visit</a>"
+                f"{_t('Invoice This Visit', 'Facturar esta visita')}</a>"
             )
             mobile_invoice_button_html = invoice_button_html
 
@@ -2500,8 +2562,8 @@ def edit_recurring_schedule(schedule_id):
                 <td>{escape(clean_text_display(j['status']))}</td>
                 <td class='wrap'>
                     <div style='display:flex; gap:6px; flex-wrap:wrap;'>
-                        <a class='btn warning small' href='{url_for("jobs.edit_job", job_id=j["id"])}'>Edit</a>
-                        {invoice_button_html or "<span class='muted small'>—</span>"}
+                        <a class='btn warning small' href='{url_for("jobs.edit_job", job_id=j["id"])}'>{_t("Edit", "Editar")}</a>
+                        {invoice_button_html or f"<span class='muted small'>{_t('—', '—')}</span>"}
                     </div>
                 </td>
             </tr>
@@ -2510,8 +2572,8 @@ def edit_recurring_schedule(schedule_id):
 
         invoice_meta_html = ""
         if j["invoice_id"]:
-            invoice_label = clean_text_input(j["invoice_number"]) or f"Invoice #{j['invoice_id']}"
-            invoice_meta_html = f"<div><span>Invoice</span><strong>{escape(invoice_label)}</strong></div>"
+            invoice_label = clean_text_input(j["invoice_number"]) or f"{_t('Invoice', 'Factura')} #{j['invoice_id']}"
+            invoice_meta_html = f"<div><span>{_t('Invoice', 'Factura')}</span><strong>{escape(invoice_label)}</strong></div>"
 
         jobs_mobile_cards.append(
             f"""
@@ -2524,14 +2586,14 @@ def edit_recurring_schedule(schedule_id):
                 </div>
 
                 <div class='mobile-list-grid'>
-                    <div><span>Date</span><strong>{escape(clean_text_display(j['scheduled_date']))}</strong></div>
-                    <div><span>Start</span><strong>{escape(clean_text_display(j['scheduled_start_time']))}</strong></div>
-                    <div><span>End</span><strong>{escape(clean_text_display(j['scheduled_end_time']))}</strong></div>
+                    <div><span>{_t("Date", "Fecha")}</span><strong>{escape(clean_text_display(j['scheduled_date']))}</strong></div>
+                    <div><span>{_t("Start", "Inicio")}</span><strong>{escape(clean_text_display(j['scheduled_start_time']))}</strong></div>
+                    <div><span>{_t("End", "Fin")}</span><strong>{escape(clean_text_display(j['scheduled_end_time']))}</strong></div>
                     {invoice_meta_html}
                 </div>
 
                 <div class='mobile-list-actions'>
-                    <a class='btn warning small' href='{url_for("jobs.edit_job", job_id=j["id"])}'>Edit</a>
+                    <a class='btn warning small' href='{url_for("jobs.edit_job", job_id=j["id"])}'>{_t("Edit", "Editar")}</a>
                     {mobile_invoice_button_html or ""}
                 </div>
             </div>
@@ -2565,15 +2627,15 @@ def edit_recurring_schedule(schedule_id):
                 <td class='money'>{sale_price_display}</td>
                 <td class='money'>{unit_cost_display}</td>
                 <td class='money'>${total_cost_display:.2f}</td>
-                <td class='center'>{'Yes' if item['billable'] else 'No'}</td>
+                <td class='center'>{_t('Yes', 'Sí') if item['billable'] else _t('No', 'No')}</td>
                 <td class='money'>${total_revenue_display:.2f}</td>
                 <td class='wrap'>
                     <form method='post'
                           action='{url_for("jobs.delete_recurring_schedule_item", schedule_id=schedule_id, item_id=item["id"])}'
                           style='margin:0;'
-                          onsubmit="return confirm('Delete this recurring schedule item?');">
+                          onsubmit="return confirm('{_t("Delete this recurring schedule item?", "¿Eliminar este artículo del programa recurrente?")}');">
                         <input type="hidden" name="csrf_token" value="{delete_item_csrf}">
-                        <button class='btn danger small' type='submit'>Delete</button>
+                        <button class='btn danger small' type='submit'>{_t("Delete", "Eliminar")}</button>
                     </form>
                 </td>
             </tr>
@@ -2585,25 +2647,25 @@ def edit_recurring_schedule(schedule_id):
             <div class='mobile-list-card'>
                 <div class='mobile-list-top'>
                     <div class='mobile-list-title'>{escape(display_item_type(item['item_type']))} - {escape(clean_text_display(item['description']))}</div>
-                    <div class='mobile-badge'>{'Billable' if item['billable'] else 'Non-Billable'}</div>
+                    <div class='mobile-badge'>{_t('Billable', 'Facturable') if item['billable'] else _t('Non-Billable', 'No facturable')}</div>
                 </div>
 
                 <div class='mobile-list-grid'>
-                    <div><span>Qty</span><strong>{safe_float(item['quantity']):g}</strong></div>
-                    <div><span>Unit</span><strong>{escape(clean_text_display(item['unit']))}</strong></div>
-                    <div><span>Sale Price</span><strong>{sale_price_display}</strong></div>
-                    <div><span>Unit Cost</span><strong>{unit_cost_display}</strong></div>
-                    <div><span>Total Cost</span><strong>${total_cost_display:.2f}</strong></div>
-                    <div><span>Total Revenue</span><strong>${total_revenue_display:.2f}</strong></div>
+                    <div><span>{_t("Qty", "Cant.")}</span><strong>{safe_float(item['quantity']):g}</strong></div>
+                    <div><span>{_t("Unit", "Unidad")}</span><strong>{escape(clean_text_display(item['unit']))}</strong></div>
+                    <div><span>{_t("Sale Price", "Precio de venta")}</span><strong>{sale_price_display}</strong></div>
+                    <div><span>{_t("Unit Cost", "Costo unitario")}</span><strong>{unit_cost_display}</strong></div>
+                    <div><span>{_t("Total Cost", "Costo total")}</span><strong>${total_cost_display:.2f}</strong></div>
+                    <div><span>{_t("Total Revenue", "Ingreso total")}</span><strong>${total_revenue_display:.2f}</strong></div>
                 </div>
 
                 <div class='mobile-list-actions'>
                     <form method='post'
                           action='{url_for("jobs.delete_recurring_schedule_item", schedule_id=schedule_id, item_id=item["id"])}'
                           style='margin:0;'
-                          onsubmit="return confirm('Delete this recurring schedule item?');">
+                          onsubmit="return confirm('{_t("Delete this recurring schedule item?", "¿Eliminar este artículo del programa recurrente?")}');">
                         <input type="hidden" name="csrf_token" value="{delete_item_csrf}">
-                        <button class='btn danger small' type='submit'>Delete</button>
+                        <button class='btn danger small' type='submit'>{_t("Delete", "Eliminar")}</button>
                     </form>
                 </div>
             </div>
@@ -2618,7 +2680,7 @@ def edit_recurring_schedule(schedule_id):
     interval_mode = interval_mode_from_weeks(schedule["interval_weeks"])
     custom_wrap_display = "block" if interval_mode == "custom" else "none"
     schedule_is_active = bool(schedule["active"])
-    schedule_status_text = "Active" if schedule_is_active else "Paused"
+    schedule_status_text = _t("Active", "Activo") if schedule_is_active else _t("Paused", "En pausa")
     schedule_status_class_name = "mowing" if schedule_is_active else "default"
 
     content = f"""
@@ -2742,25 +2804,25 @@ def edit_recurring_schedule(schedule_id):
     <div class='card'>
         <div style='display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;'>
             <div>
-                <h1 style='margin:0;'>Edit Recurring Mowing Schedule #{schedule['id']}</h1>
+                <h1 style='margin:0;'>{_t("Edit Recurring Mowing Schedule", "Editar programa recurrente de corte")} #{schedule['id']}</h1>
                 <p class='muted' style='margin:6px 0 0 0;'>
-                    This schedule keeps generating mowing jobs on its set interval until you pause it.
+                    {_t("This schedule keeps generating mowing jobs on its set interval until you pause it.", "Este programa sigue generando trabajos de corte según su intervalo hasta que lo pauses.")}
                 </p>
             </div>
             <div style='display:flex; gap:8px; flex-wrap:wrap;'>
-                <span class='service-chip mowing'>Mowing</span>
+                <span class='service-chip mowing'>{_t("Mowing", "Corte de césped")}</span>
                 <span class='service-chip default'>{escape(interval_label(schedule['interval_weeks']))}</span>
                 <span class='service-chip {schedule_status_class_name}'>{schedule_status_text}</span>
             </div>
         </div>
 
         <div class='row-actions' style='margin-top:14px;'>
-            <a class='btn secondary' href='{url_for("jobs.jobs")}'>Back to Jobs</a>
+            <a class='btn secondary' href='{url_for("jobs.jobs")}'>{_t("Back to Jobs", "Volver a trabajos")}</a>
 
             <form method='post' action='{url_for("jobs.generate_recurring_schedule_jobs", schedule_id=schedule["id"])}' style='margin:0;'>
                 <input type="hidden" name="csrf_token" value="{generate_jobs_csrf}">
                 <button class='btn success' type='submit' {"disabled" if not schedule_is_active else ""}>
-                    Generate Upcoming Jobs Now
+                    {_t("Generate Upcoming Jobs Now", "Generar próximos trabajos ahora")}
                 </button>
             </form>
 
@@ -2768,13 +2830,13 @@ def edit_recurring_schedule(schedule_id):
                 <input type="hidden" name="csrf_token" value="{schedule_invoice_csrf}">
                 <input type="hidden" name="invoice_mode" value="full_schedule">
                 <button class='btn success' type='submit'>
-                    Invoice Entire Schedule
+                    {_t("Invoice Entire Schedule", "Facturar todo el programa")}
                 </button>
             </form>
 
             <form method='post' action='{url_for("jobs.toggle_recurring_schedule", schedule_id=schedule["id"])}' style='margin:0;'>
                 <input type="hidden" name="csrf_token" value="{toggle_csrf}">
-                <button class='btn warning' type='submit'>{"Pause Schedule" if schedule_is_active else "Resume Schedule"}</button>
+                <button class='btn warning' type='submit'>{_t("Pause Schedule", "Pausar programa") if schedule_is_active else _t("Resume Schedule", "Reanudar programa")}</button>
             </form>
         </div>
     </div>
@@ -2784,162 +2846,162 @@ def edit_recurring_schedule(schedule_id):
             <input type="hidden" name="csrf_token" value="{edit_csrf}">
             <div class='grid'>
                 <div>
-                    <label>Customer</label>
+                    <label>{_t("Customer", "Cliente")}</label>
                     <select name='customer_id' required>
-                        <option value=''>Select customer</option>
+                        <option value=''>{_t("Select customer", "Selecciona cliente")}</option>
                         {customer_opts}
                     </select>
                 </div>
 
                 <div>
-                    <label>Schedule Title</label>
-                    <input name='title' value="{escape(clean_text_input(schedule['title']) or 'Recurring Mowing')}" required>
+                    <label>{_t("Schedule Title", "Título del programa")}</label>
+                    <input name='title' value="{escape(clean_text_input(schedule['title']) or _t('Recurring Mowing', 'Corte recurrente de césped'))}" required>
                 </div>
 
                 <div>
-                    <label>Service Type</label>
+                    <label>{_t("Service Type", "Tipo de servicio")}</label>
                     <select name='service_type'>
                         {service_type_select_options(schedule['service_type'] or 'mowing')}
                     </select>
                 </div>
 
                 <div>
-                    <label>Start Date</label>
+                    <label>{_t("Start Date", "Fecha de inicio")}</label>
                     <input type='date' name='start_date' value="{escape(date_to_iso(schedule['start_date']))}" required>
                 </div>
 
                 <div>
-                    <label>Interval</label>
+                    <label>{_t("Interval", "Intervalo")}</label>
                     <select name='interval_mode' id='edit_interval_mode' onchange='toggleEditCustomInterval()'>
-                        <option value='weekly' {'selected' if interval_mode == 'weekly' else ''}>Weekly</option>
-                        <option value='every_2' {'selected' if interval_mode == 'every_2' else ''}>Every 2 Weeks</option>
-                        <option value='custom' {'selected' if interval_mode == 'custom' else ''}>Custom Week Interval</option>
+                        <option value='weekly' {'selected' if interval_mode == 'weekly' else ''}>{_t("Weekly", "Semanal")}</option>
+                        <option value='every_2' {'selected' if interval_mode == 'every_2' else ''}>{_t("Every 2 Weeks", "Cada 2 semanas")}</option>
+                        <option value='custom' {'selected' if interval_mode == 'custom' else ''}>{_t("Custom Week Interval", "Intervalo personalizado en semanas")}</option>
                     </select>
                 </div>
 
                 <div id='edit_custom_interval_wrap' style='display:{custom_wrap_display};'>
-                    <label>Custom Weeks</label>
+                    <label>{_t("Custom Weeks", "Semanas personalizadas")}</label>
                     <input type='number' name='custom_interval_weeks' min='1' step='1' value='{safe_int(schedule["interval_weeks"], 1)}'>
                 </div>
 
                 <div>
-                    <label>Next Run Date</label>
+                    <label>{_t("Next Run Date", "Próxima fecha de ejecución")}</label>
                     <input type='date' value="{escape(date_to_iso(computed_next_run or schedule['next_run_date']))}" disabled>
-                    <div class='muted small' style='margin-top:4px;'>Auto-managed after generation.</div>
+                    <div class='muted small' style='margin-top:4px;'>{_t("Auto-managed after generation.", "Se gestiona automáticamente después de generar.")}</div>
                 </div>
 
                 <div>
-                    <label>End Date (Optional)</label>
+                    <label>{_t("End Date (Optional)", "Fecha de fin (opcional)")}</label>
                     <input type='date' name='end_date' value="{escape(date_to_iso(schedule['end_date']))}">
-                    <div class='muted small' style='margin-top:4px;'>Leave blank to keep generating jobs until you pause the schedule.</div>
+                    <div class='muted small' style='margin-top:4px;'>{_t("Leave blank to keep generating jobs until you pause the schedule.", "Déjalo vacío para seguir generando trabajos hasta que pauses el programa.")}</div>
                 </div>
 
                 <div>
-                    <label>Start Time</label>
+                    <label>{_t("Start Time", "Hora de inicio")}</label>
                     <input type='time' name='scheduled_start_time' value="{escape(clean_text_input(schedule['scheduled_start_time']))}">
                 </div>
 
                 <div>
-                    <label>End Time</label>
+                    <label>{_t("End Time", "Hora de fin")}</label>
                     <input type='time' name='scheduled_end_time' value="{escape(clean_text_input(schedule['scheduled_end_time']))}">
                 </div>
 
                 <div>
-                    <label>Assigned To</label>
+                    <label>{_t("Assigned To", "Asignado a")}</label>
                     <input name='assigned_to' value="{escape(clean_text_input(schedule['assigned_to']))}">
                 </div>
 
                 <div>
-                    <label>Default Job Status</label>
+                    <label>{_t("Default Job Status", "Estado predeterminado del trabajo")}</label>
                     <select name='status_default'>
-                        <option {'selected' if clean_text_input(schedule['status_default']) == 'Scheduled' else ''}>Scheduled</option>
-                        <option {'selected' if clean_text_input(schedule['status_default']) == 'In Progress' else ''}>In Progress</option>
-                        <option {'selected' if clean_text_input(schedule['status_default']) == 'Completed' else ''}>Completed</option>
-                        <option {'selected' if clean_text_input(schedule['status_default']) == 'Invoiced' else ''}>Invoiced</option>
+                        <option {'selected' if clean_text_input(schedule['status_default']) == 'Scheduled' else ''}>{_t("Scheduled", "Programado")}</option>
+                        <option {'selected' if clean_text_input(schedule['status_default']) == 'In Progress' else ''}>{_t("In Progress", "En progreso")}</option>
+                        <option {'selected' if clean_text_input(schedule['status_default']) == 'Completed' else ''}>{_t("Completed", "Completado")}</option>
+                        <option {'selected' if clean_text_input(schedule['status_default']) == 'Invoiced' else ''}>{_t("Invoiced", "Facturado")}</option>
                     </select>
                 </div>
 
                 <div>
-                    <label>Address</label>
+                    <label>{_t("Address", "Dirección")}</label>
                     <input name='address' value="{escape(clean_text_input(schedule['address']))}">
                 </div>
             </div>
 
             <br>
-            <label>Notes</label>
+            <label>{_t("Notes", "Notas")}</label>
             <textarea name='notes'>{escape(clean_text_input(schedule['notes']))}</textarea>
             <br>
-            <button class='btn'>Save Schedule Changes</button>
+            <button class='btn'>{_t("Save Schedule Changes", "Guardar cambios del programa")}</button>
         </form>
     </div>
 
     <div class='card'>
-        <h2>Recurring Schedule Items</h2>
-        <p class='muted'>These items will be copied into each newly generated recurring job. This is where you set the mowing price and costs.</p>
+        <h2>{_t("Recurring Schedule Items", "Artículos del programa recurrente")}</h2>
+        <p class='muted'>{_t("These items will be copied into each newly generated recurring job. This is where you set the mowing price and costs.", "Estos artículos se copiarán en cada trabajo recurrente nuevo generado. Aquí es donde defines el precio y los costos del corte.")}</p>
 
         <form method='post' action='{url_for("jobs.add_recurring_schedule_item", schedule_id=schedule_id)}'>
             <input type="hidden" name="csrf_token" value="{add_recurring_item_csrf}">
             <div class='grid'>
                 <div>
-                    <label>Type</label>
+                    <label>{_t("Type", "Tipo")}</label>
                     <select name='item_type' id='recurring_item_type' onchange='toggleRecurringItemMode()'>
-                        <option value='labor'>Labor</option>
-                        <option value='fuel'>Fuel</option>
-                        <option value='misc'>Misc</option>
-                        <option value='dump_fee'>Dump Fee</option>
-                        <option value='equipment'>Equipment</option>
-                        <option value='delivery'>Delivery</option>
-                        <option value='mulch'>Mulch</option>
-                        <option value='stone'>Stone</option>
-                        <option value='soil'>Soil</option>
-                        <option value='fertilizer'>Fertilizer</option>
-                        <option value='plants'>Plants</option>
-                        <option value='trees'>Trees</option>
-                        <option value='hardscape_material'>Hardscape Material</option>
+                        <option value='labor'>{_t("Labor", "Mano de obra")}</option>
+                        <option value='fuel'>{_t("Fuel", "Combustible")}</option>
+                        <option value='misc'>{_t("Misc", "Varios")}</option>
+                        <option value='dump_fee'>{_t("Dump Fee", "Tarifa de vertedero")}</option>
+                        <option value='equipment'>{_t("Equipment", "Equipo")}</option>
+                        <option value='delivery'>{_t("Delivery", "Entrega")}</option>
+                        <option value='mulch'>{_t("Mulch", "Mantillo")}</option>
+                        <option value='stone'>{_t("Stone", "Piedra")}</option>
+                        <option value='soil'>{_t("Soil", "Tierra")}</option>
+                        <option value='fertilizer'>{_t("Fertilizer", "Fertilizante")}</option>
+                        <option value='plants'>{_t("Plants", "Plantas")}</option>
+                        <option value='trees'>{_t("Trees", "Árboles")}</option>
+                        <option value='hardscape_material'>{_t("Hardscape Material", "Material de hardscape")}</option>
                     </select>
                 </div>
 
                 <div>
-                    <label>Description</label>
-                    <input name='description' value='Mowing Service' required>
+                    <label>{_t("Description", "Descripción")}</label>
+                    <input name='description' value='{escape(_t("Mowing Service", "Servicio de corte"))}' required>
                 </div>
 
                 <div>
-                    <label id='recurring_quantity_label'>Quantity</label>
+                    <label id='recurring_quantity_label'>{_t("Quantity", "Cantidad")}</label>
                     <input type='number' step='0.01' name='quantity' id='recurring_quantity' value='1' required>
                 </div>
 
                 <div>
-                    <label>Unit</label>
-                    <input name='unit' id='recurring_unit' value='Hours'>
+                    <label>{_t("Unit", "Unidad")}</label>
+                    <input name='unit' id='recurring_unit' value='{escape(_t("Hours", "Horas"))}'>
                 </div>
 
                 <div>
-                    <label id='recurring_sale_price_label'>Sale Price</label>
+                    <label id='recurring_sale_price_label'>{_t("Sale Price", "Precio de venta")}</label>
                     <input type='number' step='0.01' name='sale_price' id='recurring_sale_price' value='0' required>
                 </div>
 
                 <div id="unit_cost_wrap">
-                    <label id='recurring_cost_label'>Unit Cost</label>
+                    <label id='recurring_cost_label'>{_t("Unit Cost", "Costo unitario")}</label>
                     <input type='number' step='0.01' name='unit_cost' id='recurring_unit_cost' value='0'>
                 </div>
 
                 <div>
-                    <label>Billable?</label>
+                    <label>{_t("Billable?", "¿Facturable?")}</label>
                     <select name='billable'>
-                        <option value='1'>Yes</option>
-                        <option value='0'>No</option>
+                        <option value='1'>{_t("Yes", "Sí")}</option>
+                        <option value='0'>{_t("No", "No")}</option>
                     </select>
                 </div>
             </div>
 
             <br>
-            <button class='btn success' type='submit'>Add Recurring Item</button>
+            <button class='btn success' type='submit'>{_t("Add Recurring Item", "Agregar artículo recurrente")}</button>
         </form>
     </div>
 
     <div class='card'>
-        <h2>Recurring Item List</h2>
+        <h2>{_t("Recurring Item_ List", "Lista de artículos recurrentes")}</h2>
 
         <div class='static-table-wrap desktop-only'>
             <table class='static-table'>
@@ -2956,32 +3018,35 @@ def edit_recurring_schedule(schedule_id):
                     <col style='width:15%;'>
                 </colgroup>
                 <tr>
-                    <th>Type</th>
-                    <th class='wrap'>Description</th>
-                    <th class='money'>Qty</th>
-                    <th>Unit</th>
-                    <th class='money'>Sale Price</th>
-                    <th class='money'>Unit Cost</th>
-                    <th class='money'>Total Cost</th>
-                    <th class='center'>Billable</th>
-                    <th class='money'>Revenue</th>
-                    <th class='wrap'>Actions</th>
+                    <th>{_t("Type", "Tipo")}</th>
+                    <th class='wrap'>{_t("Description", "Descripción")}</th>
+                    <th class='money'>{_t("Qty", "Cant.")}</th>
+                    <th>{_t("Unit", "Unidad")}</th>
+                    <th class='money'>{_t("Sale Price", "Precio de venta")}</th>
+                    <th class='money'>{_t("Unit Cost", "Costo unitario")}</th>
+                    <th class='money'>{_t("Total Cost", "Costo total")}</th>
+                    <th class='center'>{_t("Billable", "Facturable")}</th>
+                    <th class='money'>{_t("Revenue", "Ingreso")}</th>
+                    <th class='wrap'>{_t("Actions", "Acciones")}</th>
                 </tr>
-                {recurring_item_rows_html or '<tr><td colspan="10" class="muted">No recurring items yet.</td></tr>'}
+                {recurring_item_rows_html or f'<tr><td colspan="10" class="muted">{_t("No recurring items yet.", "Todavía no hay artículos recurrentes.")}</td></tr>'}
             </table>
         </div>
 
         <div class='mobile-only'>
             <div class='mobile-list'>
-                {recurring_item_mobile_html or "<div class='mobile-list-card'>No recurring items yet.</div>"}
+                {recurring_item_mobile_html or f"<div class='mobile-list-card'>{_t('No recurring items yet.', 'Todavía no hay artículos recurrentes.')}</div>"}
             </div>
         </div>
     </div>
 
     <div class='card'>
-        <h2>Generated Jobs Linked to This Schedule</h2>
+        <h2>{_t("Generated Jobs Linked to This Schedule", "Trabajos generados vinculados a este programa")}</h2>
         <p class='muted' style='margin-top:0;'>
-            You can invoice the full recurring schedule from the top action bar, or invoice one visit at a time using the button on each generated job row.
+            {_t(
+                "You can invoice the full recurring schedule from the top action bar, or invoice one visit at a time using the button on each generated job row.",
+                "Puedes facturar todo el programa recurrente desde la barra superior de acciones, o facturar una visita a la vez usando el botón en cada fila de trabajo generado."
+            )}
         </p>
 
         <div class='desktop-only'>
@@ -2997,20 +3062,20 @@ def edit_recurring_schedule(schedule_id):
                 </colgroup>
                 <tr>
                     <th>ID</th>
-                    <th class='wrap'>Title</th>
-                    <th>Date</th>
-                    <th>Start</th>
-                    <th>End</th>
-                    <th>Status</th>
-                    <th class='wrap'>Actions</th>
+                    <th class='wrap'>{_t("Title", "Título")}</th>
+                    <th>{_t("Date", "Fecha")}</th>
+                    <th>{_t("Start", "Inicio")}</th>
+                    <th>{_t("End", "Fin")}</th>
+                    <th>{_t("Status", "Estado")}</th>
+                    <th class='wrap'>{_t("Actions", "Acciones")}</th>
                 </tr>
-                {generated_jobs_table or '<tr><td colspan="7" class="muted">No generated jobs yet.</td></tr>'}
+                {generated_jobs_table or f'<tr><td colspan="7" class="muted">{_t("No generated jobs yet.", "Todavía no hay trabajos generados.")}</td></tr>'}
             </table>
         </div>
 
         <div class='mobile-only'>
             <div class='mobile-list'>
-                {generated_jobs_mobile_html or "<div class='mobile-list-card'>No generated jobs yet.</div>"}
+                {generated_jobs_mobile_html or f"<div class='mobile-list-card'>{_t('No generated jobs yet.', 'Todavía no hay trabajos generados.')}</div>"}
             </div>
         </div>
     </div>
@@ -3035,9 +3100,9 @@ def edit_recurring_schedule(schedule_id):
             const unitCostInput = document.getElementById('recurring_unit_cost');
             const unitCostWrap = unitCostInput ? unitCostInput.closest("div") : null;
 
-            if (quantityLabel) quantityLabel.innerText = 'Quantity';
-            if (salePriceLabel) salePriceLabel.innerText = 'Sale Price';
-            if (costLabel) costLabel.innerText = 'Unit Cost';
+            if (quantityLabel) quantityLabel.innerText = "{_t('Quantity', 'Cantidad')}";
+            if (salePriceLabel) salePriceLabel.innerText = "{_t('Sale Price', 'Precio de venta')}";
+            if (costLabel) costLabel.innerText = "{_t('Unit Cost', 'Costo unitario')}";
 
             if (quantityInput) {{
                 quantityInput.readOnly = false;
@@ -3047,43 +3112,43 @@ def edit_recurring_schedule(schedule_id):
             if (unitCostWrap) unitCostWrap.style.display = 'block';
 
             if (type === 'labor') {{
-                if (quantityLabel) quantityLabel.innerText = 'Billable Hours';
-                if (salePriceLabel) salePriceLabel.innerText = 'Hourly Rate';
-                if (costLabel) costLabel.innerText = 'Hourly Cost';
-                if (unitInput) unitInput.value = 'Hours';
+                if (quantityLabel) quantityLabel.innerText = "{_t('Billable Hours', 'Horas facturables')}";
+                if (salePriceLabel) salePriceLabel.innerText = "{_t('Hourly Rate', 'Tarifa por hora')}";
+                if (costLabel) costLabel.innerText = "{_t('Hourly Cost', 'Costo por hora')}";
+                if (unitInput) unitInput.value = "{_t('Hours', 'Horas')}";
                 if (unitCostWrap) unitCostWrap.style.display = 'block';
             }}
             else if (type === 'mulch') {{
-                if (quantityLabel) quantityLabel.innerText = 'Yards';
-                if (unitInput) unitInput.value = 'Yards';
+                if (quantityLabel) quantityLabel.innerText = "{_t('Yards', 'Yardas')}";
+                if (unitInput) unitInput.value = "{_t('Yards', 'Yardas')}";
             }}
             else if (type === 'stone') {{
-                if (quantityLabel) quantityLabel.innerText = 'Tons';
-                if (unitInput) unitInput.value = 'Tons';
+                if (quantityLabel) quantityLabel.innerText = "{_t('Tons', 'Toneladas')}";
+                if (unitInput) unitInput.value = "{_t('Tons', 'Toneladas')}";
             }}
             else if (type === 'soil') {{
-                if (quantityLabel) quantityLabel.innerText = 'Yards';
-                if (unitInput) unitInput.value = 'Yards';
+                if (quantityLabel) quantityLabel.innerText = "{_t('Yards', 'Yardas')}";
+                if (unitInput) unitInput.value = "{_t('Yards', 'Yardas')}";
             }}
             else if (type === 'hardscape_material') {{
-                if (quantityLabel) quantityLabel.innerText = 'Tons';
-                if (unitInput) unitInput.value = 'Tons';
+                if (quantityLabel) quantityLabel.innerText = "{_t('Tons', 'Toneladas')}";
+                if (unitInput) unitInput.value = "{_t('Tons', 'Toneladas')}";
             }}
             else if (type === 'fuel') {{
-                if (quantityLabel) quantityLabel.innerText = 'Gallons';
-                if (unitInput) unitInput.value = 'Gallons';
+                if (quantityLabel) quantityLabel.innerText = "{_t('Gallons', 'Galones')}";
+                if (unitInput) unitInput.value = "{_t('Gallons', 'Galones')}";
             }}
             else if (type === 'delivery') {{
-                if (quantityLabel) quantityLabel.innerText = 'Miles';
-                if (unitInput) unitInput.value = 'Miles';
+                if (quantityLabel) quantityLabel.innerText = "{_t('Miles', 'Millas')}";
+                if (unitInput) unitInput.value = "{_t('Miles', 'Millas')}";
             }}
             else if (type === 'equipment') {{
-                if (quantityLabel) quantityLabel.innerText = 'Rentals';
-                if (unitInput) unitInput.value = 'Rentals';
+                if (quantityLabel) quantityLabel.innerText = "{_t('Rentals', 'Alquileres')}";
+                if (unitInput) unitInput.value = "{_t('Rentals', 'Alquileres')}";
             }}
             else if (type === 'dump_fee') {{
-                if (quantityLabel) quantityLabel.innerText = 'Fee';
-                if (salePriceLabel) salePriceLabel.innerText = 'Fee Amount';
+                if (quantityLabel) quantityLabel.innerText = "{_t('Fee', 'Tarifa')}";
+                if (salePriceLabel) salePriceLabel.innerText = "{_t('Fee Amount', 'Monto de la tarifa')}";
                 if (unitInput) unitInput.value = '';
 
                 if (unitCostWrap) unitCostWrap.style.display = 'none';
@@ -3095,7 +3160,13 @@ def edit_recurring_schedule(schedule_id):
                 }}
             }}
             else if (type === 'fertilizer') {{
-                if (unitInput) unitInput.value = 'Bags';
+                if (unitInput) unitInput.value = "{_t('Bags', 'Bolsas')}";
+            }}
+            else if (type === 'plants') {{
+                if (unitInput) unitInput.value = 'EA';
+            }}
+            else if (type === 'trees') {{
+                if (unitInput) unitInput.value = 'EA';
             }}
             else {{
                 if (unitInput) unitInput.value = '';
@@ -3107,7 +3178,10 @@ def edit_recurring_schedule(schedule_id):
     </script>
     """
     conn.close()
-    return render_page(content, f"Recurring Schedule #{schedule_id}")
+    return render_page(
+        content,
+        f"{_t('Recurring Schedule', 'Programa recurrente')} #{schedule_id}"
+    )
 
 
 @jobs_bp.route("/jobs/recurring/<int:schedule_id>/items/add", methods=["POST"])
@@ -3131,7 +3205,7 @@ def add_recurring_schedule_item(schedule_id):
 
     if not schedule:
         conn.close()
-        flash("Recurring mowing schedule not found.")
+        flash(_t("Recurring mowing schedule not found.", "Programa recurrente de corte no encontrado."))
         return redirect(url_for("jobs.jobs"))
 
     item_type = clean_text_input(request.form.get("item_type", "")).lower()
@@ -3144,30 +3218,30 @@ def add_recurring_schedule_item(schedule_id):
 
     if not description:
         conn.close()
-        flash("Description is required.")
+        flash(_t("Description is required.", "La descripción es obligatoria."))
         return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
     if qty <= 0:
         qty = 1.0
 
     if item_type == "mulch" and not unit:
-        unit = "Yards"
+        unit = _t("Yards", "Yardas")
     elif item_type == "stone" and not unit:
-        unit = "Tons"
+        unit = _t("Tons", "Toneladas")
     elif item_type == "soil" and not unit:
-        unit = "Yards"
+        unit = _t("Yards", "Yardas")
     elif item_type == "hardscape_material" and not unit:
-        unit = "Tons"
+        unit = _t("Tons", "Toneladas")
     elif item_type == "fuel" and not unit:
-        unit = "Gallons"
+        unit = _t("Gallons", "Galones")
     elif item_type == "delivery" and not unit:
-        unit = "Miles"
+        unit = _t("Miles", "Millas")
     elif item_type == "labor" and not unit:
-        unit = "Hours"
+        unit = _t("Hours", "Horas")
     elif item_type == "equipment" and not unit:
-        unit = "Rentals"
+        unit = _t("Rentals", "Alquileres")
     elif item_type == "fertilizer" and not unit:
-        unit = "Bags"
+        unit = _t("Bags", "Bolsas")
     elif item_type in ["plants", "trees", "misc", "dump_fee"]:
         unit = ""
 
@@ -3211,13 +3285,13 @@ def add_recurring_schedule_item(schedule_id):
     if not item_id:
         conn.rollback()
         conn.close()
-        flash("Could not add recurring schedule item.")
+        flash(_t("Could not add recurring schedule item.", "No se pudo agregar el artículo del programa recurrente."))
         return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
     conn.commit()
     conn.close()
 
-    flash("Recurring schedule item added.")
+    flash(_t("Recurring schedule item added.", "Artículo del programa recurrente agregado."))
     return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
 
@@ -3242,7 +3316,7 @@ def delete_recurring_schedule(schedule_id):
 
     if not schedule:
         conn.close()
-        flash("Recurring mowing schedule not found.")
+        flash(_t("Recurring mowing schedule not found.", "Programa recurrente de corte no encontrado."))
         return redirect(url_for("jobs.jobs"))
 
     try:
@@ -3285,10 +3359,12 @@ def delete_recurring_schedule(schedule_id):
 
             if invoiced_jobs:
                 sample = invoiced_jobs[0]
-                invoice_label = clean_text_input(sample["invoice_number"]) or f"Invoice #{sample['invoice_id']}"
+                invoice_label = clean_text_input(sample["invoice_number"]) or f"{_t('Invoice', 'Factura')} #{sample['invoice_id']}"
                 flash(
-                    f"Cannot delete this recurring mowing schedule because generated job #{sample['id']} "
-                    f"is already tied to {invoice_label}. Remove or handle the invoice first."
+                    _t(
+                        f"Cannot delete this recurring mowing schedule because generated job #{sample['id']} is already tied to {invoice_label}. Remove or handle the invoice first.",
+                        f"No se puede eliminar este programa recurrente de corte porque el trabajo generado #{sample['id']} ya está vinculado a {invoice_label}. Elimina o resuelve primero la factura."
+                    )
                 )
                 conn.close()
                 return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
@@ -3349,10 +3425,15 @@ def delete_recurring_schedule(schedule_id):
         )
 
         conn.commit()
-        flash("Recurring mowing schedule and all non-invoiced generated jobs were deleted.")
+        flash(
+            _t(
+                "Recurring mowing schedule and all non-invoiced generated jobs were deleted.",
+                "Se eliminó el programa recurrente de corte y todos los trabajos generados no facturados."
+            )
+        )
     except Exception as e:
         conn.rollback()
-        flash(f"Could not delete recurring mowing schedule: {e}")
+        flash(_t(f"Could not delete recurring mowing schedule: {e}", f"No se pudo eliminar el programa recurrente de corte: {e}"))
     finally:
         conn.close()
 
@@ -3382,7 +3463,7 @@ def delete_recurring_schedule_item(schedule_id, item_id):
 
     if not item:
         conn.close()
-        flash("Recurring schedule item not found.")
+        flash(_t("Recurring schedule item not found.", "Artículo del programa recurrente no encontrado."))
         return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
     conn.execute(
@@ -3397,7 +3478,7 @@ def delete_recurring_schedule_item(schedule_id, item_id):
     conn.commit()
     conn.close()
 
-    flash("Recurring schedule item deleted.")
+    flash(_t("Recurring schedule item deleted.", "Artículo del programa recurrente eliminado."))
     return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
 
@@ -3422,7 +3503,7 @@ def toggle_recurring_schedule(schedule_id):
 
     if not schedule:
         conn.close()
-        flash("Recurring mowing schedule not found.")
+        flash(_t("Recurring mowing schedule not found.", "Programa recurrente de corte no encontrado."))
         return redirect(url_for("jobs.jobs"))
 
     new_active = not bool(schedule["active"])
@@ -3446,12 +3527,16 @@ def toggle_recurring_schedule(schedule_id):
     except Exception as e:
         conn.rollback()
         conn.close()
-        flash(f"Could not update recurring mowing schedule: {e}")
+        flash(_t(f"Could not update recurring mowing schedule: {e}", f"No se pudo actualizar el programa recurrente de corte: {e}"))
         return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
     conn.close()
 
-    flash("Recurring mowing schedule resumed." if new_active else "Recurring mowing schedule paused.")
+    flash(
+        _t("Recurring mowing schedule resumed.", "Programa recurrente de corte reanudado.")
+        if new_active
+        else _t("Recurring mowing schedule paused.", "Programa recurrente de corte pausado.")
+    )
     return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
 
@@ -3475,20 +3560,20 @@ def convert_recurring_schedule_to_invoice(schedule_id):
         ).fetchone()
 
         if not schedule:
-            flash("Recurring schedule not found.")
+            flash(_t("Recurring schedule not found.", "Programa recurrente no encontrado."))
             return redirect(url_for("jobs.jobs"))
 
         invoice_mode = (request.form.get("invoice_mode") or "").strip().lower()
 
-        # Default to full schedule if the user clicked the recurring schedule invoice button,
-        # but still allow a form value to control behavior.
         if invoice_mode not in {"full_schedule", "single_visit"}:
             invoice_mode = "full_schedule"
 
         if invoice_mode == "single_visit":
             flash(
-                "Single-visit invoicing is still available. Open the specific generated job "
-                "for that visit and use Convert to Invoice there."
+                _t(
+                    "Single-visit invoicing is still available. Open the specific generated job for that visit and use Convert to Invoice there.",
+                    "La facturación por visita individual sigue disponible. Abre el trabajo generado específico de esa visita y usa Convertir en factura allí."
+                )
             )
             return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
@@ -3507,7 +3592,7 @@ def convert_recurring_schedule_to_invoice(schedule_id):
         ).fetchall()
 
         if not jobs:
-            flash("No generated jobs were found for this recurring schedule yet.")
+            flash(_t("No generated jobs were found for this recurring schedule yet.", "Todavía no se encontraron trabajos generados para este programa recurrente."))
             return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
         job_ids = [j["id"] for j in jobs]
@@ -3532,7 +3617,6 @@ def convert_recurring_schedule_to_invoice(schedule_id):
 
         already_invoiced_job_ids = set()
 
-        # 1) Strongest check: invoice_items linked directly back to a job
         if "job_id" in invoice_items_cols:
             rows = conn.execute(
                 """
@@ -3548,7 +3632,6 @@ def convert_recurring_schedule_to_invoice(schedule_id):
                 r["job_id"] for r in rows if r["job_id"] is not None
             )
 
-        # 2) If invoices has a direct job_id link, count those too
         if "job_id" in invoices_cols:
             rows = conn.execute(
                 """
@@ -3563,7 +3646,6 @@ def convert_recurring_schedule_to_invoice(schedule_id):
                 r["job_id"] for r in rows if r["job_id"] is not None
             )
 
-        # 3) Fallback: if jobs table tracks invoice_id / converted invoice id, respect it
         if "invoice_id" in jobs_cols:
             rows = conn.execute(
                 """
@@ -3594,7 +3676,7 @@ def convert_recurring_schedule_to_invoice(schedule_id):
         skipped_jobs = [j for j in jobs if j["id"] in already_invoiced_job_ids]
 
         if not eligible_jobs:
-            flash("All jobs in this recurring schedule have already been invoiced.")
+            flash(_t("All jobs in this recurring schedule have already been invoiced.", "Todos los trabajos de este programa recurrente ya fueron facturados."))
             return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
         schedule_title = (schedule["title"] or "").strip() if "title" in schedule.keys() else ""
@@ -3621,12 +3703,14 @@ def convert_recurring_schedule_to_invoice(schedule_id):
         elif service_type:
             invoice_title_parts.append(service_type.replace("_", " ").title())
         else:
-            invoice_title_parts.append("Recurring Schedule")
+            invoice_title_parts.append(_t("Recurring Schedule", "Programa recurrente"))
 
-        invoice_title_parts.append(f"{visit_count} Visit{'s' if visit_count != 1 else ''}")
+        invoice_title_parts.append(
+            _t(f"{visit_count} Visit{'s' if visit_count != 1 else ''}", f"{visit_count} Visita{'s' if visit_count != 1 else ''}")
+        )
 
         if first_date and last_date and first_date != last_date:
-            invoice_title_parts.append(f"{first_date} to {last_date}")
+            invoice_title_parts.append(f"{first_date} {_t('to', 'a')} {last_date}")
         elif first_date:
             invoice_title_parts.append(str(first_date))
 
@@ -3634,22 +3718,24 @@ def convert_recurring_schedule_to_invoice(schedule_id):
 
         invoice_notes_parts = []
         if schedule_title:
-            invoice_notes_parts.append(f"Recurring schedule: {schedule_title}")
+            invoice_notes_parts.append(f"{_t('Recurring schedule:', 'Programa recurrente:')} {schedule_title}")
         else:
-            invoice_notes_parts.append(f"Recurring schedule ID: {schedule_id}")
+            invoice_notes_parts.append(f"{_t('Recurring schedule ID:', 'ID del programa recurrente:')} {schedule_id}")
 
-        invoice_notes_parts.append(f"Visits included: {visit_count}")
+        invoice_notes_parts.append(f"{_t('Visits included:', 'Visitas incluidas:')} {visit_count}")
 
         if skipped_jobs:
-            invoice_notes_parts.append(f"Visits skipped because already invoiced: {len(skipped_jobs)}")
+            invoice_notes_parts.append(
+                f"{_t('Visits skipped because already invoiced:', 'Visitas omitidas por ya estar facturadas:')} {len(skipped_jobs)}"
+            )
 
         if first_date and last_date and first_date != last_date:
-            invoice_notes_parts.append(f"Service dates: {first_date} through {last_date}")
+            invoice_notes_parts.append(f"{_t('Service dates:', 'Fechas de servicio:')} {first_date} {_t('through', 'hasta')} {last_date}")
         elif first_date:
-            invoice_notes_parts.append(f"Service date: {first_date}")
+            invoice_notes_parts.append(f"{_t('Service date:', 'Fecha de servicio:')} {first_date}")
 
         if notes:
-            invoice_notes_parts.append(f"Schedule notes: {notes}")
+            invoice_notes_parts.append(f"{_t('Schedule notes:', 'Notas del programa:')} {notes}")
 
         invoice_notes = "\n".join(invoice_notes_parts)
 
@@ -3704,7 +3790,7 @@ def convert_recurring_schedule_to_invoice(schedule_id):
             str(next_invoice_number),
             invoice_title,
             invoice_notes,
-            "Unpaid",
+            _t("Unpaid", "No pagada"),
             0,
             schedule_id,
             service_type or None,
@@ -3755,7 +3841,7 @@ def convert_recurring_schedule_to_invoice(schedule_id):
                     elif "name" in item.keys() and item["name"]:
                         description = str(item["name"]).strip()
                     else:
-                        description = "Recurring service visit"
+                        description = _t("Recurring service visit", "Visita de servicio recurrente")
 
                     quantity = 1
                     if "quantity" in item.keys() and item["quantity"] is not None:
@@ -3826,7 +3912,7 @@ def convert_recurring_schedule_to_invoice(schedule_id):
                 elif service_type:
                     description_parts.append(service_type.replace("_", " ").title())
                 else:
-                    description_parts.append("Recurring service")
+                    description_parts.append(_t("Recurring service", "Servicio recurrente"))
 
                 if "scheduled_date" in job.keys() and job["scheduled_date"]:
                     description_parts.append(str(job["scheduled_date"]))
@@ -3891,7 +3977,12 @@ def convert_recurring_schedule_to_invoice(schedule_id):
                 (invoice_id, cid),
             )
             conn.commit()
-            flash("Could not build an invoice because no billable recurring visits were found.")
+            flash(
+                _t(
+                    "Could not build an invoice because no billable recurring visits were found.",
+                    "No se pudo crear una factura porque no se encontraron visitas recurrentes facturables."
+                )
+            )
             return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
 
         conn.execute(
@@ -3903,7 +3994,6 @@ def convert_recurring_schedule_to_invoice(schedule_id):
             (invoice_items_total, invoice_id, cid),
         )
 
-        # If your jobs table tracks invoice linkage, update included jobs only
         if "invoice_id" in jobs_cols:
             conn.execute(
                 """
@@ -3951,19 +4041,30 @@ def convert_recurring_schedule_to_invoice(schedule_id):
 
         if skipped_jobs:
             flash(
-                f"Recurring schedule invoiced successfully. "
-                f"Added {len(eligible_jobs)} visit{'s' if len(eligible_jobs) != 1 else ''} "
-                f"and skipped {len(skipped_jobs)} already invoiced visit{'s' if len(skipped_jobs) != 1 else ''}."
+                _t(
+                    f"Recurring schedule invoiced successfully. Added {len(eligible_jobs)} visit{'s' if len(eligible_jobs) != 1 else ''} and skipped {len(skipped_jobs)} already invoiced visit{'s' if len(skipped_jobs) != 1 else ''}.",
+                    f"Programa recurrente facturado correctamente. Se agregaron {len(eligible_jobs)} visita(s) y se omitieron {len(skipped_jobs)} visita(s) ya facturadas."
+                )
             )
         else:
-            flash("Recurring schedule converted into a single invoice successfully.")
+            flash(
+                _t(
+                    "Recurring schedule converted into a single invoice successfully.",
+                    "El programa recurrente se convirtió correctamente en una sola factura."
+                )
+            )
 
         return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
     except Exception as e:
         conn.rollback()
         print("CONVERT RECURRING SCHEDULE TO INVOICE ERROR:", repr(e), flush=True)
-        flash("Could not convert recurring schedule to an invoice.")
+        flash(
+            _t(
+                "Could not convert recurring schedule to an invoice.",
+                "No se pudo convertir el programa recurrente en una factura."
+            )
+        )
         return redirect(url_for("jobs.edit_recurring_schedule", schedule_id=schedule_id))
     finally:
         conn.close()
@@ -4011,23 +4112,23 @@ def export_jobs():
     writer = csv.writer(output)
 
     writer.writerow([
-        "Job ID",
-        "Title",
-        "Service Type",
-        "Customer",
-        "Customer Email",
-        "Scheduled Date",
-        "Start Time",
-        "End Time",
-        "Assigned To",
-        "Status",
-        "Address",
-        "Revenue",
-        "Costs",
-        "Profit/Loss",
-        "Recurring Schedule ID",
-        "Generated From Schedule",
-        "Notes",
+        _t("Job ID", "ID del trabajo"),
+        _t("Title", "Título"),
+        _t("Service Type", "Tipo de servicio"),
+        _t("Customer", "Cliente"),
+        _t("Customer Email", "Correo del cliente"),
+        _t("Scheduled Date", "Fecha programada"),
+        _t("Start Time", "Hora de inicio"),
+        _t("End Time", "Hora de fin"),
+        _t("Assigned To", "Asignado a"),
+        _t("Status", "Estado"),
+        _t("Address", "Dirección"),
+        _t("Revenue", "Ingresos"),
+        _t("Costs", "Costos"),
+        _t("Profit/Loss", "Ganancia/Pérdida"),
+        _t("Recurring Schedule ID", "ID del programa recurrente"),
+        _t("Generated From Schedule", "Generado desde programa"),
+        _t("Notes", "Notas"),
     ])
 
     for r in rows:
@@ -4047,7 +4148,7 @@ def export_jobs():
             safe_float(r["cost_total"]),
             safe_float(r["profit"]),
             r["recurring_schedule_id"] or "",
-            "Yes" if r["generated_from_schedule"] else "No",
+            _t("Yes", "Sí") if r["generated_from_schedule"] else _t("No", "No"),
             clean_text_input(r["notes"]),
         ])
 
@@ -4062,6 +4163,7 @@ def export_jobs():
     response.headers["Content-Type"] = "text/csv; charset=utf-8"
     response.headers["Content-Disposition"] = f"attachment; filename={filename}"
     return response
+
 
 @jobs_bp.route("/jobs/<int:job_id>", methods=["GET", "POST"])
 @login_required
@@ -4117,25 +4219,25 @@ def view_job(job_id):
 
         if not description:
             conn.close()
-            flash("Description is required.")
+            flash(_t("Description is required.", "La descripción es obligatoria."))
             return redirect(url_for("jobs.view_job", job_id=job_id))
 
         if item_type == "mulch" and not unit:
-            unit = "Yards"
+            unit = _t("Yards", "Yardas")
         elif item_type == "stone" and not unit:
-            unit = "Tons"
+            unit = _t("Tons", "Toneladas")
         elif item_type == "soil" and not unit:
-            unit = "Yards"
+            unit = _t("Yards", "Yardas")
         elif item_type == "hardscape_material" and not unit:
-            unit = "Tons"
+            unit = _t("Tons", "Toneladas")
         elif item_type == "fuel" and not unit:
-            unit = "Gallons"
+            unit = _t("Gallons", "Galones")
         elif item_type == "delivery" and not unit:
-            unit = "Miles"
+            unit = _t("Miles", "Millas")
         elif item_type == "labor" and not unit:
-            unit = "Hours"
+            unit = _t("Hours", "Horas")
         elif item_type == "equipment" and not unit:
-            unit = "Rentals"
+            unit = _t("Rentals", "Alquileres")
         elif item_type in ["plants", "trees", "misc", "dump_fee"]:
             unit = ""
 
@@ -4178,7 +4280,7 @@ def view_job(job_id):
         if not job_item_id:
             conn.rollback()
             conn.close()
-            flash("Could not add job item.")
+            flash(_t("Could not add job item.", "No se pudo agregar el artículo del trabajo."))
             return redirect(url_for("jobs.view_job", job_id=job_id))
 
         ensure_job_cost_ledger(conn, job_item_id)
@@ -4186,7 +4288,7 @@ def view_job(job_id):
         conn.commit()
         conn.close()
 
-        flash("Job item added and bookkeeping updated.")
+        flash(_t("Job item added and bookkeeping updated.", "Artículo del trabajo agregado y contabilidad actualizada."))
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     items = conn.execute(
@@ -4215,17 +4317,17 @@ def view_job(job_id):
                 <td class='money'>${safe_float(i['sale_price']):.2f}</td>
                 <td class='money'>{unit_cost_display}</td>
                 <td class='money'>${safe_float(i['cost_amount']):.2f}</td>
-                <td class='center'>{'Yes' if i['billable'] else 'No'}</td>
+                <td class='center'>{_t('Yes', 'Sí') if i['billable'] else _t('No', 'No')}</td>
                 <td class='money job-items-revenue'>${safe_float(i['line_total']):.2f}</td>
                 <td class='wrap'>
                     <div class='static-actions'>
-                        <a class='btn secondary small' href='{url_for("jobs.edit_job_item", job_id=job_id, item_id=i["id"])}#job-items-section'>Edit</a>
+                        <a class='btn secondary small' href='{url_for("jobs.edit_job_item", job_id=job_id, item_id=i["id"])}#job-items-section'>{_t("Edit", "Editar")}</a>
                         <form method='post'
                               action='{url_for("jobs.delete_job_item", job_id=job_id, item_id=i["id"])}'
                               style='margin:0;'
-                              onsubmit="saveJobsScrollPosition('job-items-section'); return confirm('Delete this job item?');">
+                              onsubmit="saveJobsScrollPosition('job-items-section'); return confirm('{_t("Delete this job item?", "¿Eliminar este artículo del trabajo?")}');">
                             <input type="hidden" name="csrf_token" value="{delete_item_csrf}">
-                            <button class='btn danger small' type='submit'>Delete</button>
+                            <button class='btn danger small' type='submit'>{_t("Delete", "Eliminar")}</button>
                         </form>
                     </div>
                 </td>
@@ -4238,26 +4340,26 @@ def view_job(job_id):
             <div class='mobile-list-card'>
                 <div class='mobile-list-top'>
                     <div class='mobile-list-title'>{escape(display_item_type(i['item_type']))} - {escape(clean_text_display(i['description']))}</div>
-                    <div class='mobile-badge'>{'Billable' if i['billable'] else 'Non-Billable'}</div>
+                    <div class='mobile-badge'>{_t('Billable', 'Facturable') if i['billable'] else _t('Non-Billable', 'No facturable')}</div>
                 </div>
 
                 <div class='mobile-list-grid'>
-                    <div><span>Qty</span><strong>{safe_float(i['quantity']):g}</strong></div>
-                    <div><span>Unit</span><strong>{escape(clean_text_display(i['unit']))}</strong></div>
-                    <div><span>Sale Price</span><strong>${safe_float(i['sale_price']):.2f}</strong></div>
-                    <div><span>Unit Cost</span><strong>{unit_cost_display}</strong></div>
-                    <div><span>Total Cost</span><strong>${safe_float(i['cost_amount']):.2f}</strong></div>
-                    <div><span>Revenue</span><strong>${safe_float(i['line_total']):.2f}</strong></div>
+                    <div><span>{_t("Qty", "Cant.")}</span><strong>{safe_float(i['quantity']):g}</strong></div>
+                    <div><span>{_t("Unit", "Unidad")}</span><strong>{escape(clean_text_display(i['unit']))}</strong></div>
+                    <div><span>{_t("Sale Price", "Precio de venta")}</span><strong>${safe_float(i['sale_price']):.2f}</strong></div>
+                    <div><span>{_t("Unit Cost", "Costo unitario")}</span><strong>{unit_cost_display}</strong></div>
+                    <div><span>{_t("Total Cost", "Costo total")}</span><strong>${safe_float(i['cost_amount']):.2f}</strong></div>
+                    <div><span>{_t("Revenue", "Ingresos")}</span><strong>${safe_float(i['line_total']):.2f}</strong></div>
                 </div>
 
                 <div class='mobile-list-actions'>
-                    <a class='btn secondary small' href='{url_for("jobs.edit_job_item", job_id=job_id, item_id=i["id"])}#job-items-section'>Edit</a>
+                    <a class='btn secondary small' href='{url_for("jobs.edit_job_item", job_id=job_id, item_id=i["id"])}#job-items-section'>{_t("Edit", "Editar")}</a>
                     <form method='post'
                           action='{url_for("jobs.delete_job_item", job_id=job_id, item_id=i["id"])}'
                           style='margin:0;'
-                          onsubmit="saveJobsScrollPosition('job-items-section'); return confirm('Delete this job item?');">
+                          onsubmit="saveJobsScrollPosition('job-items-section'); return confirm('{_t("Delete this job item?", "¿Eliminar este artículo del trabajo?")}');">
                         <input type="hidden" name="csrf_token" value="{delete_item_csrf}">
-                        <button class='btn danger small' type='submit'>Delete</button>
+                        <button class='btn danger small' type='submit'>{_t("Delete", "Eliminar")}</button>
                     </form>
                 </div>
             </div>
@@ -4269,18 +4371,18 @@ def view_job(job_id):
 
     schedule_bits = []
     if clean_text_input(job["scheduled_date"]):
-        schedule_bits.append(f"<strong>Date:</strong> {escape(clean_text_display(job['scheduled_date']))}")
+        schedule_bits.append(f"<strong>{_t('Date', 'Fecha')}:</strong> {escape(clean_text_display(job['scheduled_date']))}")
     if clean_text_input(job["scheduled_start_time"]):
         if clean_text_input(job["scheduled_end_time"]):
             schedule_bits.append(
-                f"<strong>Time:</strong> {escape(clean_text_display(job['scheduled_start_time']))} - {escape(clean_text_display(job['scheduled_end_time']))}"
+                f"<strong>{_t('Time', 'Hora')}:</strong> {escape(clean_text_display(job['scheduled_start_time']))} - {escape(clean_text_display(job['scheduled_end_time']))}"
             )
         else:
-            schedule_bits.append(f"<strong>Start:</strong> {escape(clean_text_display(job['scheduled_start_time']))}")
+            schedule_bits.append(f"<strong>{_t('Start', 'Inicio')}:</strong> {escape(clean_text_display(job['scheduled_start_time']))}")
     if clean_text_input(job["assigned_to"]):
-        schedule_bits.append(f"<strong>Assigned To:</strong> {escape(clean_text_display(job['assigned_to']))}")
+        schedule_bits.append(f"<strong>{_t('Assigned To', 'Asignado a')}:</strong> {escape(clean_text_display(job['assigned_to']))}")
 
-    schedule_html = "<br>".join(schedule_bits) if schedule_bits else "<strong>Schedule:</strong> -"
+    schedule_html = "<br>".join(schedule_bits) if schedule_bits else f"<strong>{_t('Schedule', 'Horario')}:</strong> -"
 
     customer_email = clean_text_input(job["customer_email"])
     service_type_label = display_service_type(job["service_type"])
@@ -4290,10 +4392,10 @@ def view_job(job_id):
     if job["recurring_schedule_id"]:
         recurring_link_block = f"""
         <div class='job-summary-card'>
-            <span>Recurring Schedule</span>
+            <span>{_t("Recurring Schedule", "Programa recurrente")}</span>
             <strong>
                 <a href='{url_for("jobs.edit_recurring_schedule", schedule_id=job["recurring_schedule_id"])}'>
-                    Schedule #{job["recurring_schedule_id"]}
+                    {_t("Schedule", "Programa")} #{job["recurring_schedule_id"]}
                 </a>
             </strong>
         </div>
@@ -4347,74 +4449,74 @@ def view_job(job_id):
         </style>
 
         <div class="updates-menu-wrap">
-            <button class="btn secondary" type="button" onclick="toggleUpdatesMenu(event)">Updates ▼</button>
+            <button class="btn secondary" type="button" onclick="toggleUpdatesMenu(event)">{_t("Updates", "Actualizaciones")} ▼</button>
 
             <div id="updatesMenu" class="updates-menu">
                 <form method="post" action="{url_for("jobs.send_update_email", job_id=job_id)}">
                     <input type="hidden" name="csrf_token" value="{email_csrf_1}">
                     <input type="hidden" name="update_type" value="on_the_way">
-                    <button type="submit">Send On The Way Email</button>
+                    <button type="submit">{_t("Send On The Way Email", "Enviar correo de En camino")}</button>
                 </form>
 
                 <form method="post" action="{url_for("jobs.send_update_email", job_id=job_id)}">
                     <input type="hidden" name="csrf_token" value="{email_csrf_2}">
                     <input type="hidden" name="update_type" value="job_started">
-                    <button type="submit">Send Job Started Email</button>
+                    <button type="submit">{_t("Send Job Started Email", "Enviar correo de Trabajo iniciado")}</button>
                 </form>
 
                 <form method="post" action="{url_for("jobs.send_update_email", job_id=job_id)}">
                     <input type="hidden" name="csrf_token" value="{email_csrf_3}">
                     <input type="hidden" name="update_type" value="job_completed">
-                    <button type="submit">Send Job Finished Email</button>
+                    <button type="submit">{_t("Send Job Finished Email", "Enviar correo de Trabajo terminado")}</button>
                 </form>
 
                 <div style="border-top:1px solid #e8ece7;"></div>
 
-                <button type="button" onclick="toggleCustomUpdateCard()">Compose Custom Update</button>
+                <button type="button" onclick="toggleCustomUpdateCard()">{_t("Compose Custom Update", "Redactar actualización personalizada")}</button>
             </div>
         </div>
 
         <div id="customUpdateCard" class="card custom-update-card">
-            <h3>Custom Job Update</h3>
+            <h3>{_t("Custom Job Update", "Actualización personalizada del trabajo")}</h3>
 
             <form method="post" action="{url_for("jobs.send_custom_email", job_id=job_id)}">
                 <input type="hidden" name="csrf_token" value="{email_csrf_custom}">
                 <div class="grid">
                     <div>
-                        <label>To Email</label>
+                        <label>{_t("To Email", "Correo destinatario")}</label>
                         <input
                             type="email"
                             name="to_email"
                             value="{escape(customer_email)}"
-                            placeholder="Enter customer email"
+                            placeholder="{escape(_t("Enter customer email", "Ingresa el correo del cliente"))}"
                             required
                         >
                     </div>
 
                     <div>
-                        <label>Subject</label>
+                        <label>{_t("Subject", "Asunto")}</label>
                         <input
                             type="text"
                             name="subject"
-                            value="Job Update - {escape(clean_text_display(job['title']))}"
+                            value="{_t('Job Update', 'Actualización del trabajo')} - {escape(clean_text_display(job['title']))}"
                             required
                         >
                     </div>
                 </div>
 
                 <div style="margin-top:14px;">
-                    <label>Message</label>
-                    <textarea name="message" required>Hello {escape(clean_text_display(job['customer_name']))},
+                    <label>{_t("Message", "Mensaje")}</label>
+                    <textarea name="message" required>{_t("Hello", "Hola")} {escape(clean_text_display(job['customer_name']))},
 
-This is an update regarding your job "{escape(clean_text_display(job['title']))}" ({escape(service_type_label)}).
+{_t("This is an update regarding your job", "Esta es una actualización sobre tu trabajo")} "{escape(clean_text_display(job['title']))}" ({escape(service_type_label)}).
 
-Thank you,
+{_t("Thank you", "Gracias")},
 {escape(session.get("company_name") or "Your Company")}</textarea>
                 </div>
 
                 <div class="row-actions" style="margin-top:12px;">
-                    <button class="btn success" type="submit">Send Email</button>
-                    <button class="btn secondary" type="button" onclick="toggleCustomUpdateCard()">Cancel</button>
+                    <button class="btn success" type="submit">{_t("Send Email", "Enviar correo")}</button>
+                    <button class="btn secondary" type="button" onclick="toggleCustomUpdateCard()">{_t("Cancel", "Cancelar")}</button>
                 </div>
             </form>
         </div>
@@ -4422,58 +4524,70 @@ Thank you,
     else:
         email_csrf_custom_empty = generate_csrf()
         email_buttons = """
-        <div class='muted small'>Add a customer email address to send job updates.</div>
+        <div class='muted small'>{no_email_text}</div>
         <div id="customUpdateCard" class="card custom-update-card" style="display:block; margin-top:14px;">
-            <h3>Custom Job Update</h3>
-            <div class="muted small" style="margin-bottom:12px;">No customer email is on file, but you can still enter one manually below.</div>
+            <h3>{custom_update_title}</h3>
+            <div class="muted small" style="margin-bottom:12px;">{manual_email_text}</div>
 
             <form method="post" action="{send_custom_url}">
                 <input type="hidden" name="csrf_token" value="{csrf_token_value}">
                 <div class="grid">
                     <div>
-                        <label>To Email</label>
+                        <label>{to_email_label}</label>
                         <input
                             type="email"
                             name="to_email"
                             value=""
-                            placeholder="Enter recipient email"
+                            placeholder="{email_placeholder}"
                             required
                         >
                     </div>
 
                     <div>
-                        <label>Subject</label>
+                        <label>{subject_label}</label>
                         <input
                             type="text"
                             name="subject"
-                            value="Job Update - {job_title}"
+                            value="{job_update_label} - {job_title}"
                             required
                         >
                     </div>
                 </div>
 
                 <div style="margin-top:14px;">
-                    <label>Message</label>
-                    <textarea name="message" required>Hello {customer_name},
+                    <label>{message_label}</label>
+                    <textarea name="message" required>{hello_label} {customer_name},
 
-This is an update regarding your job "{job_title}" ({service_type_label}).
+{update_text} "{job_title}" ({service_type_label}).
 
-Thank you,
+{thank_you_label},
 {company_name}</textarea>
                 </div>
 
                 <div class="row-actions" style="margin-top:12px;">
-                    <button class="btn success" type="submit">Send Email</button>
+                    <button class="btn success" type="submit">{send_email_label}</button>
                 </div>
             </form>
         </div>
         """.format(
+            no_email_text=_t("Add a customer email address to send job updates.", "Agrega un correo del cliente para enviar actualizaciones del trabajo."),
+            custom_update_title=_t("Custom Job Update", "Actualización personalizada del trabajo"),
+            manual_email_text=_t("No customer email is on file, but you can still enter one manually below.", "No hay un correo del cliente guardado, pero aún puedes escribir uno manualmente abajo."),
             send_custom_url=url_for("jobs.send_custom_email", job_id=job_id),
             csrf_token_value=email_csrf_custom_empty,
+            to_email_label=_t("To Email", "Correo destinatario"),
+            email_placeholder=_t("Enter recipient email", "Ingresa el correo del destinatario"),
+            subject_label=_t("Subject", "Asunto"),
+            job_update_label=_t("Job Update", "Actualización del trabajo"),
             job_title=escape(clean_text_display(job["title"])),
+            message_label=_t("Message", "Mensaje"),
+            hello_label=_t("Hello", "Hola"),
             customer_name=escape(clean_text_display(job["customer_name"])),
+            update_text=_t("This is an update regarding your job", "Esta es una actualización sobre tu trabajo"),
             service_type_label=escape(service_type_label),
+            thank_you_label=_t("Thank you", "Gracias"),
             company_name=escape(session.get("company_name") or "Your Company"),
+            send_email_label=_t("Send Email", "Enviar correo"),
         )
 
     add_item_csrf = generate_csrf()
@@ -4483,13 +4597,13 @@ Thank you,
         invoice_label = clean_text_display(existing_invoice["invoice_number"]) or f"#{existing_invoice['id']}"
         invoice_action_html = f"""
             <a class='btn secondary' href='{url_for("invoices.view_invoice", invoice_id=existing_invoice["id"])}'>
-                View Invoice {escape(invoice_label)}
+                {_t("View Invoice", "Ver factura")} {escape(invoice_label)}
             </a>
         """
     else:
-        invoice_button_text = "Convert to Invoice"
+        invoice_button_text = _t("Convert to Invoice", "Convertir en factura")
         if job["recurring_schedule_id"]:
-            invoice_button_text = "Invoice This Visit"
+            invoice_button_text = _t("Invoice This Visit", "Facturar esta visita")
 
         invoice_action_html = f"""
             <a class='btn success' href='{url_for("jobs.convert_job_to_invoice", job_id=job_id)}'>
@@ -4770,32 +4884,32 @@ Thank you,
 
         <div class='job-view-page'>
             <div class='card'>
-                <h1>Job #{job['id']} - {escape(clean_text_display(job['title']))}</h1>
+                <h1>{_t("Job", "Trabajo")} #{job['id']} - {escape(clean_text_display(job['title']))}</h1>
 
                 <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
                     <span class='service-chip {service_type_class}'>{escape(service_type_label)}</span>
-                    {'<span class="service-chip mowing">Recurring</span>' if job["recurring_schedule_id"] else ''}
+                    {'<span class="service-chip mowing">' + _t("Recurring", "Recurrente") + '</span>' if job["recurring_schedule_id"] else ''}
                 </div>
 
                 <div class='job-summary-grid'>
                     <div class='job-summary-card'>
-                        <span>Customer</span>
+                        <span>{_t("Customer", "Cliente")}</span>
                         <strong>{escape(clean_text_display(job['customer_name']))}</strong>
                     </div>
                     <div class='job-summary-card'>
-                        <span>Email</span>
+                        <span>{_t("Email", "Correo")}</span>
                         <strong>{escape(clean_text_display(job['customer_email']))}</strong>
                     </div>
                     <div class='job-summary-card'>
-                        <span>Status</span>
+                        <span>{_t("Status", "Estado")}</span>
                         <strong>{escape(clean_text_display(job['status']))}</strong>
                     </div>
                     <div class='job-summary-card'>
-                        <span>Service Type</span>
+                        <span>{_t("Service Type", "Tipo de servicio")}</span>
                         <strong>{escape(service_type_label)}</strong>
                     </div>
                     <div class='job-summary-card'>
-                        <span>Schedule</span>
+                        <span>{_t("Schedule", "Horario")}</span>
                         <strong>{schedule_html.replace("<br>", " | ")}</strong>
                     </div>
                     {recurring_link_block}
@@ -4803,22 +4917,22 @@ Thank you,
 
                 <div class='job-financials-grid'>
                     <div class='job-financial-card'>
-                        <span>Revenue</span>
+                        <span>{_t("Revenue", "Ingresos")}</span>
                         <strong>${safe_float(job['revenue']):.2f}</strong>
                     </div>
                     <div class='job-financial-card'>
-                        <span>Costs</span>
+                        <span>{_t("Costs", "Costos")}</span>
                         <strong>${safe_float(job['cost_total']):.2f}</strong>
                     </div>
                     <div class='job-financial-card'>
-                        <span>Profit/Loss</span>
+                        <span>{_t("Profit/Loss", "Ganancia/Pérdida")}</span>
                         <strong>${safe_float(job['profit']):.2f}</strong>
                     </div>
                 </div>
 
                 <div class="row-actions" style="margin-top:14px;">
-                    <a class='btn secondary' href='{url_for("jobs.jobs")}'>Done Editing</a>
-                    <a class='btn warning' href='{url_for("jobs.edit_job", job_id=job_id)}'>Edit Job</a>
+                    <a class='btn secondary' href='{url_for("jobs.jobs")}'>{_t("Done Editing", "Terminar edición")}</a>
+                    <a class='btn warning' href='{url_for("jobs.edit_job", job_id=job_id)}'>{_t("Edit Job", "Editar trabajo")}</a>
                     {invoice_action_html}
                 </div>
 
@@ -4828,69 +4942,69 @@ Thank you,
             </div>
 
             <div class='card' id='add-job-item-section'>
-                <h2>Add Job Item</h2>
-                <p class='muted'>Any cost you enter here is automatically pushed into bookkeeping as an expense.</p>
+                <h2>{_t("Add Job Item", "Agregar artículo del trabajo")}</h2>
+                <p class='muted'>{_t("Any cost you enter here is automatically pushed into bookkeeping as an expense.", "Cualquier costo que ingreses aquí se envía automáticamente a contabilidad como gasto.")}</p>
 
                 <form method='post' onsubmit="saveJobsScrollPosition('job-items-section');">
                     <input type="hidden" name="csrf_token" value="{add_item_csrf}">
                     <div class='grid'>
 
                         <div>
-                            <label>Type</label>
+                            <label>{_t("Type", "Tipo")}</label>
                             <select name='item_type' id='item_type' onchange='toggleJobItemMode()'>
-                                <option value='mulch'>Mulch</option>
-                                <option value='stone'>Stone</option>
-                                <option value='dump_fee'>Dump Fee</option>
-                                <option value='plants'>Plants</option>
-                                <option value='trees'>Trees</option>
-                                <option value='soil'>Soil</option>
-                                <option value='fertilizer'>Fertilizer</option>
-                                <option value='hardscape_material'>Hardscape Material</option>
-                                <option value='labor'>Labor</option>
-                                <option value='equipment'>Equipment</option>
-                                <option value='delivery'>Delivery</option>
-                                <option value='fuel'>Fuel</option>
-                                <option value='misc'>Misc</option>
+                                <option value='mulch'>{_t("Mulch", "Mantillo")}</option>
+                                <option value='stone'>{_t("Stone", "Piedra")}</option>
+                                <option value='dump_fee'>{_t("Dump Fee", "Tarifa de vertedero")}</option>
+                                <option value='plants'>{_t("Plants", "Plantas")}</option>
+                                <option value='trees'>{_t("Trees", "Árboles")}</option>
+                                <option value='soil'>{_t("Soil", "Tierra")}</option>
+                                <option value='fertilizer'>{_t("Fertilizer", "Fertilizante")}</option>
+                                <option value='hardscape_material'>{_t("Hardscape Material", "Material de hardscape")}</option>
+                                <option value='labor'>{_t("Labor", "Mano de obra")}</option>
+                                <option value='equipment'>{_t("Equipment", "Equipo")}</option>
+                                <option value='delivery'>{_t("Delivery", "Entrega")}</option>
+                                <option value='fuel'>{_t("Fuel", "Combustible")}</option>
+                                <option value='misc'>{_t("Misc", "Varios")}</option>
                             </select>
                         </div>
 
                         <div>
-                            <label>Description</label>
+                            <label>{_t("Description", "Descripción")}</label>
                             <input name='description' required>
                         </div>
 
                         <div>
-                            <label id='quantity_label'>Quantity</label>
+                            <label id='quantity_label'>{_t("Quantity", "Cantidad")}</label>
                             <input type='number' step='0.01' name='quantity' id='quantity' required>
                         </div>
 
                         <div>
-                            <label>Unit</label>
-                            <input name='unit' id='unit' placeholder='Unit'>
+                            <label>{_t("Unit", "Unidad")}</label>
+                            <input name='unit' id='unit' placeholder='{escape(_t("Unit", "Unidad"))}'>
                         </div>
 
                         <div id='sale_price_wrap'>
-                            <label id='sale_price_label'>Sale Price</label>
+                            <label id='sale_price_label'>{_t("Sale Price", "Precio de venta")}</label>
                             <input type='number' step='0.01' name='sale_price' id='sale_price' value='0' required>
                         </div>
 
                         <div id='unit_cost_wrap'>
-                            <label id='cost_label'>Unit Cost</label>
+                            <label id='cost_label'>{_t("Unit Cost", "Costo unitario")}</label>
                             <input type='number' step='0.01' name='unit_cost' id='unit_cost' value='0'>
                         </div>
 
                         <div>
-                            <label>Billable?</label>
+                            <label>{_t("Billable?", "¿Facturable?")}</label>
                             <select name='billable'>
-                                <option value='1'>Yes</option>
-                                <option value='0'>No</option>
+                                <option value='1'>{_t("Yes", "Sí")}</option>
+                                <option value='0'>{_t("No", "No")}</option>
                             </select>
                         </div>
 
                     </div>
 
                     <br>
-                    <button class='btn' type='submit'>Add Job Item</button>
+                    <button class='btn' type='submit'>{_t("Add Job Item", "Agregar artículo del trabajo")}</button>
                 </form>
             </div>
 
@@ -4944,9 +5058,9 @@ Thank you,
                 const quantityInput = document.getElementById('quantity');
                 const unitCostInput = document.getElementById('unit_cost');
 
-                quantityLabel.innerText = 'Quantity';
-                salePriceLabel.innerText = 'Sale Price';
-                costLabel.innerText = 'Unit Cost';
+                quantityLabel.innerText = '{_t("Quantity", "Cantidad")}';
+                salePriceLabel.innerText = '{_t("Sale Price", "Precio de venta")}';
+                costLabel.innerText = '{_t("Unit Cost", "Costo unitario")}';
                 if (salePriceWrap) salePriceWrap.style.display = 'block';
                 if (unitCostWrap) unitCostWrap.style.display = 'block';
 
@@ -4958,38 +5072,38 @@ Thank you,
                 if (unitInput) unitInput.value = '';
 
                 if (type === 'mulch') {{
-                    quantityLabel.innerText = 'Yards';
-                    unitInput.value = 'Yards';
+                    quantityLabel.innerText = '{_t("Yards", "Yardas")}';
+                    unitInput.value = '{_t("Yards", "Yardas")}';
                 }} else if (type === 'stone') {{
-                    quantityLabel.innerText = 'Tons';
-                    unitInput.value = 'Tons';
+                    quantityLabel.innerText = '{_t("Tons", "Toneladas")}';
+                    unitInput.value = '{_t("Tons", "Toneladas")}';
                 }} else if (type === 'soil') {{
-                    quantityLabel.innerText = 'Yards';
-                    unitInput.value = 'Yards';
+                    quantityLabel.innerText = '{_t("Yards", "Yardas")}';
+                    unitInput.value = '{_t("Yards", "Yardas")}';
                 }} else if (type === 'hardscape_material') {{
-                    quantityLabel.innerText = 'Tons';
-                    unitInput.value = 'Tons';
+                    quantityLabel.innerText = '{_t("Tons", "Toneladas")}';
+                    unitInput.value = '{_t("Tons", "Toneladas")}';
                 }} else if (type === 'fuel') {{
-                    quantityLabel.innerText = 'Gallons';
-                    unitInput.value = 'Gallons';
+                    quantityLabel.innerText = '{_t("Gallons", "Galones")}';
+                    unitInput.value = '{_t("Gallons", "Galones")}';
                 }} else if (type === 'delivery') {{
-                    quantityLabel.innerText = 'Miles';
-                    unitInput.value = 'Miles';
+                    quantityLabel.innerText = '{_t("Miles", "Millas")}';
+                    unitInput.value = '{_t("Miles", "Millas")}';
                 }} else if (type === 'labor') {{
-                    quantityLabel.innerText = 'Billable Hours';
-                    salePriceLabel.innerText = 'Hourly Rate';
-                    costLabel.innerText = 'Hourly Cost';
-                    unitInput.value = 'Hours';
+                    quantityLabel.innerText = '{_t("Billable Hours", "Horas facturables")}';
+                    salePriceLabel.innerText = '{_t("Hourly Rate", "Tarifa por hora")}';
+                    costLabel.innerText = '{_t("Hourly Cost", "Costo por hora")}';
+                    unitInput.value = '{_t("Hours", "Horas")}';
                     if (unitCostWrap) unitCostWrap.style.display = 'block';
                 }} else if (type === 'equipment') {{
-                    quantityLabel.innerText = 'Rentals';
-                    unitInput.value = 'Rentals';
+                    quantityLabel.innerText = '{_t("Rentals", "Alquileres")}';
+                    unitInput.value = '{_t("Rentals", "Alquileres")}';
                 }} else if (type === 'plants' || type === 'trees' || type === 'misc') {{
-                    quantityLabel.innerText = 'Quantity';
+                    quantityLabel.innerText = '{_t("Quantity", "Cantidad")}';
                     unitInput.value = '';
                 }} else if (type === 'dump_fee') {{
-                    quantityLabel.innerText = 'Fee';
-                    salePriceLabel.innerText = 'Fee Amount';
+                    quantityLabel.innerText = '{_t("Fee", "Tarifa")}';
+                    salePriceLabel.innerText = '{_t("Fee Amount", "Monto de la tarifa")}';
                     unitInput.value = '';
                     if (unitCostWrap) unitCostWrap.style.display = 'none';
                     if (unitCostInput) unitCostInput.value = '0';
@@ -4998,7 +5112,7 @@ Thank you,
                         quantityInput.readOnly = true;
                     }}
                 }} else if (type === 'fertilizer') {{
-                    quantityLabel.innerText = 'Quantity';
+                    quantityLabel.innerText = '{_t("Quantity", "Cantidad")}';
                     unitInput.value = '';
                 }}
             }}
@@ -5032,7 +5146,7 @@ Thank you,
             </script>
 
             <div class='card' id='job-items-section'>
-                <h2>Job Items</h2>
+                <h2>{_t("Job Items", "Artículos del trabajo")}</h2>
 
                 <div class='static-table-wrap desktop-only'>
                     <table class='static-table'>
@@ -5049,30 +5163,30 @@ Thank you,
                             <col style='width:15%;'>
                         </colgroup>
                         <tr>
-                            <th>Type</th>
-                            <th class='wrap'>Description</th>
-                            <th class='money'>Qty</th>
-                            <th>Unit</th>
-                            <th class='money'>Sale Price</th>
-                            <th class='money'>Unit Cost</th>
-                            <th class='money'>Total Cost</th>
-                            <th class='center'>Billable</th>
-                            <th class='money'>Revenue</th>
-                            <th class='wrap'>Actions</th>
+                            <th>{_t("Type", "Tipo")}</th>
+                            <th class='wrap'>{_t("Description", "Descripción")}</th>
+                            <th class='money'>{_t("Qty", "Cant.")}</th>
+                            <th>{_t("Unit", "Unidad")}</th>
+                            <th class='money'>{_t("Sale Price", "Precio de venta")}</th>
+                            <th class='money'>{_t("Unit Cost", "Costo unitario")}</th>
+                            <th class='money'>{_t("Total Cost", "Costo total")}</th>
+                            <th class='center'>{_t("Billable", "Facturable")}</th>
+                            <th class='money'>{_t("Revenue", "Ingresos")}</th>
+                            <th class='wrap'>{_t("Actions", "Acciones")}</th>
                         </tr>
-                        {item_rows or '<tr><td colspan="10" class="muted">No job items yet.</td></tr>'}
+                        {item_rows or f'<tr><td colspan="10" class="muted">{_t("No job items yet.", "Todavía no hay artículos del trabajo.")}</td></tr>'}
                     </table>
                 </div>
 
                 <div class='mobile-only'>
                     <div class='mobile-list'>
-                        {item_mobile_cards or "<div class='mobile-list-card'>No job items yet.</div>"}
+                        {item_mobile_cards or f"<div class='mobile-list-card'>{_t('No job items yet.', 'Todavía no hay artículos del trabajo.')}</div>"}
                     </div>
                 </div>
             </div>
         </div>
         """
-    return render_page(content, f"Job #{job_id}")
+    return render_page(content, f"{_t('Job', 'Trabajo')} #{job_id}")
 
 @jobs_bp.route("/jobs/<int:job_id>/send_update_email", methods=["POST"])
 @login_required
@@ -5105,12 +5219,12 @@ def send_update_email(job_id):
 
     customer_email = clean_text_input(job["customer_email"])
     if not customer_email:
-        flash("This customer does not have an email address.")
+        flash(_t("This customer does not have an email address.", "Este cliente no tiene una dirección de correo."))
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     update_type = clean_text_input(request.form.get("update_type", ""))
     if update_type not in {"on_the_way", "job_started", "job_completed"}:
-        flash("Invalid email update type.")
+        flash(_t("Invalid email update type.", "Tipo de actualización por correo no válido."))
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     success, error_message = send_job_update_email(
@@ -5123,15 +5237,15 @@ def send_update_email(job_id):
 
     if success:
         if update_type == "on_the_way":
-            flash("On the way email sent.")
+            flash(_t("On the way email sent.", "Correo de en camino enviado."))
         elif update_type == "job_started":
-            flash("Job started email sent.")
+            flash(_t("Job started email sent.", "Correo de trabajo iniciado enviado."))
         elif update_type == "job_completed":
-            flash("Job completed email sent.")
+            flash(_t("Job completed email sent.", "Correo de trabajo completado enviado."))
         else:
-            flash("Job update email sent.")
+            flash(_t("Job update email sent.", "Correo de actualización del trabajo enviado."))
     else:
-        flash(f"Could not send email: {error_message}")
+        flash(_t(f"Could not send email: {error_message}", f"No se pudo enviar el correo: {error_message}"))
 
     return redirect(url_for("jobs.view_job", job_id=job_id))
 
@@ -5164,15 +5278,15 @@ def send_custom_email(job_id):
     message = (request.form.get("message", "") or "").strip()
 
     if not to_email:
-        flash("Recipient email is required.")
+        flash(_t("Recipient email is required.", "El correo del destinatario es obligatorio."))
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     if not subject:
-        flash("Email subject is required.")
+        flash(_t("Email subject is required.", "El asunto del correo es obligatorio."))
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     if not message:
-        flash("Email message is required.")
+        flash(_t("Email message is required.", "El mensaje del correo es obligatorio."))
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     try:
@@ -5184,11 +5298,12 @@ def send_custom_email(job_id):
             html=message.replace("\n", "<br>"),
             body=message,
         )
-        flash("Custom job update email sent.")
+        flash(_t("Custom job update email sent.", "Correo personalizado de actualización del trabajo enviado."))
     except Exception as e:
-        flash(f"Could not send email: {e}")
+        flash(_t(f"Could not send email: {e}", f"No se pudo enviar el correo: {e}"))
 
     return redirect(url_for("jobs.view_job", job_id=job_id))
+
 
 @jobs_bp.route("/jobs/<int:job_id>/edit", methods=["GET", "POST"])
 @login_required
@@ -5211,7 +5326,7 @@ def edit_job(job_id):
 
     if not job:
         conn.close()
-        flash("Job not found.")
+        flash(_t("Job not found.", "Trabajo no encontrado."))
         return redirect(url_for("jobs.jobs"))
 
     customers = conn.execute(
@@ -5227,27 +5342,44 @@ def edit_job(job_id):
     if request.method == "POST":
         customer_id = request.form.get("customer_id", type=int)
         title = clean_text_input(request.form.get("title"))
-        service_type = clean_text_input(request.form.get("service_type")).lower()
+        service_type = normalize_service_type(request.form.get("service_type"))
         scheduled_date = clean_text_input(request.form.get("scheduled_date"))
         scheduled_start_time = clean_text_input(request.form.get("scheduled_start_time"))
         scheduled_end_time = clean_text_input(request.form.get("scheduled_end_time"))
         assigned_to = clean_text_input(request.form.get("assigned_to"))
-        status = clean_text_input(request.form.get("status")) or "Scheduled"
+        status = clean_text_input(request.form.get("status")) or _t("Scheduled", "Programado")
         address = clean_text_input(request.form.get("address"))
         notes = clean_text_input(request.form.get("notes"))
 
         if not customer_id:
             conn.close()
-            flash("Please select a customer.")
+            flash(_t("Please select a customer.", "Selecciona un cliente."))
             return redirect(url_for("jobs.edit_job", job_id=job_id))
 
         if not title:
             conn.close()
-            flash("Job title is required.")
+            flash(_t("Job title is required.", "El título del trabajo es obligatorio."))
             return redirect(url_for("jobs.edit_job", job_id=job_id))
 
-        if service_type == "none":
-            service_type = ""
+        conflict = check_schedule_conflict(
+            conn=conn,
+            company_id=cid,
+            scheduled_date=scheduled_date,
+            start_time=scheduled_start_time,
+            end_time=scheduled_end_time,
+            assigned_to=assigned_to,
+            exclude_job_id=job_id,
+        )
+
+        if conflict:
+            conn.close()
+            flash(
+                _t(
+                    f"Schedule conflict: '{conflict['title']}' is already scheduled for {assigned_to} from {conflict['start']} to {conflict['end']}.",
+                    f"Conflicto de horario: '{conflict['title']}' ya está programado para {assigned_to} de {conflict['start']} a {conflict['end']}.",
+                )
+            )
+            return redirect(url_for("jobs.edit_job", job_id=job_id))
 
         conn.execute(
             """
@@ -5271,7 +5403,7 @@ def edit_job(job_id):
                 scheduled_date or None,
                 scheduled_start_time or None,
                 scheduled_end_time or None,
-                assigned_to,
+                assigned_to or None,
                 status,
                 address,
                 notes,
@@ -5280,14 +5412,15 @@ def edit_job(job_id):
             ),
         )
 
+        recalc_job(conn, job_id)
         conn.commit()
         conn.close()
 
-        flash("Job updated.")
+        flash(_t("Job updated.", "Trabajo actualizado."))
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     customer_opts = "".join(
-        f"<option value='{c['id']}' {'selected' if c['id'] == job['customer_id'] else ''}>{escape(clean_text_display(c['name'], 'Customer #' + str(c['id'])))}</option>"
+        f"<option value='{c['id']}' {'selected' if c['id'] == job['customer_id'] else ''}>{escape(clean_text_display(c['name'], _t('Customer', 'Cliente') + ' #' + str(c['id'])))}</option>"
         for c in customers
     )
 
@@ -5297,78 +5430,78 @@ def edit_job(job_id):
     if "recurring_schedule_id" in job.keys() and job["recurring_schedule_id"]:
         recurring_note = f"""
         <div class="card" style="margin-bottom:16px;">
-            <strong>This job was generated from recurring schedule #{job["recurring_schedule_id"]}.</strong><br>
-            <a href="{url_for("jobs.edit_recurring_schedule", schedule_id=job["recurring_schedule_id"])}">Edit recurring schedule</a>
+            <strong>{_t("This job was generated from recurring schedule", "Este trabajo fue generado desde el programa recurrente")} #{job["recurring_schedule_id"]}.</strong><br>
+            <a href="{url_for("jobs.edit_recurring_schedule", schedule_id=job["recurring_schedule_id"])}">{_t("Edit recurring schedule", "Editar programa recurrente")}</a>
         </div>
         """
 
     content = f"""
     {recurring_note}
     <div class='card'>
-        <h1>Edit Job #{job['id']}</h1>
+        <h1>{_t("Edit Job", "Editar trabajo")} #{job['id']}</h1>
         <form method='post'>
             <input type="hidden" name="csrf_token" value="{edit_job_csrf}">
             <div class='grid'>
                 <div>
-                    <label>Customer</label>
+                    <label>{_t("Customer", "Cliente")}</label>
                     <select name='customer_id' required>
-                        <option value=''>Select customer</option>
+                        <option value=''>{_t("Select customer", "Selecciona cliente")}</option>
                         {customer_opts}
                     </select>
                 </div>
                 <div>
-                    <label>Title</label>
+                    <label>{_t("Title", "Título")}</label>
                     <input name='title' value="{escape(clean_text_input(job['title']))}" required>
                 </div>
                 <div>
-                    <label>Service Type</label>
+                    <label>{_t("Service Type", "Tipo de servicio")}</label>
                     <select name='service_type'>
                         {service_type_select_options(job['service_type'])}
                     </select>
                 </div>
                 <div>
-                    <label>Scheduled Date</label>
+                    <label>{_t("Scheduled Date", "Fecha programada")}</label>
                     <input type='date' name='scheduled_date' value="{escape(clean_text_input(job['scheduled_date']))}">
                 </div>
                 <div>
-                    <label>Start Time</label>
+                    <label>{_t("Start Time", "Hora de inicio")}</label>
                     <input type='time' name='scheduled_start_time' value="{escape(clean_text_input(job['scheduled_start_time']))}">
                 </div>
                 <div>
-                    <label>End Time</label>
+                    <label>{_t("End Time", "Hora de fin")}</label>
                     <input type='time' name='scheduled_end_time' value="{escape(clean_text_input(job['scheduled_end_time']))}">
                 </div>
                 <div>
-                    <label>Assigned To</label>
+                    <label>{_t("Assigned To", "Asignado a")}</label>
                     <input name='assigned_to' value="{escape(clean_text_input(job['assigned_to']))}">
                 </div>
                 <div>
-                    <label>Status</label>
+                    <label>{_t("Status", "Estado")}</label>
                     <select name='status'>
-                        <option {'selected' if job['status'] == 'Scheduled' else ''}>Scheduled</option>
-                        <option {'selected' if job['status'] == 'In Progress' else ''}>In Progress</option>
-                        <option {'selected' if job['status'] == 'Completed' else ''}>Completed</option>
-                        <option {'selected' if job['status'] == 'Invoiced' else ''}>Invoiced</option>
-                        <option {'selected' if job['status'] == 'Finished' else ''}>Finished</option>
+                        <option {'selected' if job['status'] == _t('Scheduled', 'Programado') or job['status'] == 'Scheduled' else ''}>{_t("Scheduled", "Programado")}</option>
+                        <option {'selected' if job['status'] == _t('In Progress', 'En progreso') or job['status'] == 'In Progress' else ''}>{_t("In Progress", "En progreso")}</option>
+                        <option {'selected' if job['status'] == _t('Completed', 'Completado') or job['status'] == 'Completed' else ''}>{_t("Completed", "Completado")}</option>
+                        <option {'selected' if job['status'] == _t('Invoiced', 'Facturado') or job['status'] == 'Invoiced' else ''}>{_t("Invoiced", "Facturado")}</option>
+                        <option {'selected' if job['status'] == _t('Finished', 'Terminado') or job['status'] == 'Finished' else ''}>{_t("Finished", "Terminado")}</option>
                     </select>
                 </div>
                 <div>
-                    <label>Address</label>
+                    <label>{_t("Address", "Dirección")}</label>
                     <input name='address' value="{escape(clean_text_input(job['address']))}">
                 </div>
             </div>
             <br>
-            <label>Notes</label>
+            <label>{_t("Notes", "Notas")}</label>
             <textarea name='notes'>{escape(clean_text_input(job['notes']))}</textarea>
             <br>
-            <button class='btn'>Save Changes</button>
-            <a class='btn secondary' href='{url_for("jobs.view_job", job_id=job_id)}'>Cancel</a>
+            <button class='btn'>{_t("Save Changes", "Guardar cambios")}</button>
+            <a class='btn secondary' href='{url_for("jobs.view_job", job_id=job_id)}'>{_t("Cancel", "Cancelar")}</a>
         </form>
     </div>
     """
 
     conn.close()
-    return render_page(content, f"Edit Job #{job['id']}")
+    return render_page(content, f"{_t('Edit Job', 'Editar trabajo')} #{job['id']}")
 
 @jobs_bp.route("/jobs/<int:job_id>/items/<int:item_id>/edit", methods=["GET", "POST"])
 @login_required
@@ -5404,7 +5537,7 @@ def edit_job_item(job_id, item_id):
 
     if not item:
         conn.close()
-        flash("Job item not found.")
+        flash(_t("Job item not found.", "Artículo del trabajo no encontrado."))
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     if request.method == "POST":
@@ -5418,7 +5551,7 @@ def edit_job_item(job_id, item_id):
 
         if not description:
             conn.close()
-            flash("Description is required.")
+            flash(_t("Description is required.", "La descripción es obligatoria."))
             return redirect(url_for("jobs.edit_job_item", job_id=job_id, item_id=item_id))
 
         if item_type == "mulch" and not unit:
@@ -5485,7 +5618,7 @@ def edit_job_item(job_id, item_id):
         conn.commit()
         conn.close()
 
-        flash("Job item updated.")
+        flash(_t("Job item updated.", "Artículo del trabajo actualizado."))
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     item_type_val = clean_text_input(item["item_type"]).lower()
@@ -5497,71 +5630,71 @@ def edit_job_item(job_id, item_id):
 
     content = f"""
     <div class='card'>
-        <h1>Edit Job Item</h1>
+        <h1>{_t("Edit Job Item", "Editar artículo del trabajo")}</h1>
         <p>
-            <strong>Job:</strong> #{job['id']} - {escape(clean_text_display(job['title']))}<br>
-            <strong>Customer:</strong> {escape(clean_text_display(job['customer_name']))}
+            <strong>{_t("Job", "Trabajo")}:</strong> #{job['id']} - {escape(clean_text_display(job['title']))}<br>
+            <strong>{_t("Customer", "Cliente")}:</strong> {escape(clean_text_display(job['customer_name']))}
         </p>
 
         <form method='post'>
             <input type="hidden" name="csrf_token" value="{edit_item_csrf}">
             <div class='grid'>
                 <div>
-                    <label>Type</label>
+                    <label>{_t("Type", "Tipo")}</label>
                     <select name='item_type' id='edit_item_type' onchange='toggleEditJobItemMode()'>
-                        <option value='mulch' {'selected' if item_type_val == 'mulch' else ''}>Mulch</option>
-                        <option value='stone' {'selected' if item_type_val == 'stone' else ''}>Stone</option>
-                        <option value='dump_fee' {'selected' if item_type_val == 'dump_fee' else ''}>Dump Fee</option>
-                        <option value='plants' {'selected' if item_type_val == 'plants' else ''}>Plants</option>
-                        <option value='trees' {'selected' if item_type_val == 'trees' else ''}>Trees</option>
-                        <option value='soil' {'selected' if item_type_val == 'soil' else ''}>Soil</option>
-                        <option value='fertilizer' {'selected' if item_type_val == 'fertilizer' else ''}>Fertilizer</option>
-                        <option value='hardscape_material' {'selected' if item_type_val == 'hardscape_material' else ''}>Hardscape Material</option>
-                        <option value='labor' {'selected' if item_type_val == 'labor' else ''}>Labor</option>
-                        <option value='equipment' {'selected' if item_type_val == 'equipment' else ''}>Equipment</option>
-                        <option value='delivery' {'selected' if item_type_val == 'delivery' else ''}>Delivery</option>
-                        <option value='fuel' {'selected' if item_type_val == 'fuel' else ''}>Fuel</option>
-                        <option value='misc' {'selected' if item_type_val == 'misc' else ''}>Misc</option>
+                        <option value='mulch' {'selected' if item_type_val == 'mulch' else ''}>{_t("Mulch", "Mantillo")}</option>
+                        <option value='stone' {'selected' if item_type_val == 'stone' else ''}>{_t("Stone", "Piedra")}</option>
+                        <option value='dump_fee' {'selected' if item_type_val == 'dump_fee' else ''}>{_t("Dump Fee", "Tarifa de vertedero")}</option>
+                        <option value='plants' {'selected' if item_type_val == 'plants' else ''}>{_t("Plants", "Plantas")}</option>
+                        <option value='trees' {'selected' if item_type_val == 'trees' else ''}>{_t("Trees", "Árboles")}</option>
+                        <option value='soil' {'selected' if item_type_val == 'soil' else ''}>{_t("Soil", "Tierra")}</option>
+                        <option value='fertilizer' {'selected' if item_type_val == 'fertilizer' else ''}>{_t("Fertilizer", "Fertilizante")}</option>
+                        <option value='hardscape_material' {'selected' if item_type_val == 'hardscape_material' else ''}>{_t("Hardscape Material", "Material de hardscape")}</option>
+                        <option value='labor' {'selected' if item_type_val == 'labor' else ''}>{_t("Labor", "Mano de obra")}</option>
+                        <option value='equipment' {'selected' if item_type_val == 'equipment' else ''}>{_t("Equipment", "Equipo")}</option>
+                        <option value='delivery' {'selected' if item_type_val == 'delivery' else ''}>{_t("Delivery", "Entrega")}</option>
+                        <option value='fuel' {'selected' if item_type_val == 'fuel' else ''}>{_t("Fuel", "Combustible")}</option>
+                        <option value='misc' {'selected' if item_type_val == 'misc' else ''}>{_t("Misc", "Varios")}</option>
                     </select>
                 </div>
 
                 <div>
-                    <label>Description</label>
+                    <label>{_t("Description", "Descripción")}</label>
                     <input name='description' value="{escape(clean_text_input(item['description']))}" required>
                 </div>
 
                 <div>
-                    <label id='edit_quantity_label'>Quantity</label>
+                    <label id='edit_quantity_label'>{_t("Quantity", "Cantidad")}</label>
                     <input type='number' step='0.01' name='quantity' id='edit_quantity' value="{qty_val:.2f}" required>
                 </div>
 
                 <div>
-                    <label>Unit</label>
+                    <label>{_t("Unit", "Unidad")}</label>
                     <input name='unit' id='edit_unit' value="{escape(clean_text_input(item['unit']))}">
                 </div>
 
                 <div id='edit_sale_price_wrap'>
-                    <label id='edit_sale_price_label'>Sale Price</label>
+                    <label id='edit_sale_price_label'>{_t("Sale Price", "Precio de venta")}</label>
                     <input type='number' step='0.01' name='sale_price' id='edit_sale_price' value="{sale_price_val:.2f}">
                 </div>
 
                 <div id='edit_unit_cost_wrap' style="display:{'none' if hide_cost else 'block'};">
-                    <label id='edit_cost_label'>Unit Cost</label>
+                    <label id='edit_cost_label'>{_t("Unit Cost", "Costo unitario")}</label>
                     <input type='number' step='0.01' name='unit_cost' id='edit_unit_cost' value="{unit_cost_val:.2f}">
                 </div>
 
                 <div>
-                    <label>Billable?</label>
+                    <label>{_t("Billable?", "¿Facturable?")}</label>
                     <select name='billable'>
-                        <option value='1' {'selected' if item['billable'] else ''}>Yes</option>
-                        <option value='0' {'selected' if not item['billable'] else ''}>No</option>
+                        <option value='1' {'selected' if item['billable'] else ''}>{_t("Yes", "Sí")}</option>
+                        <option value='0' {'selected' if not item['billable'] else ''}>{_t("No", "No")}</option>
                     </select>
                 </div>
             </div>
 
             <br>
-            <button class='btn'>Save Changes</button>
-            <a class='btn secondary' href='{url_for("jobs.view_job", job_id=job_id)}'>Cancel</a>
+            <button class='btn'>{_t("Save Changes", "Guardar cambios")}</button>
+            <a class='btn secondary' href='{url_for("jobs.view_job", job_id=job_id)}'>{_t("Cancel", "Cancelar")}</a>
         </form>
     </div>
 
@@ -5578,9 +5711,9 @@ def edit_job_item(job_id, item_id):
         const quantityInput = document.getElementById('edit_quantity');
         const unitCostInput = document.getElementById('edit_unit_cost');
 
-        quantityLabel.innerText = 'Quantity';
-        salePriceLabel.innerText = 'Sale Price';
-        costLabel.innerText = 'Unit Cost';
+        quantityLabel.innerText = '{_t("Quantity", "Cantidad")}';
+        salePriceLabel.innerText = '{_t("Sale Price", "Precio de venta")}';
+        costLabel.innerText = '{_t("Unit Cost", "Costo unitario")}';
         if (salePriceWrap) salePriceWrap.style.display = 'block';
         if (unitCostWrap) unitCostWrap.style.display = 'block';
 
@@ -5592,38 +5725,38 @@ def edit_job_item(job_id, item_id):
         if (unitInput) unitInput.value = '';
 
         if (type === 'mulch') {{
-            quantityLabel.innerText = 'Yards';
+            quantityLabel.innerText = '{_t("Yards", "Yardas")}';
             unitInput.value = 'Yards';
         }} else if (type === 'stone') {{
-            quantityLabel.innerText = 'Tons';
+            quantityLabel.innerText = '{_t("Tons", "Toneladas")}';
             unitInput.value = 'Tons';
         }} else if (type === 'soil') {{
-            quantityLabel.innerText = 'Yards';
+            quantityLabel.innerText = '{_t("Yards", "Yardas")}';
             unitInput.value = 'Yards';
         }} else if (type === 'hardscape_material') {{
-            quantityLabel.innerText = 'Tons';
+            quantityLabel.innerText = '{_t("Tons", "Toneladas")}';
             unitInput.value = 'Tons';
         }} else if (type === 'fuel') {{
-            quantityLabel.innerText = 'Gallons';
+            quantityLabel.innerText = '{_t("Gallons", "Galones")}';
             unitInput.value = 'Gallons';
         }} else if (type === 'delivery') {{
-            quantityLabel.innerText = 'Miles';
+            quantityLabel.innerText = '{_t("Miles", "Millas")}';
             unitInput.value = 'Miles';
         }} else if (type === 'labor') {{
-            quantityLabel.innerText = 'Billable Hours';
-            salePriceLabel.innerText = 'Hourly Rate';
-            costLabel.innerText = 'Hourly Cost';
+            quantityLabel.innerText = '{_t("Billable Hours", "Horas facturables")}';
+            salePriceLabel.innerText = '{_t("Hourly Rate", "Tarifa por hora")}';
+            costLabel.innerText = '{_t("Hourly Cost", "Costo por hora")}';
             unitInput.value = 'Hours';
             if (unitCostWrap) unitCostWrap.style.display = 'block';
         }} else if (type === 'equipment') {{
-            quantityLabel.innerText = 'Rentals';
+            quantityLabel.innerText = '{_t("Rentals", "Alquileres")}';
             unitInput.value = 'Rentals';
         }} else if (type === 'plants' || type === 'trees' || type === 'misc') {{
-            quantityLabel.innerText = 'Quantity';
+            quantityLabel.innerText = '{_t("Quantity", "Cantidad")}';
             unitInput.value = '';
         }} else if (type === 'dump_fee') {{
-            quantityLabel.innerText = 'Fee';
-            salePriceLabel.innerText = 'Fee Amount';
+            quantityLabel.innerText = '{_t("Fee", "Tarifa")}';
+            salePriceLabel.innerText = '{_t("Fee Amount", "Importe de la tarifa")}';
             unitInput.value = '';
             if (unitCostWrap) unitCostWrap.style.display = 'none';
             if (unitCostInput) unitCostInput.value = '0';
@@ -5632,7 +5765,7 @@ def edit_job_item(job_id, item_id):
                 quantityInput.readOnly = true;
             }}
         }} else if (type === 'fertilizer') {{
-            quantityLabel.innerText = 'Quantity';
+            quantityLabel.innerText = '{_t("Quantity", "Cantidad")}';
             unitInput.value = '';
         }}
     }}
@@ -5644,7 +5777,8 @@ def edit_job_item(job_id, item_id):
     """
 
     conn.close()
-    return render_page(content, f"Edit Job Item #{item_id}")
+    return render_page(content, f"{_t('Edit Job Item', 'Editar artículo del trabajo')} #{item_id}")
+
 
 @jobs_bp.route("/jobs/<int:job_id>/items/<int:item_id>/delete", methods=["POST"])
 @login_required
@@ -5674,7 +5808,7 @@ def delete_job_item(job_id, item_id):
     recalc_job(conn, job_id)
     conn.commit()
     conn.close()
-    flash("Job item deleted.")
+    flash(_t("Job item deleted.", "Artículo del trabajo eliminado."))
     return redirect(url_for("jobs.view_job", job_id=job_id))
 
 
@@ -5711,7 +5845,7 @@ def convert_job_to_invoice(job_id):
         ).fetchone()
 
         if existing_invoice:
-            flash("This job has already been converted to an invoice.")
+            flash(_t("This job has already been converted to an invoice.", "Este trabajo ya fue convertido en factura."))
             return redirect(url_for("invoices.view_invoice", invoice_id=existing_invoice["id"]))
 
         items = conn.execute(
@@ -5726,7 +5860,7 @@ def convert_job_to_invoice(job_id):
         ).fetchall()
 
         if not items:
-            flash("This job has no billable items to invoice.")
+            flash(_t("This job has no billable items to invoice.", "Este trabajo no tiene artículos facturables para facturar."))
             return redirect(url_for("jobs.view_job", job_id=job_id))
 
         invoice_date = date.today().isoformat()
@@ -5735,7 +5869,7 @@ def convert_job_to_invoice(job_id):
         invoice_number = f"INV-{int(datetime.now().timestamp())}"
 
         service_type = clean_text_input(job["service_type"]).lower() if "service_type" in job.keys() else ""
-        job_title = clean_text_input(job["title"]) or "Service"
+        job_title = clean_text_input(job["title"]) or _t("Service", "Servicio")
         job_address = clean_text_input(job["address"]) if "address" in job.keys() else ""
         scheduled_date = clean_text_input(job["scheduled_date"]) if "scheduled_date" in job.keys() else ""
 
@@ -5754,35 +5888,35 @@ def convert_job_to_invoice(job_id):
                 deduped_descriptions.append(desc)
 
         if service_type == "mowing":
-            summary_parts = ["Mowing service completed"]
+            summary_parts = [_t("Mowing service completed", "Servicio de corte completado")]
             if job_address:
-                summary_parts.append(f"at {job_address}")
+                summary_parts.append(_t(f"at {job_address}", f"en {job_address}"))
             if scheduled_date:
-                summary_parts.append(f"on {scheduled_date}")
+                summary_parts.append(_t(f"on {scheduled_date}", f"el {scheduled_date}"))
 
             summary_description = " ".join(summary_parts).strip()
             if not summary_description.endswith("."):
                 summary_description += "."
 
             if deduped_descriptions:
-                summary_description += f" Included {', '.join(deduped_descriptions[:5])}."
+                summary_description += f" {_t('Included', 'Incluye')} {', '.join(deduped_descriptions[:5])}."
             else:
-                summary_description += f" Included service from job '{job_title}'."
+                summary_description += f" {_t('Included service from job', 'Incluye servicio del trabajo')} '{job_title}'."
 
             display_mode = "summary_only"
         else:
             summary_parts = [job_title]
             if job_address:
-                summary_parts.append(f"at {job_address}")
+                summary_parts.append(_t(f"at {job_address}", f"en {job_address}"))
             if scheduled_date:
-                summary_parts.append(f"on {scheduled_date}")
+                summary_parts.append(_t(f"on {scheduled_date}", f"el {scheduled_date}"))
 
             summary_description = " ".join(summary_parts).strip()
             if not summary_description.endswith("."):
                 summary_description += "."
 
             if deduped_descriptions:
-                summary_description += f" Included {', '.join(deduped_descriptions[:5])}."
+                summary_description += f" {_t('Included', 'Incluye')} {', '.join(deduped_descriptions[:5])}."
 
             display_mode = "summary_only"
 
@@ -5815,7 +5949,7 @@ def convert_job_to_invoice(job_id):
                 invoice_number,
                 invoice_date,
                 due_date,
-                "Unpaid",
+                _t("Unpaid", "No pagada"),
                 notes,
                 0,
                 0,
@@ -5826,7 +5960,7 @@ def convert_job_to_invoice(job_id):
 
         row = cur.fetchone()
         if not row or "id" not in row:
-            raise Exception("Failed to create invoice record.")
+            raise Exception(_t("Failed to create invoice record.", "No se pudo crear el registro de la factura."))
 
         invoice_id = row["id"]
 
@@ -5867,16 +6001,16 @@ def convert_job_to_invoice(job_id):
             SET status = %s
             WHERE id = %s AND company_id = %s
             """,
-            ("Invoiced", job_id, cid),
+            (_t("Invoiced", "Facturado"), job_id, cid),
         )
 
         conn.commit()
-        flash("Job converted to invoice.")
+        flash(_t("Job converted to invoice.", "Trabajo convertido en factura."))
         return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
     except Exception as e:
         conn.rollback()
-        flash(f"Could not convert job to invoice: {e}")
+        flash(_t(f"Could not convert job to invoice: {e}", f"No se pudo convertir el trabajo en factura: {e}"))
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     finally:
@@ -5910,8 +6044,9 @@ def delete_job(job_id):
     conn.execute("DELETE FROM jobs WHERE id = %s AND company_id = %s", (job_id, session["company_id"]))
     conn.commit()
     conn.close()
-    flash("Job deleted.")
+    flash(_t("Job deleted.", "Trabajo eliminado."))
     return redirect(url_for("jobs.jobs"))
+
 
 @jobs_bp.route("/jobs/finished")
 @login_required
@@ -5929,7 +6064,7 @@ def finished_jobs():
         FROM jobs j
         JOIN customers c ON j.customer_id = c.id
         WHERE j.company_id = %s
-          AND j.status = 'Finished'
+          AND (j.status = 'Finished' OR j.status = 'Terminado')
         ORDER BY
             j.scheduled_date NULLS LAST,
             j.scheduled_start_time NULLS LAST,
@@ -5949,7 +6084,7 @@ def finished_jobs():
 
         recurring_note = ""
         if r["recurring_schedule_id"]:
-            recurring_note = f"<div class='small muted' style='margin-top:4px;'>Recurring: Schedule #{r['recurring_schedule_id']}</div>"
+            recurring_note = f"<div class='small muted' style='margin-top:4px;'>{_t('Recurring', 'Recurrente')}: {_t('Schedule', 'Programa')} #{r['recurring_schedule_id']}</div>"
 
         table_rows.append(
             f"""
@@ -5968,8 +6103,8 @@ def finished_jobs():
                 <td class='money jobs-profit'>${safe_float(r['profit']):.2f}</td>
                 <td class='wrap'>
                     <div class='static-actions'>
-                        <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
-                        <a class='btn warning small' href='{url_for("jobs.reopen_job", job_id=r["id"])}'>Reopen</a>
+                        <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>{_t("View", "Ver")}</a>
+                        <a class='btn warning small' href='{url_for("jobs.reopen_job", job_id=r["id"])}'>{_t("Reopen", "Reabrir")}</a>
                     </div>
                 </td>
             </tr>
@@ -5986,23 +6121,23 @@ def finished_jobs():
 
                 <div style='margin:-2px 0 10px 0; display:flex; gap:8px; flex-wrap:wrap;'>
                     <span class='service-chip {service_type_class}'>{escape(service_type_label)}</span>
-                    {'<span class="service-chip mowing">Recurring</span>' if r["recurring_schedule_id"] else ''}
+                    {'<span class="service-chip mowing">' + escape(_t("Recurring", "Recurrente")) + '</span>' if r["recurring_schedule_id"] else ''}
                 </div>
 
                 <div class='mobile-list-grid'>
-                    <div><span>Customer</span><strong>{escape(clean_text_display(r['customer_name']))}</strong></div>
-                    <div><span>Date</span><strong>{escape(clean_text_display(r['scheduled_date']))}</strong></div>
-                    <div><span>Start</span><strong>{escape(clean_text_display(r['scheduled_start_time']))}</strong></div>
-                    <div><span>End</span><strong>{escape(clean_text_display(r['scheduled_end_time']))}</strong></div>
-                    <div><span>Assigned To</span><strong>{escape(clean_text_display(r['assigned_to']))}</strong></div>
-                    <div><span>Revenue</span><strong>${safe_float(r['revenue']):.2f}</strong></div>
-                    <div><span>Costs</span><strong>${safe_float(r['cost_total']):.2f}</strong></div>
-                    <div><span>Profit/Loss</span><strong>${safe_float(r['profit']):.2f}</strong></div>
+                    <div><span>{_t("Customer", "Cliente")}</span><strong>{escape(clean_text_display(r['customer_name']))}</strong></div>
+                    <div><span>{_t("Date", "Fecha")}</span><strong>{escape(clean_text_display(r['scheduled_date']))}</strong></div>
+                    <div><span>{_t("Start", "Inicio")}</span><strong>{escape(clean_text_display(r['scheduled_start_time']))}</strong></div>
+                    <div><span>{_t("End", "Fin")}</span><strong>{escape(clean_text_display(r['scheduled_end_time']))}</strong></div>
+                    <div><span>{_t("Assigned To", "Asignado a")}</span><strong>{escape(clean_text_display(r['assigned_to']))}</strong></div>
+                    <div><span>{_t("Revenue", "Ingresos")}</span><strong>${safe_float(r['revenue']):.2f}</strong></div>
+                    <div><span>{_t("Costs", "Costos")}</span><strong>${safe_float(r['cost_total']):.2f}</strong></div>
+                    <div><span>{_t("Profit/Loss", "Ganancia/Pérdida")}</span><strong>${safe_float(r['profit']):.2f}</strong></div>
                 </div>
 
                 <div class='mobile-list-actions'>
-                    <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
-                    <a class='btn warning small' href='{url_for("jobs.reopen_job", job_id=r["id"])}'>Reopen</a>
+                    <a class='btn secondary small' href='{url_for("jobs.view_job", job_id=r["id"])}'>{_t("View", "Ver")}</a>
+                    <a class='btn warning small' href='{url_for("jobs.reopen_job", job_id=r["id"])}'>{_t("Reopen", "Reabrir")}</a>
                 </div>
             </div>
             """
@@ -6199,11 +6334,11 @@ def finished_jobs():
     <div class='card'>
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
             <div>
-                <h1 style='margin:0;'>Finished Jobs</h1>
-                <p class='muted' style='margin:6px 0 0 0;'>Completed and fully paid jobs.</p>
+                <h1 style='margin:0;'>{_t("Finished Jobs", "Trabajos terminados")}</h1>
+                <p class='muted' style='margin:6px 0 0 0;'>{_t("Completed and fully paid jobs.", "Trabajos completados y totalmente pagados.")}</p>
             </div>
             <div class='row-actions'>
-                <a class='btn secondary' href='{url_for("jobs.jobs")}'>Back to Active Jobs</a>
+                <a class='btn secondary' href='{url_for("jobs.jobs")}'>{_t("Back to Active Jobs", "Volver a trabajos activos")}</a>
             </div>
         </div>
     </div>
@@ -6228,31 +6363,31 @@ def finished_jobs():
                 </colgroup>
                 <tr>
                     <th>ID</th>
-                    <th class='wrap'>Title</th>
-                    <th>Service</th>
-                    <th class='wrap'>Customer</th>
-                    <th>Date</th>
-                    <th>Start</th>
-                    <th>End</th>
-                    <th class='wrap'>Assigned To</th>
-                    <th>Status</th>
-                    <th class='money'>Revenue</th>
-                    <th class='money'>Costs</th>
-                    <th class='money'>Profit/Loss</th>
-                    <th class='wrap'>Actions</th>
+                    <th class='wrap'>{_t("Title", "Título")}</th>
+                    <th>{_t("Service", "Servicio")}</th>
+                    <th class='wrap'>{_t("Customer", "Cliente")}</th>
+                    <th>{_t("Date", "Fecha")}</th>
+                    <th>{_t("Start", "Inicio")}</th>
+                    <th>{_t("End", "Fin")}</th>
+                    <th class='wrap'>{_t("Assigned To", "Asignado a")}</th>
+                    <th>{_t("Status", "Estado")}</th>
+                    <th class='money'>{_t("Revenue", "Ingresos")}</th>
+                    <th class='money'>{_t("Costs", "Costos")}</th>
+                    <th class='money'>{_t("Profit/Loss", "Ganancia/Pérdida")}</th>
+                    <th class='wrap'>{_t("Actions", "Acciones")}</th>
                 </tr>
-                {job_rows or '<tr><td colspan="13" class="muted">No finished jobs yet.</td></tr>'}
+                {job_rows or f'<tr><td colspan="13" class="muted">{_t("No finished jobs yet.", "Todavía no hay trabajos terminados.")}</td></tr>'}
             </table>
         </div>
 
         <div class='mobile-only'>
             <div class='mobile-list'>
-                {mobile_cards_html or "<div class='mobile-list-card'>No finished jobs yet.</div>"}
+                {mobile_cards_html or f"<div class='mobile-list-card'>{_t('No finished jobs yet.', 'Todavía no hay trabajos terminados.')}</div>"}
             </div>
         </div>
     </div>
     """
-    return render_page(content, "Finished Jobs")
+    return render_page(content, _t("Finished Jobs", "Trabajos terminados"))
 
 
 @jobs_bp.route("/jobs/<int:job_id>/reopen")
@@ -6274,20 +6409,20 @@ def reopen_job(job_id):
 
     if not job:
         conn.close()
-        flash("Job not found.")
+        flash(_t("Job not found.", "Trabajo no encontrado."))
         return redirect(url_for("jobs.finished_jobs"))
 
     conn.execute(
         """
         UPDATE jobs
-        SET status = 'Invoiced'
+        SET status = %s
         WHERE id = %s AND company_id = %s
         """,
-        (job_id, cid),
+        (_t("Invoiced", "Facturado"), job_id, cid),
     )
 
     conn.commit()
     conn.close()
 
-    flash("Job reopened.")
+    flash(_t("Job reopened.", "Trabajo reabierto."))
     return redirect(url_for("jobs.view_job", job_id=job_id))

@@ -10,6 +10,34 @@ from page_helpers import render_page
 users_bp = Blueprint("users", __name__)
 
 
+# =========================================================
+# Language Helpers
+# =========================================================
+
+def _lang():
+    return "es" if session.get("language") == "es" else "en"
+
+
+def _is_es():
+    return _lang() == "es"
+
+
+def _t(en, es):
+    return es if _is_es() else en
+
+
+def _role_label(role):
+    raw = (role or "").strip()
+    if _is_es():
+        if raw == "Owner":
+            return "Propietario"
+        if raw == "Manager":
+            return "Gerente"
+        if raw == "Employee":
+            return "Empleado"
+    return raw or "-"
+
+
 @users_bp.route("/users", methods=["GET", "POST"])
 @login_required
 @subscription_required
@@ -28,7 +56,10 @@ def users():
 
         if not name or not email or not password:
             conn.close()
-            flash("Name, email, and password are required.")
+            flash(_t(
+                "Name, email, and password are required.",
+                "Se requieren nombre, correo electrónico y contraseña.",
+            ))
             return redirect(url_for("users.users"))
 
         existing = conn.execute(
@@ -42,7 +73,10 @@ def users():
 
         if existing:
             conn.close()
-            flash("A user with that email already exists.")
+            flash(_t(
+                "A user with that email already exists.",
+                "Ya existe un usuario con ese correo electrónico.",
+            ))
             return redirect(url_for("users.users"))
 
         defaults = get_role_defaults(role)
@@ -91,7 +125,7 @@ def users():
         conn.commit()
         conn.close()
 
-        flash("User added.")
+        flash(_t("User added.", "Usuario agregado."))
         return redirect(url_for("users.users"))
 
     rows = conn.execute(
@@ -116,13 +150,32 @@ def users():
     user_rows = ""
     mobile_cards = ""
 
+    permissions_label = _t("Permissions", "Permisos")
+    current_user_label = _t("Current User", "Usuario actual")
+    deactivate_label = _t("Deactivate", "Desactivar")
+    activate_label = _t("Activate", "Activar")
+    delete_label = _t("Delete", "Eliminar")
+    role_label = _t("Role", "Rol")
+    status_label = _t("Status", "Estado")
+    yes_label = _t("Yes", "Sí")
+    no_label = _t("No", "No")
+
+    confirm_toggle = _t(
+        "Change this user's active status?",
+        "¿Cambiar el estado activo de este usuario?",
+    )
+    confirm_delete = _t(
+        "Delete this user?",
+        "¿Eliminar este usuario?",
+    )
+
     for r in rows:
         is_current_user = r["id"] == session.get("user_id")
-        status_text = "Yes" if r["is_active"] else "No"
+        status_text = yes_label if r["is_active"] else no_label
         status_badge_class = "active" if r["is_active"] else "inactive"
 
         permissions_button = (
-            f"<a class='btn secondary small' href='{url_for('users.edit_user_permissions', user_id=r['id'])}'>Permissions</a>"
+            f"<a class='btn secondary small' href='{url_for('users.edit_user_permissions', user_id=r['id'])}'>{permissions_label}</a>"
         )
 
         if not is_current_user:
@@ -130,31 +183,31 @@ def users():
             <form method='post'
                   action='{url_for("users.toggle_user_active", user_id=r["id"])}'
                   class='inline-form'
-                  onsubmit="return confirm('Change this user\\'s active status?');">
+                  onsubmit="return confirm({confirm_toggle!r});">
                 <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
-                <button class='btn warning small' type='submit'>{"Deactivate" if r["is_active"] else "Activate"}</button>
+                <button class='btn warning small' type='submit'>{deactivate_label if r["is_active"] else activate_label}</button>
             </form>
             """
             delete_button = f"""
             <form method='post'
                   action='{url_for("users.delete_user", user_id=r["id"])}'
                   class='inline-form'
-                  onsubmit="return confirm('Delete this user?');">
+                  onsubmit="return confirm({confirm_delete!r});">
                 <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
-                <button class='btn danger small' type='submit'>Delete</button>
+                <button class='btn danger small' type='submit'>{delete_label}</button>
             </form>
             """
             current_user_text = ""
         else:
             toggle_button = ""
             delete_button = ""
-            current_user_text = "<span class='muted small'>Current User</span>"
+            current_user_text = f"<span class='muted small'>{current_user_label}</span>"
 
         user_rows += f"""
         <tr>
             <td>{escape(r['name'] or '-')}</td>
             <td>{escape(r['email'] or '-')}</td>
-            <td>{escape(r['role'] or '-')}</td>
+            <td>{escape(_role_label(r['role']))}</td>
             <td><span class='status-pill {status_badge_class}'>{status_text}</span></td>
             <td>
                 <div class='row-actions'>
@@ -179,11 +232,11 @@ def users():
 
             <div class='mobile-list-grid'>
                 <div>
-                    <span>Role</span>
-                    <strong>{escape(r['role'] or '-')}</strong>
+                    <span>{role_label}</span>
+                    <strong>{escape(_role_label(r['role']))}</strong>
                 </div>
                 <div>
-                    <span>Status</span>
+                    <span>{status_label}</span>
                     <strong>{status_text}</strong>
                 </div>
             </div>
@@ -196,6 +249,22 @@ def users():
             </div>
         </div>
         """
+
+    page_title = _t("Users & Permissions", "Usuarios y Permisos")
+    page_subtitle = _t(
+        "Manage company users, roles, and access levels.",
+        "Administra usuarios, roles y niveles de acceso de la empresa.",
+    )
+    add_user_title = _t("Add User", "Agregar Usuario")
+    company_users_title = _t("Company Users", "Usuarios de la Empresa")
+    name_label = _t("Name", "Nombre")
+    email_label = _t("Email", "Correo Electrónico")
+    password_label = _t("Password", "Contraseña")
+    active_label = _t("Active", "Activo")
+    actions_label = _t("Actions", "Acciones")
+    add_user_btn = _t("Add User", "Agregar Usuario")
+    back_to_settings_btn = _t("Back to Settings", "Volver a Configuración")
+    no_users_found = _t("No users found.", "No se encontraron usuarios.")
 
     content = f"""
     <style>
@@ -370,70 +439,70 @@ def users():
 
     <div class='users-page'>
         <div class='card'>
-            <h1>Users & Permissions</h1>
-            <p class='muted'>Manage company users, roles, and access levels.</p>
+            <h1>{page_title}</h1>
+            <p class='muted'>{page_subtitle}</p>
         </div>
 
         <div class='card'>
-            <h2>Add User</h2>
+            <h2>{add_user_title}</h2>
             <form method='post'>
                 <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
                 <div class='grid'>
                     <div>
-                        <label>Name</label>
+                        <label>{name_label}</label>
                         <input name='name' required>
                     </div>
                     <div>
-                        <label>Email</label>
+                        <label>{email_label}</label>
                         <input name='email' type='email' required>
                     </div>
                     <div>
-                        <label>Password</label>
+                        <label>{password_label}</label>
                         <input name='password' type='password' required>
                     </div>
                     <div>
-                        <label>Role</label>
+                        <label>{role_label}</label>
                         <select name='role'>
-                            <option>Owner</option>
-                            <option>Manager</option>
-                            <option selected>Employee</option>
+                            <option value='Owner'>{_t("Owner", "Propietario")}</option>
+                            <option value='Manager'>{_t("Manager", "Gerente")}</option>
+                            <option value='Employee' selected>{_t("Employee", "Empleado")}</option>
                         </select>
                     </div>
                 </div>
 
                 <div class='row-actions' style='margin-top:20px;'>
-                    <button class='btn success' type='submit'>Add User</button>
-                    <a class='btn secondary' href='{url_for("settings.settings")}'>Back to Settings</a>
+                    <button class='btn success' type='submit'>{add_user_btn}</button>
+                    <a class='btn secondary' href='{url_for("settings.settings")}'>{back_to_settings_btn}</a>
                 </div>
             </form>
         </div>
 
         <div class='card'>
-            <h2>Company Users</h2>
+            <h2>{company_users_title}</h2>
 
             <div class='table-wrap desktop-only'>
                 <table>
                     <tr>
-                        <th>Name</th>
-                        <th>Email</th>
-                        <th>Role</th>
-                        <th>Active</th>
-                        <th>Actions</th>
+                        <th>{name_label}</th>
+                        <th>{email_label}</th>
+                        <th>{role_label}</th>
+                        <th>{active_label}</th>
+                        <th>{actions_label}</th>
                     </tr>
-                    {user_rows or '<tr><td colspan="5" class="muted">No users found.</td></tr>'}
+                    {user_rows or f'<tr><td colspan="5" class="muted">{no_users_found}</td></tr>'}
                 </table>
             </div>
 
             <div class='mobile-only'>
                 <div class='mobile-list'>
-                    {mobile_cards or "<div class='mobile-list-card muted'>No users found.</div>"}
+                    {mobile_cards or f"<div class='mobile-list-card muted'>{no_users_found}</div>"}
                 </div>
             </div>
         </div>
     </div>
     """
 
-    return render_page(content, "Users & Permissions")
+    return render_page(content, page_title)
 
 
 @users_bp.route("/users/<int:user_id>/permissions", methods=["GET", "POST"])
@@ -457,7 +526,7 @@ def edit_user_permissions(user_id):
 
     if not user:
         conn.close()
-        flash("User not found.")
+        flash(_t("User not found.", "Usuario no encontrado."))
         return redirect(url_for("users.users"))
 
     if request.method == "POST":
@@ -508,29 +577,39 @@ def edit_user_permissions(user_id):
         conn.close()
 
         if user_id == session.get("user_id"):
-            flash("Your permissions were updated. Log out and back in if anything looks out of sync.")
+            flash(_t(
+                "Your permissions were updated. Log out and back in if anything looks out of sync.",
+                "Tus permisos fueron actualizados. Cierra sesión y vuelve a entrar si algo parece desincronizado.",
+            ))
         else:
-            flash("User permissions updated.")
+            flash(_t("User permissions updated.", "Permisos del usuario actualizados."))
 
         return redirect(url_for("users.users"))
 
     def checked(val):
         return "checked" if val else ""
 
+    page_title = _t("Edit Permissions", "Editar Permisos")
+    user_label = _t("User", "Usuario")
+    role_label = _t("Role", "Rol")
+    permissions_title = _t("Permissions", "Permisos")
+    save_btn = _t("Save Permissions", "Guardar Permisos")
+    cancel_btn = _t("Cancel", "Cancelar")
+
     content = f"""
     <div class='card'>
-        <h1>Edit Permissions</h1>
-        <p class='muted'><strong>User:</strong> {escape(user['name'] or '-')} ({escape(user['email'] or '-')})</p>
+        <h1>{page_title}</h1>
+        <p class='muted'><strong>{user_label}:</strong> {escape(user['name'] or '-')} ({escape(user['email'] or '-')})</p>
 
         <form method='post'>
             <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
             <div class='grid'>
                 <div>
-                    <label>Role</label>
+                    <label>{role_label}</label>
                     <select name='role'>
-                        <option {'selected' if (user['role'] or '') == 'Owner' else ''}>Owner</option>
-                        <option {'selected' if (user['role'] or '') == 'Manager' else ''}>Manager</option>
-                        <option {'selected' if (user['role'] or '') == 'Employee' else ''}>Employee</option>
+                        <option value='Owner' {'selected' if (user['role'] or '') == 'Owner' else ''}>{_t("Owner", "Propietario")}</option>
+                        <option value='Manager' {'selected' if (user['role'] or '') == 'Manager' else ''}>{_t("Manager", "Gerente")}</option>
+                        <option value='Employee' {'selected' if (user['role'] or '') == 'Employee' else ''}>{_t("Employee", "Empleado")}</option>
                     </select>
                 </div>
             </div>
@@ -538,30 +617,30 @@ def edit_user_permissions(user_id):
             <br>
 
             <div class='card' style='padding:16px;'>
-                <h3 style='margin-top:0;'>Permissions</h3>
+                <h3 style='margin-top:0;'>{permissions_title}</h3>
 
                 <div class='grid'>
-                    <label><input type='checkbox' name='can_manage_users' {checked(user['can_manage_users'])}> Manage Users</label>
-                    <label><input type='checkbox' name='can_view_payroll' {checked(user['can_view_payroll'])}> View Payroll</label>
-                    <label><input type='checkbox' name='can_manage_payroll' {checked(user['can_manage_payroll'])}> Manage Payroll</label>
-                    <label><input type='checkbox' name='can_view_bookkeeping' {checked(user['can_view_bookkeeping'])}> View Bookkeeping</label>
-                    <label><input type='checkbox' name='can_manage_bookkeeping' {checked(user['can_manage_bookkeeping'])}> Manage Bookkeeping</label>
-                    <label><input type='checkbox' name='can_manage_jobs' {checked(user['can_manage_jobs'])}> Manage Jobs</label>
-                    <label><input type='checkbox' name='can_manage_customers' {checked(user['can_manage_customers'])}> Manage Customers</label>
-                    <label><input type='checkbox' name='can_manage_invoices' {checked(user['can_manage_invoices'])}> Manage Invoices</label>
-                    <label><input type='checkbox' name='can_manage_settings' {checked(user['can_manage_settings'])}> Manage Settings</label>
+                    <label><input type='checkbox' name='can_manage_users' {checked(user['can_manage_users'])}> {_t("Manage Users", "Administrar Usuarios")}</label>
+                    <label><input type='checkbox' name='can_view_payroll' {checked(user['can_view_payroll'])}> {_t("View Payroll", "Ver Nómina")}</label>
+                    <label><input type='checkbox' name='can_manage_payroll' {checked(user['can_manage_payroll'])}> {_t("Manage Payroll", "Administrar Nómina")}</label>
+                    <label><input type='checkbox' name='can_view_bookkeeping' {checked(user['can_view_bookkeeping'])}> {_t("View Bookkeeping", "Ver Contabilidad")}</label>
+                    <label><input type='checkbox' name='can_manage_bookkeeping' {checked(user['can_manage_bookkeeping'])}> {_t("Manage Bookkeeping", "Administrar Contabilidad")}</label>
+                    <label><input type='checkbox' name='can_manage_jobs' {checked(user['can_manage_jobs'])}> {_t("Manage Jobs", "Administrar Trabajos")}</label>
+                    <label><input type='checkbox' name='can_manage_customers' {checked(user['can_manage_customers'])}> {_t("Manage Customers", "Administrar Clientes")}</label>
+                    <label><input type='checkbox' name='can_manage_invoices' {checked(user['can_manage_invoices'])}> {_t("Manage Invoices", "Administrar Facturas")}</label>
+                    <label><input type='checkbox' name='can_manage_settings' {checked(user['can_manage_settings'])}> {_t("Manage Settings", "Administrar Configuración")}</label>
                 </div>
             </div>
 
             <br>
-            <button class='btn success' type='submit'>Save Permissions</button>
-            <a class='btn secondary' href='{url_for("users.users")}'>Cancel</a>
+            <button class='btn success' type='submit'>{save_btn}</button>
+            <a class='btn secondary' href='{url_for("users.users")}'>{cancel_btn}</a>
         </form>
     </div>
     """
 
     conn.close()
-    return render_page(content, f"Permissions - {user['name']}")
+    return render_page(content, f"{page_title} - {user['name']}")
 
 
 @users_bp.route("/users/<int:user_id>/toggle-active", methods=["POST"])
@@ -570,7 +649,10 @@ def edit_user_permissions(user_id):
 @require_permission("can_manage_users")
 def toggle_user_active(user_id):
     if user_id == session.get("user_id"):
-        flash("You cannot deactivate your own account.")
+        flash(_t(
+            "You cannot deactivate your own account.",
+            "No puedes desactivar tu propia cuenta.",
+        ))
         return redirect(url_for("users.users"))
 
     conn = get_db_connection()
@@ -587,7 +669,7 @@ def toggle_user_active(user_id):
 
     if not user:
         conn.close()
-        flash("User not found.")
+        flash(_t("User not found.", "Usuario no encontrado."))
         return redirect(url_for("users.users"))
 
     new_status = 0 if user["is_active"] else 1
@@ -604,7 +686,7 @@ def toggle_user_active(user_id):
     conn.commit()
     conn.close()
 
-    flash("User status updated.")
+    flash(_t("User status updated.", "Estado del usuario actualizado."))
     return redirect(url_for("users.users"))
 
 
@@ -614,7 +696,10 @@ def toggle_user_active(user_id):
 @require_permission("can_manage_users")
 def delete_user(user_id):
     if user_id == session["user_id"]:
-        flash("You cannot delete your own account.")
+        flash(_t(
+            "You cannot delete your own account.",
+            "No puedes eliminar tu propia cuenta.",
+        ))
         return redirect(url_for("users.users"))
 
     conn = get_db_connection()
@@ -631,7 +716,7 @@ def delete_user(user_id):
 
     if not user:
         conn.close()
-        flash("User not found.")
+        flash(_t("User not found.", "Usuario no encontrado."))
         return redirect(url_for("users.users"))
 
     conn.execute(
@@ -645,5 +730,5 @@ def delete_user(user_id):
     conn.commit()
     conn.close()
 
-    flash("User deleted.")
+    flash(_t("User deleted.", "Usuario eliminado."))
     return redirect(url_for("users.users"))

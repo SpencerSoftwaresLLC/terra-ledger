@@ -36,6 +36,18 @@ settings_bp = Blueprint("settings", __name__)
 ALLOWED_LOGO_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp", "svg"}
 
 
+def _lang():
+    return str(session.get("language") or "en").strip().lower()
+
+
+def _is_es():
+    return _lang() == "es"
+
+
+def _t(en, es):
+    return es if _is_es() else en
+
+
 def allowed_logo_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_LOGO_EXTENSIONS
 
@@ -216,6 +228,7 @@ def _company_display_name_for_reports(cid):
     values = get_company_profile_values(profile)
     return values.get("legal_name") or values.get("display_name") or session.get("company_name", "TerraLedger")
 
+
 def _build_ssa_export(company_id, year, employees):
     export = {
         "company_id": company_id,
@@ -233,6 +246,7 @@ def _build_ssa_export(company_id, year, employees):
         })
 
     return json.dumps(export, indent=2)
+
 
 def _build_w3_pdf(company_profile, tax_year, totals):
     import io
@@ -354,7 +368,6 @@ def _build_w3_pdf(company_profile, tax_year, totals):
         pdf = canvas.Canvas(buffer, pagesize=landscape(letter))
         width, height = landscape(letter)
 
-        # Slight scale-down so the form fits better in browser PDF viewers
         scale = 0.88
         pdf.translate((width * (1 - scale)) / 2, (height * (1 - scale)) / 2)
         pdf.scale(scale, scale)
@@ -1011,7 +1024,6 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
 
         form_w = 272
 
-        # Header only, no outer frame
         draw_text(left + 2, top - 8, copy_title, size=5.0, bold=True, max_width=190)
         draw_text(left + form_w - 36, top - 8, str(tax_year), size=7.8, bold=True, align="right")
         draw_text(left + form_w - 2, top - 8, "OMB No. 1545-0008", size=5.0, align="right")
@@ -1020,40 +1032,33 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
         row_h = 20
         small_h = 18
 
-        # Top row
         box(left,       top - 12, 82, row_h, "a Employee's social sec. no.", employee_ssn, 6.2, False, "center")
         box(left + 82,  top - 12, 64, row_h, "1 Wages, tips, other compensation", f"{wages:,.2f}", 6.2, False, "right")
         box(left + 146, top - 12, 64, row_h, "2 Federal income tax withheld", f"{federal:,.2f}", 6.2, False, "right")
         box(left + 210, top - 12, 62, row_h, "", "", 6.2)
 
-        # Second row
         box(left,       top - 32, 82, row_h, "b Employer's ID number (EIN)", employer_ein, 6.2)
         box(left + 82,  top - 32, 64, row_h, "3 Social Security Wages", f"{social_security_wages:,.2f}", 6.2, False, "right")
         box(left + 146, top - 32, 64, row_h, "4 Social security tax withheld", f"{social_security_tax:,.2f}", 6.2, False, "right")
         box(left + 210, top - 32, 62, row_h, "", "", 6.2)
 
-        # Third row
         box(left,       top - 52, 82, row_h, "(EIN)", "", 6.2)
         box(left + 82,  top - 52, 64, row_h, "5 Medicare wages and tips", f"{medicare_wages:,.2f}", 6.2, False, "right")
         box(left + 146, top - 52, 64, row_h, "6 Medicare tax withheld", f"{medicare_tax:,.2f}", 6.2, False, "right")
         box(left + 210, top - 52, 62, row_h, "", "", 6.2)
 
-        # Employer block
         box(left, top - 72, 272, 42, "c Employer's name, address, and ZIP code", "", 6.2)
         draw_text(left + 5, top - 86, employer_name, size=6.1, max_width=262)
         draw_text(left + 5, top - 98, employer_addr_line, size=6.1, max_width=262)
         draw_text(left + 5, top - 110, employer_city_state_zip, size=6.1, max_width=262)
 
-        # Control
         box(left, top - 114, 272, 17, "d Control number", clean(summary.get("control_number")), 6.0)
 
-        # Employee block
         box(left, top - 131, 272, 42, "e Employee's name, address, and ZIP code", "", 6.2)
         draw_text(left + 5, top - 145, employee_name_line, size=6.1, max_width=262)
         draw_text(left + 5, top - 157, employee_addr_line, size=6.1, max_width=262)
         draw_text(left + 5, top - 169, employee_city_state_zip, size=6.1, max_width=262)
 
-        # Middle rows
         box(left,       top - 173, 91, small_h, "7 Social security tips", "", 5.9)
         box(left + 91,  top - 173, 91, small_h, "8 Allocated tips", "", 5.9)
         box(left + 182, top - 173, 90, small_h, "9", "", 5.9)
@@ -1074,7 +1079,6 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
         box(left + 91,  top - 245, 91, small_h, "", "", 5.9)
         box(left + 182, top - 245, 90, small_h, "12d Code", box12_items[3] if len(box12_items) > 3 else "", 5.7)
 
-        # Footer row
         footer_top = top - 263
         box(left,       footer_top, 26, 16, "15 State", employer_state, 5.7, False, "center", 4.0)
         box(left + 26,  footer_top, 70, 16, "Employer's state ID number", employer_state_id, 5.3, False, "left", 4.0)
@@ -1083,7 +1087,6 @@ def _build_w2_summary_pdf(company_profile, tax_year, employee_record, summary):
         box(left + 198, footer_top, 38, 16, "18 Local wages, tips, etc.", f"{local_wages:,.2f}" if local_wages else "", 5.2, False, "right", 4.0)
         box(left + 236, footer_top, 36, 16, "19 Local income tax", f"{local_tax:,.2f}" if local_tax else "", 5.2, False, "right", 4.0)
 
-        # Bottom line
         box(left, top - 279, 272, 13, "20 Locality name", employee_locality, 5.9, False, "left", 4.0)
 
         draw_text(left + 2, top - 289, "Form W-2 Wage and Tax Statement", size=4.7)
@@ -1134,12 +1137,12 @@ def _build_w2_all_summary_pdf(company_name, tax_year, employee_rows):
 
     def start_page(page_no):
         pdf.setFont("Helvetica-Bold", 15)
-        pdf.drawString(36, height - 36, "W-2 Employee Totals Report")
+        pdf.drawString(36, height - 36, _t("W-2 Employee Totals Report", "Reporte total de empleados W-2"))
 
         pdf.setFont("Helvetica", 9)
-        pdf.drawString(36, height - 52, f"Company: {text(company_name)}")
-        pdf.drawString(36, height - 64, f"Tax Year: {text(tax_year)}")
-        pdf.drawRightString(width - 36, height - 52, f"Page {page_no}")
+        pdf.drawString(36, height - 52, f"{_t('Company', 'Empresa')}: {text(company_name)}")
+        pdf.drawString(36, height - 64, f"{_t('Tax Year', 'Año fiscal')}: {text(tax_year)}")
+        pdf.drawRightString(width - 36, height - 52, f"{_t('Page', 'Página')} {page_no}")
 
         table_top = height - 84
         left = 36
@@ -1150,13 +1153,13 @@ def _build_w2_all_summary_pdf(company_name, tax_year, employee_rows):
 
         header_y = table_top - 14
         pdf.setFont("Helvetica-Bold", 8.2)
-        pdf.drawString(40, header_y, "Employee")
-        pdf.drawRightString(315, header_y, "Box 1 Wages")
-        pdf.drawRightString(385, header_y, "Box 2 Federal")
-        pdf.drawRightString(450, header_y, "Box 4 SS Tax")
-        pdf.drawRightString(515, header_y, "Box 6 Medicare")
-        pdf.drawRightString(575, header_y, "Box 17 State")
-        pdf.drawRightString(620, header_y, "Box 19 Local")
+        pdf.drawString(40, header_y, _t("Employee", "Empleado"))
+        pdf.drawRightString(315, header_y, _t("Box 1 Wages", "Casilla 1 Salarios"))
+        pdf.drawRightString(385, header_y, _t("Box 2 Federal", "Casilla 2 Federal"))
+        pdf.drawRightString(450, header_y, _t("Box 4 SS Tax", "Casilla 4 Imp. SS"))
+        pdf.drawRightString(515, header_y, _t("Box 6 Medicare", "Casilla 6 Medicare"))
+        pdf.drawRightString(575, header_y, _t("Box 17 State", "Casilla 17 Estatal"))
+        pdf.drawRightString(620, header_y, _t("Box 19 Local", "Casilla 19 Local"))
 
         pdf.line(left, header_y - 6, right, header_y - 6)
         return header_y - 18
@@ -1216,7 +1219,7 @@ def _build_w2_all_summary_pdf(company_name, tax_year, employee_rows):
     y -= 16
 
     pdf.setFont("Helvetica-Bold", 9)
-    pdf.drawString(40, y, "Totals")
+    pdf.drawString(40, y, _t("Totals", "Totales"))
     pdf.drawRightString(315, y, f"{total_wages:,.2f}")
     pdf.drawRightString(385, y, f"{total_federal:,.2f}")
     pdf.drawRightString(450, y, f"{total_ss:,.2f}")
@@ -1234,15 +1237,15 @@ def _build_w2_all_summary_pdf(company_name, tax_year, employee_rows):
 
 def _w2_company_readiness(values):
     checks = [
-        ("Legal Business Name", values.get("legal_name")),
+        (_t("Legal Business Name", "Nombre legal del negocio"), values.get("legal_name")),
         ("EIN", values.get("ein")),
-        ("Address Line 1", values.get("address_line_1")),
-        ("City", values.get("city")),
-        ("State", values.get("state")),
-        ("ZIP Code", values.get("zip_code")),
-        ("W-2 Contact Name", values.get("w2_contact_name")),
-        ("W-2 Contact Phone", values.get("w2_contact_phone")),
-        ("W-2 Contact Email", values.get("w2_contact_email")),
+        (_t("Address Line 1", "Dirección línea 1"), values.get("address_line_1")),
+        (_t("City", "Ciudad"), values.get("city")),
+        (_t("State", "Estado"), values.get("state")),
+        (_t("ZIP Code", "Código postal"), values.get("zip_code")),
+        (_t("W-2 Contact Name", "Nombre de contacto W-2"), values.get("w2_contact_name")),
+        (_t("W-2 Contact Phone", "Teléfono de contacto W-2"), values.get("w2_contact_phone")),
+        (_t("W-2 Contact Email", "Correo de contacto W-2"), values.get("w2_contact_email")),
     ]
 
     missing = [label for label, val in checks if not (str(val or "").strip())]
@@ -1402,9 +1405,6 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
     pdf.setFillColor(black)
     pdf.setLineWidth(1)
 
-    # =========================================================
-    # PAGE GEOMETRY
-    # =========================================================
     left_margin = 56
     bottom_margin = 78
 
@@ -1412,7 +1412,6 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
     form_y = bottom_margin
     form_h = 360
 
-    # Main form width excludes the right Copy B panel
     main_w = 700
     copy_w = 130
     gap_between_main_and_copy = 0
@@ -1427,22 +1426,16 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
     copy_h = 240
     copy_top = copy_y + copy_h
 
-    # Top title centered over the whole page like the example
     draw_text(page_w / 2, main_top + 82, "1099-NEC", size=28, bold=True, align="center")
 
-    # Corrected checkbox line
     cb_size = 14
     cb_x = main_x + 335
     cb_y = main_top + 30
     rect(cb_x, cb_y, cb_size, cb_size, fill_color=white, stroke=1, lw=1)
     draw_text(cb_x + 22, cb_y + 2, "CORRECTED (if checked)", size=16)
 
-    # =========================================================
-    # MAIN FORM OUTER BOX
-    # =========================================================
     rect(main_x, main_y, main_w, form_h, fill_color=None, stroke=1, lw=1.2)
 
-    # Top band dimensions
     top_h = 118
     top_bottom = main_top - top_h
 
@@ -1454,7 +1447,6 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
     gray_x = payer_x + payer_w
     year_x = gray_x + gray_w
 
-    # Top payer block
     rect(payer_x, top_bottom, payer_w, top_h, fill_color=light_gray, stroke=1)
     rect(payer_x, top_bottom, payer_w, top_h - 40, fill_color=white, stroke=0)
 
@@ -1496,10 +1488,8 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
             max_width=payer_w - 24
         )
 
-    # Middle gray block
     rect(gray_x, top_bottom, gray_w, top_h, fill_color=med_gray, stroke=1)
 
-    # Year / OMB block
     rect(year_x, top_bottom, year_w, top_h, fill_color=light_gray, stroke=1)
     hline(year_x, top_bottom + 46, year_x + year_w, lw=1)
     hline(year_x, top_bottom + 82, year_x + year_w, lw=1)
@@ -1510,15 +1500,9 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
     draw_text(year_x + 8, top_bottom + 14, "For calendar year", size=8.5)
     draw_text(year_x + (year_w / 2), top_bottom + 32, str(tax_year), size=28, bold=True, align="center")
 
-    # =========================================================
-    # RIGHT TITLE ABOVE COPY B PANEL
-    # =========================================================
     draw_text(copy_x + copy_w / 2, top_bottom + 56, "Nonemployee", size=17, bold=True, align="center")
     draw_text(copy_x + copy_w / 2, top_bottom + 26, "Compensation", size=17, bold=True, align="center")
 
-    # =========================================================
-    # BODY LAYOUT
-    # =========================================================
     tin_h = 38
     recip_name_h = 62
     street_h = 52
@@ -1526,7 +1510,6 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
     account_h = 34
     lower_h = form_h - top_h - tin_h - recip_name_h - street_h - city_h - account_h
 
-    # Split body into left info and right tax panel
     info_w = 420
     tax_w = main_w - info_w
     info_x = main_x
@@ -1534,7 +1517,6 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
 
     y = top_bottom
 
-    # TIN ROW
     y -= tin_h
     payer_tin_w = info_w / 2
     recip_tin_w = info_w / 2
@@ -1552,7 +1534,6 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
     draw_text(tax_x + 8, y + 7, "$", size=16, bold=True)
     draw_text(tax_x + tax_w - 8, y + 8, money(nonemployee_comp), size=16, bold=True, align="right")
 
-    # Copy B starts at TIN row like the example
     rect(copy_x, y, copy_w, copy_h, fill_color=None, stroke=1, lw=1.2)
     draw_text(copy_x + copy_w - 8, y + copy_h - 18, "Copy B", size=14, bold=True, align="right")
     draw_text(copy_x + copy_w / 2, y + copy_h - 48, "For Recipient", size=14, bold=True, align="center")
@@ -1570,13 +1551,11 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
     for i, line in enumerate(copy_lines):
         draw_text(copy_x + copy_w / 2, y + copy_h - 72 - (i * 15), line, size=8.5, align="center")
 
-    # RECIPIENT NAME
     y -= recip_name_h
     rect(info_x, y, info_w, recip_name_h, fill_color=light_gray, stroke=1)
     draw_text(info_x + 8, y + recip_name_h - 18, "RECIPIENT'S name", size=8.5)
     draw_multiline(info_x + 12, y + 34, recipient_name, size=11, bold=False, max_width=info_w - 24, line_gap=13, max_lines=2)
 
-    # BOX 2
     box2_h = 42
     rect(tax_x, y + (recip_name_h - box2_h), tax_w, box2_h, fill_color=light_gray, stroke=1)
     draw_text(tax_x + 8, y + (recip_name_h - box2_h) + 25,
@@ -1588,7 +1567,6 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
     if direct_sales_checked:
         draw_text(tax_x + tax_w - 11, y + (recip_name_h - box2_h) + 10, "X", size=10, bold=True, align="center")
 
-    # STREET ADDRESS
     y -= street_h
     rect(info_x, y, info_w, street_h, fill_color=light_gray, stroke=1)
     draw_text(info_x + 8, y + street_h - 18, "Street address (including apt. no.)", size=8.5)
@@ -1602,12 +1580,10 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
         max_lines=2
     )
 
-    # BOX 3
     box3_h = street_h
     rect(tax_x, y, tax_w, box3_h, fill_color=dark_gray, stroke=1)
     draw_text(tax_x + 8, y + box3_h - 18, "3", size=12, bold=True)
 
-    # CITY / STATE / ZIP
     y -= city_h
     rect(info_x, y, info_w, city_h, fill_color=light_gray, stroke=1)
     draw_text(
@@ -1629,20 +1605,17 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
         max_lines=2
     )
 
-    # BOX 4
     box4_h = 44
     rect(tax_x, y, tax_w, box4_h, fill_color=white, stroke=1, lw=2)
     draw_text(tax_x + 8, y + 27, "4 Federal income tax withheld", size=10, bold=True)
     draw_text(tax_x + 8, y + 7, "$", size=16, bold=True)
     draw_text(tax_x + tax_w - 8, y + 8, money(federal_withholding), size=16, align="right")
 
-    # ACCOUNT NUMBER
     y -= account_h
     rect(info_x, y, info_w, account_h, fill_color=light_gray, stroke=1)
     draw_text(info_x + 8, y + 20, "Account number (see instructions)", size=8.5)
     draw_text(info_x + 12, y + 6, account_number, size=10, max_width=info_w - 24)
 
-    # LOWER 5 / 6 / 7 BOXES
     row_h = lower_h / 2.0
     col5_w = 95
     col6_w = 120
@@ -1679,9 +1652,6 @@ def _build_1099_pdf(company_profile, tax_year, contractor, summary):
     draw_state_row(y, state_tax_withheld, state_code, payer_state_no, state_income, labels=True)
     draw_state_row(y - row_h, state2_tax, state2_code, state2_payer_no, state2_income, labels=False)
 
-    # =========================================================
-    # FOOTER
-    # =========================================================
     draw_text(main_x, main_y - 14, "Form", size=9)
     draw_text(main_x + 28, main_y - 15, "1099-NEC", size=15, bold=True)
     draw_text(main_x + 150, main_y - 14, "(keep for your records)", size=9)
@@ -1731,13 +1701,13 @@ def settings_1099():
         """, (cid, cid, c["id"])).fetchone()
 
         total_amt = float(total["total"] or 0)
-        contractor_name = escape(c["name"] or "Unnamed Contractor")
+        contractor_name = escape(c["name"] or _t("Unnamed Contractor", "Contratista sin nombre"))
         contractor_email = escape(c["email"] or "-")
 
         print_btn = f"""
         <a class='btn small' target='_blank'
            href='{url_for("settings.print_1099", contractor_id=c["id"], year=year)}'>
-           Print 1099
+           {_t("Print 1099", "Imprimir 1099")}
         </a>
         """
 
@@ -1761,7 +1731,7 @@ def settings_1099():
 
             <div class='mobile-list-grid'>
                 <div>
-                    <span>Total Paid</span>
+                    <span>{_t("Total Paid", "Total pagado")}</span>
                     <strong>${total_amt:,.2f}</strong>
                 </div>
             </div>
@@ -1877,11 +1847,11 @@ def settings_1099():
     <div class='card'>
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
             <div>
-                <h1>1099 Center</h1>
-                <p class='muted' style='margin:0;'>Generate 1099 forms for contractors.</p>
+                <h1>{_t("1099 Center", "Centro 1099")}</h1>
+                <p class='muted' style='margin:0;'>{_t("Generate 1099 forms for contractors.", "Genera formularios 1099 para contratistas.")}</p>
             </div>
             <div class='row-actions'>
-                <a class='btn secondary' href='{url_for("settings.settings")}'>Back to Settings</a>
+                <a class='btn secondary' href='{url_for("settings.settings")}'>{_t("Back to Settings", "Volver a Configuración")}</a>
             </div>
         </div>
     </div>
@@ -1891,27 +1861,27 @@ def settings_1099():
             <table style='width:100%'>
                 <thead>
                     <tr>
-                        <th>Contractor</th>
-                        <th>Email</th>
-                        <th>Total Paid</th>
-                        <th>Form</th>
+                        <th>{_t("Contractor", "Contratista")}</th>
+                        <th>{_t("Email", "Correo")}</th>
+                        <th>{_t("Total Paid", "Total pagado")}</th>
+                        <th>{_t("Form", "Formulario")}</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {rows_html or "<tr><td colspan='4' class='muted'>No contractors found</td></tr>"}
+                    {rows_html or f"<tr><td colspan='4' class='muted'>{_t('No contractors found', 'No se encontraron contratistas')}</td></tr>"}
                 </tbody>
             </table>
         </div>
 
         <div class='mobile-only'>
             <div class='mobile-list'>
-                {mobile_cards or "<div class='mobile-list-card muted'>No contractors found</div>"}
+                {mobile_cards or f"<div class='mobile-list-card muted'>{_t('No contractors found', 'No se encontraron contratistas')}</div>"}
             </div>
         </div>
     </div>
     """
 
-    return render_page(content, "1099 Center")
+    return render_page(content, _t("1099 Center", "Centro 1099"))
 
 
 # ===============================
@@ -1936,7 +1906,7 @@ def print_1099(contractor_id):
 
     if not contractor:
         conn.close()
-        flash("Contractor not found.")
+        flash(_t("Contractor not found.", "Contratista no encontrado."))
         return redirect(url_for("settings.settings_1099"))
 
     total = conn.execute("""
@@ -2010,8 +1980,8 @@ def settings():
     <div class="settings-page">
         <div class="settings-header card">
             <div>
-                <h1 style="margin-bottom:6px;">Settings</h1>
-                <div class="muted">Manage company information, branding, email delivery, taxes, billing, and users.</div>
+                <h1 style="margin-bottom:6px;">{_t("Settings", "Configuración")}</h1>
+                <div class="muted">{_t("Manage company information, branding, email delivery, taxes, billing, and users.", "Administra la información de la empresa, marca, envío de correos, impuestos, facturación y usuarios.")}</div>
             </div>
         </div>
 
@@ -2019,106 +1989,106 @@ def settings():
 
             <div class="card settings-card">
                 <div class="settings-card-head">
-                    <h3>Company Info</h3>
-                    <span class="settings-badge">General</span>
+                    <h3>{_t("Company Info", "Información de la empresa")}</h3>
+                    <span class="settings-badge">{_t("General", "General")}</span>
                 </div>
-                <p class="muted">Update your company name, contact info, address, and tax ID.</p>
+                <p class="muted">{_t("Update your company name, contact info, address, and tax ID.", "Actualiza el nombre de tu empresa, información de contacto, dirección e identificación fiscal.")}</p>
                 <div class="settings-actions">
-                    <a class="btn" href="{url_for('settings.settings_company')}">Open Company Info</a>
+                    <a class="btn" href="{url_for('settings.settings_company')}">{_t("Open Company Info", "Abrir información de la empresa")}</a>
                 </div>
             </div>
 
             <div class="card settings-card">
                 <div class="settings-card-head">
-                    <h3>Branding</h3>
-                    <span class="settings-badge">Appearance</span>
+                    <h3>{_t("Branding", "Marca")}</h3>
+                    <span class="settings-badge">{_t("Appearance", "Apariencia")}</span>
                 </div>
-                <p class="muted">Manage your logo, invoice names, quote names, and document footer notes.</p>
+                <p class="muted">{_t("Manage your logo, invoice names, quote names, and document footer notes.", "Administra tu logotipo, nombres de facturas, nombres de cotizaciones y notas al pie de documentos.")}</p>
                 <div class="settings-actions">
-                    <a class="btn" href="{url_for('settings.settings_branding')}">Open Branding</a>
+                    <a class="btn" href="{url_for('settings.settings_branding')}">{_t("Open Branding", "Abrir marca")}</a>
                 </div>
             </div>
 
             <div class="card settings-card">
                 <div class="settings-card-head">
-                    <h3>Email Settings</h3>
-                    <span class="settings-badge">Delivery</span>
+                    <h3>{_t("Email Settings", "Configuración de correo")}</h3>
+                    <span class="settings-badge">{_t("Delivery", "Entrega")}</span>
                 </div>
-                <p class="muted">Set sender identity, reply-to behavior, and send a test email.</p>
+                <p class="muted">{_t("Set sender identity, reply-to behavior, and send a test email.", "Configura la identidad del remitente, el comportamiento de respuesta y envía un correo de prueba.")}</p>
                 <div class="settings-actions">
-                    <a class="btn" href="{url_for('settings.settings_email')}">Open Email Settings</a>
+                    <a class="btn" href="{url_for('settings.settings_email')}">{_t("Open Email Settings", "Abrir configuración de correo")}</a>
                 </div>
             </div>
 
             <div class="card settings-card">
                 <div class="settings-card-head">
-                    <h3>Tax Defaults</h3>
-                    <span class="settings-badge">Financial</span>
+                    <h3>{_t("Tax Defaults", "Impuestos predeterminados")}</h3>
+                    <span class="settings-badge">{_t("Financial", "Financiero")}</span>
                 </div>
-                <p class="muted">Set default payroll tax rates for federal, state, local, and company-side taxes.</p>
+                <p class="muted">{_t("Set default payroll tax rates for federal, state, local, and company-side taxes.", "Configura las tasas predeterminadas de impuestos de nómina para impuestos federales, estatales, locales y del lado de la empresa.")}</p>
                 <div class="settings-actions">
-                    <a class="btn" href="{url_for('settings.settings_taxes')}">Configure Taxes</a>
+                    <a class="btn" href="{url_for('settings.settings_taxes')}">{_t("Configure Taxes", "Configurar impuestos")}</a>
                 </div>
             </div>
 
             <div class="card settings-card">
                 <div class="settings-card-head">
-                    <h3>Users & Permissions</h3>
-                    <span class="settings-badge">Access</span>
+                    <h3>{_t("Users & Permissions", "Usuarios y permisos")}</h3>
+                    <span class="settings-badge">{_t("Access", "Acceso")}</span>
                 </div>
-                <p class="muted">Manage employees, logins, roles, and access levels for your company.</p>
+                <p class="muted">{_t("Manage employees, logins, roles, and access levels for your company.", "Administra empleados, inicios de sesión, roles y niveles de acceso para tu empresa.")}</p>
                 <div class="settings-actions">
-                    <a class="btn" href="{url_for('users.users')}">Open Users</a>
+                    <a class="btn" href="{url_for('users.users')}">{_t("Open Users", "Abrir usuarios")}</a>
                 </div>
             </div>
 
             <div class="card settings-card">
                 <div class="settings-card-head">
-                    <h3>Billing</h3>
-                    <span class="settings-badge">Subscription</span>
+                    <h3>{_t("Billing", "Facturación")}</h3>
+                    <span class="settings-badge">{_t("Subscription", "Suscripción")}</span>
                 </div>
-                <p class="muted">Review your subscription, payment methods, and billing details.</p>
+                <p class="muted">{_t("Review your subscription, payment methods, and billing details.", "Revisa tu suscripción, métodos de pago y detalles de facturación.")}</p>
                 <div class="settings-actions">
-                    <a class="btn" href="{url_for('billing.billing_page')}">View Billing</a>
+                    <a class="btn" href="{url_for('billing.billing_page')}">{_t("View Billing", "Ver facturación")}</a>
                 </div>
             </div>
 
             <div class="card settings-card">
                 <div class="settings-card-head">
-                    <h3>Year-End / W-2 / 1099</h3>
-                    <span class="settings-badge">Payroll</span>
+                    <h3>{_t("Year-End / W-2 / 1099", "Cierre de año / W-2 / 1099")}</h3>
+                    <span class="settings-badge">{_t("Payroll", "Nómina")}</span>
                 </div>
-                <p class="muted">Review yearly payroll totals, manage W-2 company filing settings, generate W-3s, and access 1099 tools.</p>
+                <p class="muted">{_t("Review yearly payroll totals, manage W-2 company filing settings, generate W-3s, and access 1099 tools.", "Revisa los totales anuales de nómina, administra la configuración de presentación W-2 de la empresa, genera formularios W-3 y accede a las herramientas 1099.")}</p>
                 <div class="settings-actions">
-                    <a class="btn success" href="{url_for('settings.settings_w2')}">Open Year-End Center</a>
+                    <a class="btn success" href="{url_for('settings.settings_w2')}">{_t("Open Year-End Center", "Abrir centro de cierre de año")}</a>
                 </div>
             </div>
 
             <div class="card settings-card">
                 <div class="settings-card-head">
-                    <h3>Backups</h3>
-                    <span class="settings-badge">Safety</span>
+                    <h3>{_t("Backups", "Respaldos")}</h3>
+                    <span class="settings-badge">{_t("Safety", "Seguridad")}</span>
                 </div>
-                <p class="muted">Download a full backup of your company data anytime.</p>
+                <p class="muted">{_t("Download a full backup of your company data anytime.", "Descarga un respaldo completo de los datos de tu empresa en cualquier momento.")}</p>
                 <div class="settings-actions">
-                    <a class="btn warning" href="/settings/backup/download">Download Backup</a>
+                    <a class="btn warning" href="/settings/backup/download">{_t("Download Backup", "Descargar respaldo")}</a>
                 </div>
             </div>
 
             <div class="card settings-card">
                 <div class="settings-card-head">
-                    <h3>Restore Backup</h3>
-                    <span class="settings-badge">Recovery</span>
+                    <h3>{_t("Restore Backup", "Restaurar respaldo")}</h3>
+                    <span class="settings-badge">{_t("Recovery", "Recuperación")}</span>
                 </div>
-                <p class="muted">Upload a backup file and restore your company data.</p>
+                <p class="muted">{_t("Upload a backup file and restore your company data.", "Sube un archivo de respaldo y restaura los datos de tu empresa.")}</p>
                 <div class="settings-actions">
-                    <a class="btn warning" href="{url_for('settings.restore_backup')}">Open Restore</a>
+                    <a class="btn warning" href="{url_for('settings.restore_backup')}">{_t("Open Restore", "Abrir restauración")}</a>
                 </div>
             </div>
         </div>
     </div>
     """
-    return render_page(settings_html, "Settings")
+    return render_page(settings_html, _t("Settings", "Configuración"))
 
 
 @settings_bp.route("/settings/company", methods=["GET", "POST"])
@@ -2143,7 +2113,7 @@ def settings_company():
 
     company_id = session.get("company_id")
     if not company_id:
-        flash("No company is associated with this account.")
+        flash(_t("No company is associated with this account.", "No hay una empresa asociada con esta cuenta."))
         return redirect(url_for("dashboard.dashboard"))
 
     conn = get_db_connection()
@@ -2264,7 +2234,7 @@ def settings_company():
         conn.close()
 
         session["company_name"] = name or "TerraLedger"
-        flash("Company profile updated successfully.")
+        flash(_t("Company profile updated successfully.", "Perfil de la empresa actualizado correctamente."))
         return redirect(url_for("settings.settings_company"))
 
     company = conn.execute(
@@ -2294,11 +2264,11 @@ def settings_company():
     <div class='card'>
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
             <div>
-                <h1 style='margin-bottom:6px;'>Company Info</h1>
-                <p class='muted' style='margin:0;'>Manage your main business information used across the system.</p>
+                <h1 style='margin-bottom:6px;'>{{ _t("Company Info", "Información de la empresa") }}</h1>
+                <p class='muted' style='margin:0;'>{{ _t("Manage your main business information used across the system.", "Administra la información principal de tu negocio utilizada en todo el sistema.") }}</p>
             </div>
             <div class='row-actions'>
-                <a class='btn secondary' href='{{ url_for("settings.settings") }}'>Back to Settings</a>
+                <a class='btn secondary' href='{{ url_for("settings.settings") }}'>{{ _t("Back to Settings", "Volver a Configuración") }}</a>
             </div>
         </div>
     </div>
@@ -2308,52 +2278,52 @@ def settings_company():
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class='grid'>
                 <div>
-                    <label>Company Name</label>
+                    <label>{{ _t("Company Name", "Nombre de la empresa") }}</label>
                     <input name='name' value='{{ clean_text_input(company["name"]) if company else "" }}'>
                 </div>
                 <div>
-                    <label>Phone</label>
+                    <label>{{ _t("Phone", "Teléfono") }}</label>
                     <input name='phone' value='{{ clean_text_input(company["phone"]) if company else "" }}'>
                 </div>
                 <div>
-                    <label>Email</label>
+                    <label>{{ _t("Email", "Correo") }}</label>
                     <input name='email' value='{{ clean_text_input(company["email"]) if company else "" }}'>
                 </div>
                 <div>
-                    <label>Website</label>
+                    <label>{{ _t("Website", "Sitio web") }}</label>
                     <input name='website' value='{{ clean_text_input(company["website"]) if company else "" }}'>
                 </div>
                 <div>
-                    <label>Tax ID</label>
+                    <label>{{ _t("Tax ID", "ID fiscal") }}</label>
                     <input name='tax_id' value='{{ clean_text_input(company["tax_id"]) if company else "" }}'>
                 </div>
                 <div>
-                    <label>Address Line 1</label>
+                    <label>{{ _t("Address Line 1", "Dirección línea 1") }}</label>
                     <input name='address_line_1' value='{{ clean_text_input(company["address_line_1"]) if company else "" }}'>
                 </div>
                 <div>
-                    <label>Address Line 2</label>
+                    <label>{{ _t("Address Line 2", "Dirección línea 2") }}</label>
                     <input name='address_line_2' value='{{ clean_text_input(company["address_line_2"]) if company else "" }}'>
                 </div>
                 <div>
-                    <label>City</label>
+                    <label>{{ _t("City", "Ciudad") }}</label>
                     <input name='city' value='{{ clean_text_input(company["city"]) if company else "" }}'>
                 </div>
                 <div>
-                    <label>State</label>
+                    <label>{{ _t("State", "Estado") }}</label>
                     <input name='state' value='{{ clean_text_input(company["state"]) if company else "" }}' maxlength='2'>
                 </div>
                 <div>
-                    <label>County</label>
+                    <label>{{ _t("County", "Condado") }}</label>
                     <input name='county' value='{{ clean_text_input(company_county) }}' placeholder='Tippecanoe'>
                 </div>
                 <div>
-                    <label>Zip Code</label>
+                    <label>{{ _t("Zip Code", "Código postal") }}</label>
                     <input name='zip_code' value='{{ clean_text_input(company["zip_code"]) if company else "" }}'>
                 </div>
             </div>
             <div class='row-actions' style='margin-top:20px;'>
-                <button class='btn success' type='submit'>Save Company Info</button>
+                <button class='btn success' type='submit'>{{ _t("Save Company Info", "Guardar información de la empresa") }}</button>
             </div>
         </form>
     </div>
@@ -2365,8 +2335,9 @@ def settings_company():
             company=company,
             company_county=company_county,
             clean_text_input=clean_text_input,
+            _t=_t,
         ),
-        "Company Info",
+        _t("Company Info", "Información de la empresa"),
     )
 
 
@@ -2447,7 +2418,7 @@ def settings_taxes():
             )
 
         conn.commit()
-        flash("Tax settings saved successfully.")
+        flash(_t("Tax settings saved successfully.", "La configuración de impuestos se guardó correctamente."))
         conn.close()
         return redirect(url_for("settings.settings_taxes"))
 
@@ -2462,51 +2433,51 @@ def settings_taxes():
     <div class='card'>
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
             <div>
-                <h1 style='margin-bottom:6px;'>Tax Defaults</h1>
-                <p class='muted' style='margin:0;'>Set default payroll tax rates for your company.</p>
+                <h1 style='margin-bottom:6px;'>{_t("Tax Defaults", "Impuestos predeterminados")}</h1>
+                <p class='muted' style='margin:0;'>{_t("Set default payroll tax rates for your company.", "Configura las tasas predeterminadas de impuestos de nómina para tu empresa.")}</p>
             </div>
             <div class='row-actions'>
-                <a href='{url_for("settings.settings")}' class='btn secondary'>Back to Settings</a>
+                <a href='{url_for("settings.settings")}' class='btn secondary'>{_t("Back to Settings", "Volver a Configuración")}</a>
             </div>
         </div>
     </div>
 
     <div class='card'>
-        <h2>Current Tax Defaults</h2>
+        <h2>{_t("Current Tax Defaults", "Impuestos predeterminados actuales")}</h2>
         <div style='display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:14px; align-items:stretch; margin-top:12px;'>
 
             <div style='border:1px solid #e5e7eb; border-radius:12px; padding:14px; background:#f8fafc;'>
-                <div style='font-size:.9rem; color:#666; margin-bottom:6px;'>Federal</div>
+                <div style='font-size:.9rem; color:#666; margin-bottom:6px;'>{_t("Federal", "Federal")}</div>
                 <div style='font-size:1.15rem; font-weight:700;'>{float(settings['federal_withholding_rate']) if settings and settings['federal_withholding_rate'] is not None else 0:.2f}%</div>
             </div>
 
             <div style='border:1px solid #e5e7eb; border-radius:12px; padding:14px; background:#f8fafc;'>
-                <div style='font-size:.9rem; color:#666; margin-bottom:6px;'>State</div>
+                <div style='font-size:.9rem; color:#666; margin-bottom:6px;'>{_t("State", "Estatal")}</div>
                 <div style='font-size:1.15rem; font-weight:700;'>{float(settings['state_withholding_rate']) if settings and settings['state_withholding_rate'] is not None else 0:.2f}%</div>
             </div>
 
             <div style='border:1px solid #e5e7eb; border-radius:12px; padding:14px; background:#f8fafc;'>
-                <div style='font-size:.9rem; color:#666; margin-bottom:6px;'>Social Security</div>
+                <div style='font-size:.9rem; color:#666; margin-bottom:6px;'>{_t("Social Security", "Seguro Social")}</div>
                 <div style='font-size:1.15rem; font-weight:700;'>{float(settings['social_security_rate']) if settings and float(settings['social_security_rate'] or 0) > 0 else 6.20:.2f}%</div>
             </div>
 
             <div style='border:1px solid #e5e7eb; border-radius:12px; padding:14px; background:#f8fafc;'>
-                <div style='font-size:.9rem; color:#666; margin-bottom:6px;'>Medicare</div>
+                <div style='font-size:.9rem; color:#666; margin-bottom:6px;'>{_t("Medicare", "Medicare")}</div>
                 <div style='font-size:1.15rem; font-weight:700;'>{float(settings['medicare_rate']) if settings and float(settings['medicare_rate'] or 0) > 0 else 1.45:.2f}%</div>
             </div>
 
             <div style='border:1px solid #e5e7eb; border-radius:12px; padding:14px; background:#f8fafc;'>
-                <div style='font-size:.9rem; color:#666; margin-bottom:6px;'>Local Tax</div>
+                <div style='font-size:.9rem; color:#666; margin-bottom:6px;'>{_t("Local Tax", "Impuesto local")}</div>
                 <div style='font-size:1.15rem; font-weight:700;'>{float(settings['local_tax_rate']) if settings and settings['local_tax_rate'] is not None else 0:.2f}%</div>
             </div>
 
             <div style='border:1px solid #e5e7eb; border-radius:12px; padding:14px; background:#f8fafc;'>
-                <div style='font-size:.9rem; color:#666; margin-bottom:6px;'>Unemployment</div>
+                <div style='font-size:.9rem; color:#666; margin-bottom:6px;'>{_t("Unemployment", "Desempleo")}</div>
                 <div style='font-size:1.15rem; font-weight:700;'>{float(settings['unemployment_rate']) if settings and settings['unemployment_rate'] is not None else 0:.2f}%</div>
             </div>
 
             <div style='border:1px solid #e5e7eb; border-radius:12px; padding:14px; background:#f8fafc;'>
-                <div style='font-size:.9rem; color:#666; margin-bottom:6px;'>Workers Comp</div>
+                <div style='font-size:.9rem; color:#666; margin-bottom:6px;'>{_t("Workers Comp", "Compensación laboral")}</div>
                 <div style='font-size:1.15rem; font-weight:700;'>{float(settings['workers_comp_rate']) if settings and settings['workers_comp_rate'] is not None else 0:.2f}%</div>
             </div>
 
@@ -2514,53 +2485,53 @@ def settings_taxes():
     </div>
 
     <div class='card'>
-        <h2>Edit Tax Defaults</h2>
+        <h2>{_t("Edit Tax Defaults", "Editar impuestos predeterminados")}</h2>
         <form method='post'>
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div style='display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px; align-items:end;'>
 
                 <div>
-                    <label>Federal Withholding %</label>
+                    <label>{_t("Federal Withholding %", "% de retención federal")}</label>
                     <input type="number" step="0.01" min="0"
                         name="federal_withholding_rate"
                         value="{{ settings['federal_withholding_rate'] if settings and settings['federal_withholding_rate'] is not none else '' }}"
-                        placeholder="Auto">
+                        placeholder="{_t("Auto", "Automático")}">
                 </div>
 
                 <div>
-                    <label>State Withholding %</label>
+                    <label>{_t("State Withholding %", "% de retención estatal")}</label>
                     <input type="number" step="0.01" min="0"
                         name="state_withholding_rate"
                         value="{{ settings['state_withholding_rate'] if settings and settings['state_withholding_rate'] is not none else '' }}"
-                        placeholder="Auto">
+                        placeholder="{_t("Auto", "Automático")}">
                 </div>
 
                 <div>
-                    <label>Social Security %</label>
+                    <label>{_t("Social Security %", "% de Seguro Social")}</label>
                     <input type='number' step='0.01' min='0' name='social_security_rate'
                            value='{float(settings["social_security_rate"]) if settings and settings["social_security_rate"] is not None else 6.20:.2f}'>
                 </div>
 
                 <div>
-                    <label>Medicare %</label>
+                    <label>{_t("Medicare %", "% de Medicare")}</label>
                     <input type='number' step='0.01' min='0' name='medicare_rate'
                            value='{float(settings["medicare_rate"]) if settings and settings["medicare_rate"] is not None else 1.45:.2f}'>
                 </div>
 
                 <div>
-                    <label>Local Tax %</label>
+                    <label>{_t("Local Tax %", "% de impuesto local")}</label>
                     <input type='number' step='0.01' min='0' name='local_tax_rate'
                            value='{float(settings["local_tax_rate"]) if settings and settings["local_tax_rate"] is not None else 0:.2f}'>
                 </div>
 
                 <div>
-                    <label>Unemployment %</label>
+                    <label>{_t("Unemployment %", "% de desempleo")}</label>
                     <input type='number' step='0.01' min='0' name='unemployment_rate'
                            value='{float(settings["unemployment_rate"]) if settings and settings["unemployment_rate"] is not None else 0:.2f}'>
                 </div>
 
                 <div>
-                    <label>Workers Comp %</label>
+                    <label>{_t("Workers Comp %", "% de compensación laboral")}</label>
                     <input type='number' step='0.01' min='0' name='workers_comp_rate'
                            value='{float(settings["workers_comp_rate"]) if settings and settings["workers_comp_rate"] is not None else 0:.2f}'>
                 </div>
@@ -2568,7 +2539,7 @@ def settings_taxes():
             </div>
 
             <div class='row-actions' style='margin-top:20px;'>
-                <button class='btn success' type='submit'>Save Tax Settings</button>
+                <button class='btn success' type='submit'>{_t("Save Tax Settings", "Guardar configuración de impuestos")}</button>
             </div>
         </form>
     </div>
@@ -2576,7 +2547,7 @@ def settings_taxes():
 
     return render_page(
         render_template_string(tax_default_html, settings=settings),
-        "Tax Defaults",
+        _t("Tax Defaults", "Impuestos predeterminados"),
     )
 
 
@@ -2613,7 +2584,7 @@ def settings_w2():
 
     for row in employee_summaries:
         employee_id = row.get("employee_id")
-        employee_name = escape(str(row.get("employee_name") or "Unnamed Employee"))
+        employee_name = escape(str(row.get("employee_name") or _t("Unnamed Employee", "Empleado sin nombre")))
         gross_pay = float(row.get("gross_pay", 0) or 0)
         federal_withholding = float(row.get("federal_withholding", 0) or 0)
         social_security_tax = float(row.get("social_security_tax", 0) or 0)
@@ -2623,15 +2594,15 @@ def settings_w2():
         has_payroll_data = bool(row.get("has_payroll_data"))
 
         print_button = (
-            f"<a class='btn secondary small' target='_blank' href='{url_for('settings.print_w2_summary', employee_id=employee_id, year=year)}'>Employee Copies</a>"
+            f"<a class='btn secondary small' target='_blank' href='{url_for('settings.print_w2_summary', employee_id=employee_id, year=year)}'>{_t('Employee Copies', 'Copias del empleado')}</a>"
             if has_payroll_data and employee_id
-            else "<span class='muted'>No data</span>"
+            else f"<span class='muted'>{_t('No data', 'Sin datos')}</span>"
         )
 
         mobile_button = (
-            f"<a class='btn secondary small' target='_blank' href='{url_for('settings.print_w2_summary', employee_id=employee_id, year=year)}'>Employee Copies</a>"
+            f"<a class='btn secondary small' target='_blank' href='{url_for('settings.print_w2_summary', employee_id=employee_id, year=year)}'>{_t('Employee Copies', 'Copias del empleado')}</a>"
             if has_payroll_data and employee_id
-            else "<span class='muted'>No data</span>"
+            else f"<span class='muted'>{_t('No data', 'Sin datos')}</span>"
         )
 
         rows += f"""
@@ -2654,12 +2625,12 @@ def settings_w2():
             </div>
 
             <div class='mobile-list-grid'>
-                <div><span>Wages</span><strong>${gross_pay:,.2f}</strong></div>
-                <div><span>Federal</span><strong>${federal_withholding:,.2f}</strong></div>
-                <div><span>SS</span><strong>${social_security_tax:,.2f}</strong></div>
-                <div><span>Medicare</span><strong>${medicare_tax:,.2f}</strong></div>
-                <div><span>State</span><strong>${state_withholding:,.2f}</strong></div>
-                <div><span>Local</span><strong>${local_tax:,.2f}</strong></div>
+                <div><span>{_t("Wages", "Salarios")}</span><strong>${gross_pay:,.2f}</strong></div>
+                <div><span>{_t("Federal", "Federal")}</span><strong>${federal_withholding:,.2f}</strong></div>
+                <div><span>{_t("SS", "SS")}</span><strong>${social_security_tax:,.2f}</strong></div>
+                <div><span>{_t("Medicare", "Medicare")}</span><strong>${medicare_tax:,.2f}</strong></div>
+                <div><span>{_t("State", "Estatal")}</span><strong>${state_withholding:,.2f}</strong></div>
+                <div><span>{_t("Local", "Local")}</span><strong>${local_tax:,.2f}</strong></div>
             </div>
 
             <div class='mobile-list-actions'>
@@ -2669,16 +2640,16 @@ def settings_w2():
         """
 
     if not rows:
-        rows = """
+        rows = f"""
         <tr>
             <td colspan="8" class="muted" style="text-align:center; padding:18px;">
-                No employee W-2 data found for this year.
+                {_t("No employee W-2 data found for this year.", "No se encontraron datos W-2 de empleados para este año.")}
             </td>
         </tr>
         """
 
     if not mobile_cards:
-        mobile_cards = "<div class='mobile-list-card muted'>No employee W-2 data found for this year.</div>"
+        mobile_cards = f"<div class='mobile-list-card muted'>{_t('No employee W-2 data found for this year.', 'No se encontraron datos W-2 de empleados para este año.')}</div>"
 
     if company_readiness.get("missing"):
         missing_html = "".join(
@@ -2686,16 +2657,16 @@ def settings_w2():
         )
         readiness_card = f"""
         <div class='card' style='border:1px solid #f59e0b; background:#fffaf0;'>
-            <h2>W-2 Filing Readiness</h2>
+            <h2>{_t("W-2 Filing Readiness", "Preparación de presentación W-2")}</h2>
             <ul>{missing_html}</ul>
-            <a class='btn warning' href='{url_for("settings.settings_w2_company")}'>Fix Issues</a>
+            <a class='btn warning' href='{url_for("settings.settings_w2_company")}'>{_t("Fix Issues", "Corregir problemas")}</a>
         </div>
         """
     else:
-        readiness_card = """
+        readiness_card = f"""
         <div class='card' style='border:1px solid #16a34a; background:#f0fdf4;'>
-            <h2>W-2 Filing Readiness</h2>
-            <p style='color:#166534; font-weight:700;'>Ready to file</p>
+            <h2>{_t("W-2 Filing Readiness", "Preparación de presentación W-2")}</h2>
+            <p style='color:#166534; font-weight:700;'>{_t("Ready to file", "Listo para presentar")}</p>
         </div>
         """
 
@@ -2841,8 +2812,8 @@ def settings_w2():
     </style>
 
     <div class='card'>
-        <h1>Year-End Center</h1>
-        <p class='muted'>Manage W-2s, W-3s, 1099s, filings, and year-end payroll reports.</p>
+        <h1>{_t("Year-End Center", "Centro de cierre de año")}</h1>
+        <p class='muted'>{_t("Manage W-2s, W-3s, 1099s, filings, and year-end payroll reports.", "Administra W-2, W-3, 1099, presentaciones e informes de nómina de fin de año.")}</p>
     </div>
 
     {readiness_card}
@@ -2851,18 +2822,18 @@ def settings_w2():
         <form method='get' style='display:flex; gap:10px; flex-wrap:wrap; align-items:end;'>
 
             <div>
-                <label>Year</label>
+                <label>{_t("Year", "Año")}</label>
                 <input name='year' value='{year}' style='width:100px;'>
             </div>
 
             <div class='w2-tools-row' style='position:relative;'>
 
-                <button type='submit' class='btn secondary'>Load Year</button>
+                <button type='submit' class='btn secondary'>{_t("Load Year", "Cargar año")}</button>
 
                 <a target='_blank'
                    href='{url_for("settings.print_all_w2_summaries", year=year)}'
                    class='btn success'>
-                   Print W-2 Totals
+                   {_t("Print W-2 Totals", "Imprimir totales W-2")}
                 </a>
 
                 <div style='position:relative;'>
@@ -2870,7 +2841,7 @@ def settings_w2():
                     <button type='button'
                             class='btn warning'
                             onclick="toggleW2Dropdown()">
-                        Filing Tools ▾
+                        {_t("Filing Tools", "Herramientas de presentación")} ▾
                     </button>
 
                     <div id='w2Dropdown'
@@ -2878,17 +2849,17 @@ def settings_w2():
 
                         <a target='_blank'
                            href='{url_for("settings.print_w3", year=year)}'
-                           style='display:block; padding:10px;'>Print W-3</a>
+                           style='display:block; padding:10px;'>{_t("Print W-3", "Imprimir W-3")}</a>
 
                         <a target='_blank'
                            href='{url_for("settings.export_ssa", year=year)}'
-                           style='display:block; padding:10px;'>Export SSA File</a>
+                           style='display:block; padding:10px;'>{_t("Export SSA File", "Exportar archivo SSA")}</a>
 
                         <a href='{url_for("settings.settings_w2_company")}'
-                           style='display:block; padding:10px;'>Company Profile</a>
+                           style='display:block; padding:10px;'>{_t("Company Profile", "Perfil de la empresa")}</a>
 
                         <a href='{url_for("settings.settings_1099", year=year)}'
-                           style='display:block; padding:10px;'>Open 1099 Center</a>
+                           style='display:block; padding:10px;'>{_t("Open 1099 Center", "Abrir centro 1099")}</a>
 
                     </div>
                 </div>
@@ -2897,29 +2868,29 @@ def settings_w2():
         </form>
 
         <div class='w2-summary-grid'>
-            <div class='w2-summary-card'><div class='label'>Wages</div><div class='value'>${total_wages:,.2f}</div></div>
-            <div class='w2-summary-card'><div class='label'>Federal</div><div class='value'>${total_federal:,.2f}</div></div>
-            <div class='w2-summary-card'><div class='label'>SS</div><div class='value'>${total_ss:,.2f}</div></div>
-            <div class='w2-summary-card'><div class='label'>Medicare</div><div class='value'>${total_medicare:,.2f}</div></div>
-            <div class='w2-summary-card'><div class='label'>State</div><div class='value'>${total_state:,.2f}</div></div>
-            <div class='w2-summary-card'><div class='label'>Local</div><div class='value'>${total_local:,.2f}</div></div>
+            <div class='w2-summary-card'><div class='label'>{_t("Wages", "Salarios")}</div><div class='value'>${total_wages:,.2f}</div></div>
+            <div class='w2-summary-card'><div class='label'>{_t("Federal", "Federal")}</div><div class='value'>${total_federal:,.2f}</div></div>
+            <div class='w2-summary-card'><div class='label'>{_t("SS", "SS")}</div><div class='value'>${total_ss:,.2f}</div></div>
+            <div class='w2-summary-card'><div class='label'>{_t("Medicare", "Medicare")}</div><div class='value'>${total_medicare:,.2f}</div></div>
+            <div class='w2-summary-card'><div class='label'>{_t("State", "Estatal")}</div><div class='value'>${total_state:,.2f}</div></div>
+            <div class='w2-summary-card'><div class='label'>{_t("Local", "Local")}</div><div class='value'>${total_local:,.2f}</div></div>
         </div>
     </div>
 
     <div class='card'>
-        <h2>Employees</h2>
+        <h2>{_t("Employees", "Empleados")}</h2>
 
         <div class='table-wrap desktop-only'>
             <table>
                 <thead>
                     <tr>
-                        <th>Name</th>
-                        <th>Wages</th>
-                        <th>Federal</th>
-                        <th>SS</th>
-                        <th>Medicare</th>
-                        <th>State</th>
-                        <th>Local</th>
+                        <th>{_t("Name", "Nombre")}</th>
+                        <th>{_t("Wages", "Salarios")}</th>
+                        <th>{_t("Federal", "Federal")}</th>
+                        <th>{_t("SS", "SS")}</th>
+                        <th>{_t("Medicare", "Medicare")}</th>
+                        <th>{_t("State", "Estatal")}</th>
+                        <th>{_t("Local", "Local")}</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -2951,7 +2922,7 @@ def settings_w2():
     </script>
     """
 
-    return render_page(content, "Year-End Center")
+    return render_page(content, _t("Year-End Center", "Centro de cierre de año"))
 
 
 @settings_bp.route("/settings/w2/company", methods=["GET", "POST"])
@@ -3113,7 +3084,7 @@ def settings_w2_company():
 
         conn.commit()
         conn.close()
-        flash("Company W-2 profile saved.")
+        flash(_t("Company W-2 profile saved.", "Perfil W-2 de la empresa guardado."))
         return redirect(url_for("settings.settings_w2_company"))
 
     conn.close()
@@ -3127,15 +3098,15 @@ def settings_w2_company():
         missing_html = "".join(f"<li>{escape(item)}</li>" for item in readiness["missing"])
         readiness_block = f"""
         <div class='card' style='border:1px solid #f59e0b; background:#fffaf0;'>
-            <h2>Missing Items</h2>
+            <h2>{_t("Missing Items", "Elementos faltantes")}</h2>
             <ul>{missing_html}</ul>
         </div>
         """
     else:
-        readiness_block = """
+        readiness_block = f"""
         <div class='card' style='border:1px solid #16a34a; background:#f0fdf4;'>
-            <h2>Ready</h2>
-            <p style='margin:0; color:#166534; font-weight:700;'>Company W-2 profile looks complete.</p>
+            <h2>{_t("Ready", "Listo")}</h2>
+            <p style='margin:0; color:#166534; font-weight:700;'>{_t("Company W-2 profile looks complete.", "El perfil W-2 de la empresa parece completo.")}</p>
         </div>
         """
 
@@ -3143,11 +3114,11 @@ def settings_w2_company():
     <div class='card'>
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
             <div>
-                <h1 style='margin-bottom:6px;'>Company W-2 Profile</h1>
-                <p class='muted' style='margin:0;'>Store the company filing details needed for year-end W-2 preparation.</p>
+                <h1 style='margin-bottom:6px;'>{_t("Company W-2 Profile", "Perfil W-2 de la empresa")}</h1>
+                <p class='muted' style='margin:0;'>{_t("Store the company filing details needed for year-end W-2 preparation.", "Guarda los detalles de presentación de la empresa necesarios para la preparación de W-2 de fin de año.")}</p>
             </div>
             <div class='row-actions'>
-                <a href='{url_for("settings.settings_w2")}' class='btn secondary'>Back to W-2 Center</a>
+                <a href='{url_for("settings.settings_w2")}' class='btn secondary'>{_t("Back to W-2 Center", "Volver al centro W-2")}</a>
             </div>
         </div>
     </div>
@@ -3155,13 +3126,13 @@ def settings_w2_company():
     {readiness_block}
 
     <div class='card'>
-        <h2>W-2 Filing Details</h2>
+        <h2>{_t("W-2 Filing Details", "Detalles de presentación W-2")}</h2>
         <form method='post'>
             <input type="hidden" name="csrf_token" value="{csrf_token}">
             <div class='grid'>
                 <div>
-                    <label>Legal Business Name</label>
-                    <input name='legal_name' value='{escape(values["legal_name"])}' placeholder='Your legal business name'>
+                    <label>{_t("Legal Business Name", "Nombre legal del negocio")}</label>
+                    <input name='legal_name' value='{escape(values["legal_name"])}' placeholder='{_t("Your legal business name", "Nombre legal de tu negocio")}'>
                 </div>
 
                 <div>
@@ -3170,59 +3141,59 @@ def settings_w2_company():
                 </div>
 
                 <div>
-                    <label>State Employer ID</label>
-                    <input name='state_employer_id' value='{escape(values["state_employer_id"])}' placeholder='State employer account ID'>
+                    <label>{_t("State Employer ID", "ID estatal del empleador")}</label>
+                    <input name='state_employer_id' value='{escape(values["state_employer_id"])}' placeholder='{_t("State employer account ID", "ID de cuenta estatal del empleador")}'>
                 </div>
 
                 <div>
-                    <label>Address Line 1</label>
-                    <input name='address_line_1' value='{escape(values["address_line_1"])}' placeholder='Street address'>
+                    <label>{_t("Address Line 1", "Dirección línea 1")}</label>
+                    <input name='address_line_1' value='{escape(values["address_line_1"])}' placeholder='{_t("Street address", "Dirección")}'>
                 </div>
 
                 <div>
-                    <label>Address Line 2</label>
-                    <input name='address_line_2' value='{escape(values["address_line_2"])}' placeholder='Suite / unit / additional details'>
+                    <label>{_t("Address Line 2", "Dirección línea 2")}</label>
+                    <input name='address_line_2' value='{escape(values["address_line_2"])}' placeholder='{_t("Suite / unit / additional details", "Suite / unidad / detalles adicionales")}'>
                 </div>
 
                 <div>
-                    <label>City</label>
-                    <input name='city' value='{escape(values["city"])}' placeholder='City'>
+                    <label>{_t("City", "Ciudad")}</label>
+                    <input name='city' value='{escape(values["city"])}' placeholder='{_t("City", "Ciudad")}'>
                 </div>
 
                 <div>
-                    <label>State</label>
+                    <label>{_t("State", "Estado")}</label>
                     <input name='state' value='{escape(values["state"])}' placeholder='IN' maxlength='2'>
                 </div>
 
                 <div>
-                    <label>ZIP Code</label>
+                    <label>{_t("ZIP Code", "Código postal")}</label>
                     <input name='zip_code' value='{escape(values["zip_code"])}' placeholder='47905'>
                 </div>
 
                 <div>
-                    <label>W-2 Contact Name</label>
-                    <input name='w2_contact_name' value='{escape(values["w2_contact_name"])}' placeholder='Contact person for W-2 filing'>
+                    <label>{_t("W-2 Contact Name", "Nombre de contacto W-2")}</label>
+                    <input name='w2_contact_name' value='{escape(values["w2_contact_name"])}' placeholder='{_t("Contact person for W-2 filing", "Persona de contacto para presentación W-2")}'>
                 </div>
 
                 <div>
-                    <label>W-2 Contact Phone</label>
+                    <label>{_t("W-2 Contact Phone", "Teléfono de contacto W-2")}</label>
                     <input name='w2_contact_phone' value='{escape(values["w2_contact_phone"])}' placeholder='(765) 555-1234'>
                 </div>
 
                 <div>
-                    <label>W-2 Contact Email</label>
+                    <label>{_t("W-2 Contact Email", "Correo de contacto W-2")}</label>
                     <input name='w2_contact_email' value='{escape(values["w2_contact_email"])}' placeholder='payroll@yourcompany.com'>
                 </div>
             </div>
 
             <div class='row-actions' style='margin-top:20px;'>
-                <button class='btn success' type='submit'>Save Company W-2 Profile</button>
+                <button class='btn success' type='submit'>{_t("Save Company W-2 Profile", "Guardar perfil W-2 de la empresa")}</button>
             </div>
         </form>
     </div>
     """
 
-    return render_page(content, "Company W-2 Profile")
+    return render_page(content, _t("Company W-2 Profile", "Perfil W-2 de la empresa"))
 
 
 @settings_bp.route("/settings/w2/<int:employee_id>/print")
@@ -3248,7 +3219,7 @@ def print_w2_summary(employee_id):
 
     if not employee:
         conn.close()
-        flash("Employee not found.")
+        flash(_t("Employee not found.", "Empleado no encontrado."))
         return redirect(url_for("settings.settings_w2", year=year))
 
     summary = conn.execute(
@@ -3293,7 +3264,7 @@ def print_w2_summary(employee_id):
     employee_name = _first_nonempty(
         _record_get(employee, "full_name"),
         f"{_record_get(employee, 'first_name')} {_record_get(employee, 'last_name')}".strip(),
-        f"Employee #{employee_id}",
+        f"{_t('Employee', 'Empleado')} #{employee_id}",
     )
 
     safe_employee_name = "".join(
@@ -3364,7 +3335,7 @@ def print_all_w2_summaries():
         employee_name = (
             (e["full_name"] or "").strip()
             or f"{(e['first_name'] or '').strip()} {(e['last_name'] or '').strip()}".strip()
-            or f"Employee #{e['id']}"
+            or f"{_t('Employee', 'Empleado')} #{e['id']}"
         )
 
         employee_rows.append({
@@ -3384,6 +3355,7 @@ def print_all_w2_summaries():
     response.headers["Content-Type"] = "application/pdf"
     response.headers["Content-Disposition"] = f"inline; filename=w2_totals_report_{year}.pdf"
     return response
+
 
 @settings_bp.route("/settings/w2/print-w3")
 @login_required
@@ -3430,6 +3402,7 @@ def print_w3():
     response.headers["Content-Disposition"] = f"inline; filename=w3_summary_{year}.pdf"
     return response
 
+
 @settings_bp.route("/settings/w2/export-ssa")
 @login_required
 @subscription_required
@@ -3464,6 +3437,7 @@ def export_ssa():
     response.headers["Content-Type"] = "application/json"
     response.headers["Content-Disposition"] = f"attachment; filename=ssa_export_{year}.json"
     return response
+
 
 @settings_bp.route("/settings/logo")
 @login_required
@@ -3536,7 +3510,7 @@ def settings_branding():
         elif uploaded_file and uploaded_file.filename:
             if not allowed_logo_file(uploaded_file.filename):
                 conn.close()
-                flash("Invalid logo file type. Please upload PNG, JPG, JPEG, GIF, WEBP, or SVG.")
+                flash(_t("Invalid logo file type. Please upload PNG, JPG, JPEG, GIF, WEBP, or SVG.", "Tipo de archivo de logotipo no válido. Sube PNG, JPG, JPEG, GIF, WEBP o SVG."))
                 return redirect(url_for("settings.settings_branding"))
 
             upload_folder = ensure_logo_upload_folder()
@@ -3676,7 +3650,7 @@ def settings_branding():
 
         conn.commit()
         conn.close()
-        flash("Branding saved.")
+        flash(_t("Branding saved.", "Marca guardada."))
         return redirect(url_for("settings.settings_branding"))
 
     conn.close()
@@ -3685,7 +3659,7 @@ def settings_branding():
     csrf_token = generate_csrf()
 
     company_logo_preview = (
-        f"<img src='{escape(values['logo_url'])}' alt='Company Logo Preview' style='max-height:84px; max-width:240px; object-fit:contain; border-radius:10px;'>"
+        f"<img src='{escape(values['logo_url'])}' alt='{escape(_t('Company Logo Preview', 'Vista previa del logotipo de la empresa'))}' style='max-height:84px; max-width:240px; object-fit:contain; border-radius:10px;'>"
         if values["logo_url"]
         else f"<div style='width:84px; height:84px; border-radius:18px; background:#334155; color:#fff; display:flex; align-items:center; justify-content:center; font-size:1.25rem; font-weight:800;'>{escape((values['display_name'][:2] or 'CP').upper())}</div>"
     )
@@ -3713,141 +3687,141 @@ def settings_branding():
     <div class='card'>
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
             <div>
-                <h1 style='margin-bottom:6px;'>Branding</h1>
-                <p class='muted' style='margin:0;'>Manage your logo, company branding, and document branding.</p>
+                <h1 style='margin-bottom:6px;'>{_t("Branding", "Marca")}</h1>
+                <p class='muted' style='margin:0;'>{_t("Manage your logo, company branding, and document branding.", "Administra tu logotipo, la marca de tu empresa y la marca de documentos.")}</p>
             </div>
             <div class='row-actions'>
-                <a href='{url_for("settings.settings")}' class='btn secondary'>Back to Settings</a>
+                <a href='{url_for("settings.settings")}' class='btn secondary'>{_t("Back to Settings", "Volver a Configuración")}</a>
             </div>
         </div>
     </div>
 
     <div class='card'>
-        <h2>Company Document Branding Preview</h2>
+        <h2>{_t("Company Document Branding Preview", "Vista previa de la marca de documentos de la empresa")}</h2>
         <div style='display:grid; grid-template-columns:110px 1fr; gap:20px; align-items:center;'>
             <div>{company_logo_preview}</div>
             <div>
-                <div style='font-size:1.35rem; font-weight:800; color:#334155;'>{escape(values["display_name"] or "Your Company Name")}</div>
+                <div style='font-size:1.35rem; font-weight:800; color:#334155;'>{escape(values["display_name"] or _t("Your Company Name", "Nombre de tu empresa"))}</div>
                 <div style='margin-top:8px; color:#555;'>{escape(values["legal_name"]) if values["legal_name"] else ''}</div>
                 <div style='margin-top:10px; color:#666; line-height:1.55;'>
-                    {address_preview if address_preview else "<span class='muted'>No business address set yet.</span>"}
+                    {address_preview if address_preview else f"<span class='muted'>{_t('No business address set yet.', 'Aún no se ha configurado la dirección del negocio.')}</span>"}
                 </div>
                 <div style='margin-top:10px; color:#666; line-height:1.55;'>
-                    {contact_lines if contact_lines else "<span class='muted'>No phone, email, or website set yet.</span>"}
+                    {contact_lines if contact_lines else f"<span class='muted'>{_t('No phone, email, or website set yet.', 'Aún no se han configurado teléfono, correo ni sitio web.')}</span>"}
                 </div>
             </div>
         </div>
     </div>
 
     <div class='card'>
-        <h2>Branding Details</h2>
+        <h2>{_t("Branding Details", "Detalles de marca")}</h2>
         <form method='post' enctype='multipart/form-data'>
             <input type="hidden" name="csrf_token" value="{csrf_token}">
             <div style='display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px;'>
 
                 <div>
-                    <label>Display Name</label>
-                    <input name='display_name' value='{escape(values["display_name"])}' placeholder='Wrede & Sons Lafayette'>
+                    <label>{_t("Display Name", "Nombre para mostrar")}</label>
+                    <input name='display_name' value='{escape(values["display_name"])}' placeholder='{_t("Wrede & Sons Lafayette", "Wrede & Sons Lafayette")}'>
                 </div>
 
                 <div>
-                    <label>Legal Business Name</label>
-                    <input name='legal_name' value='{escape(values["legal_name"])}' placeholder='Wrede & Sons of Lafayette, Inc.'>
+                    <label>{_t("Legal Business Name", "Nombre legal del negocio")}</label>
+                    <input name='legal_name' value='{escape(values["legal_name"])}' placeholder='{_t("Wrede & Sons of Lafayette, Inc.", "Wrede & Sons of Lafayette, Inc.")}'>
                 </div>
 
                 <div style='grid-column:1 / -1;'>
-                    <label>Upload Company Logo</label>
+                    <label>{_t("Upload Company Logo", "Subir logotipo de la empresa")}</label>
                     <input type='file' name='logo_file' accept='.png,.jpg,.jpeg,.gif,.webp,.svg'>
-                    <div class='muted' style='margin-top:6px;'>Upload a company logo from your computer.</div>
+                    <div class='muted' style='margin-top:6px;'>{_t("Upload a company logo from your computer.", "Sube un logotipo de la empresa desde tu computadora.")}</div>
                 </div>
 
                 <div style='grid-column:1 / -1;'>
-                    <label>Or Use Company Logo URL</label>
+                    <label>{_t("Or Use Company Logo URL", "O usa la URL del logotipo de la empresa")}</label>
                     <input name='logo_url' value='{escape(values["logo_url"])}' placeholder='https://yourdomain.com/logo.png'>
                 </div>
 
                 <div style='grid-column:1 / -1;'>
                     <label style='display:flex; align-items:center; gap:8px;'>
                         <input type='checkbox' name='remove_logo' value='1'>
-                        Remove current company logo
+                        {_t("Remove current company logo", "Eliminar logotipo actual de la empresa")}
                     </label>
                 </div>
 
                 <div>
-                    <label>Phone</label>
+                    <label>{_t("Phone", "Teléfono")}</label>
                     <input name='phone' value='{escape(values["phone"])}' placeholder='(765) 555-1234'>
                 </div>
 
                 <div>
-                    <label>Email</label>
+                    <label>{_t("Email", "Correo")}</label>
                     <input name='email' value='{escape(values["email"])}' placeholder='office@yourcompany.com'>
                 </div>
 
                 <div>
-                    <label>Website</label>
+                    <label>{_t("Website", "Sitio web")}</label>
                     <input name='website' value='{escape(values["website"])}' placeholder='https://yourcompany.com'>
                 </div>
 
                 <div style='grid-column:1 / -1;'>
-                    <label>Address Line 1</label>
-                    <input name='address_line_1' value='{escape(values["address_line_1"])}' placeholder='123 Main Street'>
+                    <label>{_t("Address Line 1", "Dirección línea 1")}</label>
+                    <input name='address_line_1' value='{escape(values["address_line_1"])}' placeholder='{_t("123 Main Street", "123 Main Street")}'>
                 </div>
 
                 <div style='grid-column:1 / -1;'>
-                    <label>Address Line 2</label>
-                    <input name='address_line_2' value='{escape(values["address_line_2"])}' placeholder='Suite, building, or additional details'>
+                    <label>{_t("Address Line 2", "Dirección línea 2")}</label>
+                    <input name='address_line_2' value='{escape(values["address_line_2"])}' placeholder='{_t("Suite, building, or additional details", "Suite, edificio o detalles adicionales")}'>
                 </div>
 
                 <div>
-                    <label>City</label>
-                    <input name='city' value='{escape(values["city"])}' placeholder='Lafayette'>
+                    <label>{_t("City", "Ciudad")}</label>
+                    <input name='city' value='{escape(values["city"])}' placeholder='{_t("Lafayette", "Lafayette")}'>
                 </div>
 
                 <div>
-                    <label>State</label>
+                    <label>{_t("State", "Estado")}</label>
                     <input name='state' value='{escape(values["state"])}' placeholder='IN' maxlength='2'>
                 </div>
 
                 <div>
-                    <label>County</label>
+                    <label>{_t("County", "Condado")}</label>
                     <input name='county' value='{escape(values["county"])}' placeholder='Tippecanoe'>
                 </div>
 
                 <div>
-                    <label>ZIP Code</label>
+                    <label>{_t("ZIP Code", "Código postal")}</label>
                     <input name='zip_code' value='{escape(values["zip_code"])}' placeholder='47905'>
                 </div>
 
                 <div>
-                    <label>Invoice Header Name</label>
-                    <input name='invoice_header_name' value='{escape(values["invoice_header_name"])}' placeholder='Name shown at top of invoices'>
+                    <label>{_t("Invoice Header Name", "Nombre de encabezado de factura")}</label>
+                    <input name='invoice_header_name' value='{escape(values["invoice_header_name"])}' placeholder='{_t("Name shown at top of invoices", "Nombre que se muestra en la parte superior de las facturas")}'>
                 </div>
 
                 <div>
-                    <label>Quote Header Name</label>
-                    <input name='quote_header_name' value='{escape(values["quote_header_name"])}' placeholder='Name shown at top of quotes'>
+                    <label>{_t("Quote Header Name", "Nombre de encabezado de cotización")}</label>
+                    <input name='quote_header_name' value='{escape(values["quote_header_name"])}' placeholder='{_t("Name shown at top of quotes", "Nombre que se muestra en la parte superior de las cotizaciones")}'>
                 </div>
 
                 <div style='grid-column:1 / -1;'>
-                    <label>Invoice Footer Note</label>
-                    <textarea name='invoice_footer_note' placeholder='Thank you for your business.'>{escape(values["invoice_footer_note"])}</textarea>
+                    <label>{_t("Invoice Footer Note", "Nota al pie de factura")}</label>
+                    <textarea name='invoice_footer_note' placeholder='{_t("Thank you for your business.", "Gracias por su preferencia.")}'>{escape(values["invoice_footer_note"])}</textarea>
                 </div>
 
                 <div style='grid-column:1 / -1;'>
-                    <label>Quote Footer Note</label>
-                    <textarea name='quote_footer_note' placeholder='Pricing valid for 30 days unless otherwise stated.'>{escape(values["quote_footer_note"])}</textarea>
+                    <label>{_t("Quote Footer Note", "Nota al pie de cotización")}</label>
+                    <textarea name='quote_footer_note' placeholder='{_t("Pricing valid for 30 days unless otherwise stated.", "Los precios son válidos por 30 días a menos que se indique lo contrario.")}'>{escape(values["quote_footer_note"])}</textarea>
                 </div>
 
             </div>
 
             <div class='row-actions' style='margin-top:20px;'>
-                <button class='btn success' type='submit'>Save Branding</button>
+                <button class='btn success' type='submit'>{_t("Save Branding", "Guardar marca")}</button>
             </div>
         </form>
     </div>
     """
 
-    return render_page(content, "Branding")
+    return render_page(content, _t("Branding", "Marca"))
 
 
 @settings_bp.route("/settings/email", methods=["GET", "POST"])
@@ -4002,7 +3976,7 @@ def settings_email():
 
         conn.commit()
         conn.close()
-        flash("Email settings saved.")
+        flash(_t("Email settings saved.", "Configuración de correo guardada."))
         return redirect(url_for("settings.settings_email"))
 
     conn.close()
@@ -4014,80 +3988,80 @@ def settings_email():
     <div class='card'>
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
             <div>
-                <h1 style='margin-bottom:6px;'>Email Settings</h1>
-                <p class='muted' style='margin:0;'>Manage how quote and invoice emails appear to your customers.</p>
+                <h1 style='margin-bottom:6px;'>{_t("Email Settings", "Configuración de correo")}</h1>
+                <p class='muted' style='margin:0;'>{_t("Manage how quote and invoice emails appear to your customers.", "Administra cómo aparecen los correos de cotizaciones y facturas para tus clientes.")}</p>
             </div>
             <div class='row-actions'>
-                <a href='{url_for("settings.settings")}' class='btn secondary'>Back to Settings</a>
+                <a href='{url_for("settings.settings")}' class='btn secondary'>{_t("Back to Settings", "Volver a Configuración")}</a>
             </div>
         </div>
     </div>
 
     <div class='card'>
-        <h2>Email Delivery Identity</h2>
+        <h2>{_t("Email Delivery Identity", "Identidad de envío de correo")}</h2>
         <form method='post'>
             <input type="hidden" name="csrf_token" value="{csrf_token}">
             <div style='display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px;'>
 
                 <div>
-                    <label>Email From Name</label>
+                    <label>{_t("Email From Name", "Nombre del remitente")}</label>
                     <input name='email_from_name' value='{escape(values["email_from_name"])}' placeholder='Wrede & Sons Lafayette'>
-                    <div class='muted' style='margin-top:6px;'>This is the company name customers will recognize when emails are sent.</div>
+                    <div class='muted' style='margin-top:6px;'>{_t("This is the company name customers will recognize when emails are sent.", "Este es el nombre de la empresa que los clientes reconocerán cuando se envíen correos.")}</div>
                 </div>
 
                 <div>
-                    <label>Reply-To Email</label>
+                    <label>{_t("Reply-To Email", "Correo de respuesta")}</label>
                     <input name='reply_to_email' value='{escape(values["reply_to_email"])}' placeholder='sales@yourcompany.com'>
-                    <div class='muted' style='margin-top:6px;'>When customers reply to emailed quotes or invoices, replies go here.</div>
+                    <div class='muted' style='margin-top:6px;'>{_t("When customers reply to emailed quotes or invoices, replies go here.", "Cuando los clientes respondan a cotizaciones o facturas enviadas por correo, las respuestas llegarán aquí.")}</div>
                 </div>
 
                 <div>
-                    <label>Platform Email Sending</label>
+                    <label>{_t("Platform Email Sending", "Envío de correo de la plataforma")}</label>
                     <select name='platform_sender_enabled'>
-                        <option value='1' {"selected" if values["platform_sender_enabled"] == 1 else ""}>Enabled</option>
-                        <option value='0' {"selected" if values["platform_sender_enabled"] == 0 else ""}>Disabled</option>
+                        <option value='1' {"selected" if values["platform_sender_enabled"] == 1 else ""}>{_t("Enabled", "Habilitado")}</option>
+                        <option value='0' {"selected" if values["platform_sender_enabled"] == 0 else ""}>{_t("Disabled", "Deshabilitado")}</option>
                     </select>
-                    <div class='muted' style='margin-top:6px;'>Uses TerraLedger's sending mailbox while keeping your company reply-to address.</div>
+                    <div class='muted' style='margin-top:6px;'>{_t("Uses TerraLedger's sending mailbox while keeping your company reply-to address.", "Usa el buzón de envío de TerraLedger mientras mantiene la dirección de respuesta de tu empresa.")}</div>
                 </div>
 
                 <div>
-                    <label>Reply-To Behavior</label>
+                    <label>{_t("Reply-To Behavior", "Comportamiento de respuesta")}</label>
                     <select name='reply_to_mode'>
-                        <option value='company' {"selected" if values["reply_to_mode"] == "company" else ""}>Company Email</option>
-                        <option value='logged_in_user' {"selected" if values["reply_to_mode"] == "logged_in_user" else ""}>Logged-In User</option>
+                        <option value='company' {"selected" if values["reply_to_mode"] == "company" else ""}>{_t("Company Email", "Correo de la empresa")}</option>
+                        <option value='logged_in_user' {"selected" if values["reply_to_mode"] == "logged_in_user" else ""}>{_t("Logged-In User", "Usuario con sesión iniciada")}</option>
                     </select>
-                    <div class='muted' style='margin-top:6px;'>Choose whether replies go to the company email or the user who sent the email.</div>
+                    <div class='muted' style='margin-top:6px;'>{_t("Choose whether replies go to the company email or the user who sent the email.", "Elige si las respuestas van al correo de la empresa o al usuario que envió el correo.")}</div>
                 </div>
 
             </div>
 
             <div class='row-actions' style='margin-top:20px;'>
-                <button class='btn success' type='submit'>Save Email Settings</button>
+                <button class='btn success' type='submit'>{_t("Save Email Settings", "Guardar configuración de correo")}</button>
             </div>
         </form>
     </div>
 
     <div class='card'>
-        <h2>Send Test Email</h2>
-        <p class='muted'>Use this to confirm your platform email sending is working before testing quote or invoice emails.</p>
+        <h2>{_t("Send Test Email", "Enviar correo de prueba")}</h2>
+        <p class='muted'>{_t("Use this to confirm your platform email sending is working before testing quote or invoice emails.", "Usa esto para confirmar que el envío de correo de la plataforma funciona antes de probar correos de cotizaciones o facturas.")}</p>
 
         <form method='post' action='{url_for("settings.test_email")}'>
             <input type="hidden" name="csrf_token" value="{csrf_token}">
             <div class='grid'>
                 <div>
-                    <label>Send Test To</label>
+                    <label>{_t("Send Test To", "Enviar prueba a")}</label>
                     <input type='email' name='test_email' placeholder='you@example.com' required>
                 </div>
             </div>
 
             <div class='row-actions' style='margin-top:20px;'>
-                <button class='btn' type='submit'>Send Test Email</button>
+                <button class='btn' type='submit'>{_t("Send Test Email", "Enviar correo de prueba")}</button>
             </div>
         </form>
     </div>
     """
 
-    return render_page(content, "Email Settings")
+    return render_page(content, _t("Email Settings", "Configuración de correo"))
 
 
 @settings_bp.route("/settings/test_email", methods=["POST"])
@@ -4100,29 +4074,31 @@ def test_email():
 
     cid = session.get("company_id")
     if not cid:
-        flash("No company is associated with this account.")
+        flash(_t("No company is associated with this account.", "No hay una empresa asociada con esta cuenta."))
         return redirect(url_for("settings.settings"))
 
     test_email_address = (request.form.get("test_email") or "").strip()
 
     if not test_email_address:
-        flash("Please enter a test email address.")
+        flash(_t("Please enter a test email address.", "Ingresa una dirección de correo de prueba."))
         return redirect(url_for("settings.settings_email"))
 
     try:
         send_company_email(
             company_id=cid,
             to_email=test_email_address,
-            subject="TerraLedger Test Email",
+            subject=_t("TerraLedger Test Email", "Correo de prueba de TerraLedger"),
             body=(
-                "This is a TerraLedger test email.\n\n"
-                "If you received this message, your company email settings and platform sender are working."
+                _t(
+                    "This is a TerraLedger test email.\n\nIf you received this message, your company email settings and platform sender are working.",
+                    "Este es un correo de prueba de TerraLedger.\n\nSi recibiste este mensaje, la configuración de correo de tu empresa y el remitente de la plataforma están funcionando."
+                )
             ),
             user_id=session.get("user_id"),
         )
-        flash("Test email sent successfully.")
+        flash(_t("Test email sent successfully.", "Correo de prueba enviado correctamente."))
     except Exception as e:
-        flash(f"Test email failed: {e}")
+        flash(f"{_t('Test email failed:', 'Falló el correo de prueba:')} {e}")
 
     return redirect(url_for("settings.settings_email"))
 
@@ -4153,11 +4129,11 @@ def restore_backup():
         uploaded_file = request.files.get("backup_file")
 
         if not uploaded_file or not uploaded_file.filename:
-            flash("Please choose a backup file.")
+            flash(_t("Please choose a backup file.", "Selecciona un archivo de respaldo."))
             return redirect(url_for("settings.restore_backup"))
 
         if not uploaded_file.filename.lower().endswith(".json"):
-            flash("Please upload a valid JSON backup file.")
+            flash(_t("Please upload a valid JSON backup file.", "Sube un archivo de respaldo JSON válido."))
             return redirect(url_for("settings.restore_backup"))
 
         try:
@@ -4165,13 +4141,15 @@ def restore_backup():
             result = restore_company_backup(cid, backup_data)
 
             flash(
-                "Backup restored successfully. "
-                f"A pre-restore backup was also saved locally at: {result['pre_restore_backup_path']}"
+                _t(
+                    "Backup restored successfully. A pre-restore backup was also saved locally at: ",
+                    "Respaldo restaurado correctamente. También se guardó localmente un respaldo previo a la restauración en: "
+                ) + f"{result['pre_restore_backup_path']}"
             )
             return redirect(url_for("settings.settings"))
 
         except Exception as e:
-            flash(f"Restore failed: {e}")
+            flash(f"{_t('Restore failed:', 'La restauración falló:')} {e}")
             return redirect(url_for("settings.restore_backup"))
 
     csrf_token = generate_csrf()
@@ -4180,41 +4158,41 @@ def restore_backup():
     <div class='card'>
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
             <div>
-                <h1 style='margin-bottom:6px;'>Restore Backup</h1>
+                <h1 style='margin-bottom:6px;'>{_t("Restore Backup", "Restaurar respaldo")}</h1>
                 <p class='muted' style='margin:0;'>
-                    Upload a TerraLedger backup file to replace your current company data.
+                    {_t("Upload a TerraLedger backup file to replace your current company data.", "Sube un archivo de respaldo de TerraLedger para reemplazar los datos actuales de tu empresa.")}
                 </p>
             </div>
             <div class='row-actions'>
-                <a href='{url_for("settings.settings")}' class='btn secondary'>Back to Settings</a>
+                <a href='{url_for("settings.settings")}' class='btn secondary'>{_t("Back to Settings", "Volver a Configuración")}</a>
             </div>
         </div>
     </div>
 
     <div class='card'>
-        <h2>Important</h2>
+        <h2>{_t("Important", "Importante")}</h2>
         <p class='muted'>
-            Restoring a backup will replace your current company data. TerraLedger will create a local
-            pre-restore backup automatically before the restore begins.
+            {_t("Restoring a backup will replace your current company data. TerraLedger will create a local pre-restore backup automatically before the restore begins.", "Restaurar un respaldo reemplazará los datos actuales de tu empresa. TerraLedger creará automáticamente un respaldo local previo a la restauración antes de comenzar.")}
         </p>
 
         <form method='post' enctype='multipart/form-data'>
             <input type="hidden" name="csrf_token" value="{csrf_token}">
             <div class='grid'>
                 <div>
-                    <label>Backup File (.json)</label>
+                    <label>{_t("Backup File (.json)", "Archivo de respaldo (.json)")}</label>
                     <input type='file' name='backup_file' accept='.json' required>
                 </div>
             </div>
 
             <div class='row-actions' style='margin-top:20px;'>
-                <button class='btn warning' type='submit'>Restore Backup</button>
+                <button class='btn warning' type='submit'>{_t("Restore Backup", "Restaurar respaldo")}</button>
             </div>
         </form>
     </div>
     """
 
-    return render_page(content, "Restore Backup")
+    return render_page(content, _t("Restore Backup", "Restaurar respaldo"))
+
 
 @settings_bp.route("/settings/language", methods=["GET", "POST"])
 @login_required
@@ -4256,20 +4234,31 @@ def settings_language():
             if language_preference not in {"en", "es"}:
                 language_preference = "en"
 
-            conn.execute(
-                """
-                UPDATE company_profile
-                SET language_preference = %s
-                WHERE company_id = %s
-                """,
-                (language_preference, cid),
-            )
+            if company:
+                conn.execute(
+                    """
+                    UPDATE company_profile
+                    SET language_preference = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE company_id = %s
+                    """,
+                    (language_preference, cid),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO company_profile (company_id, language_preference)
+                    VALUES (%s, %s)
+                    """,
+                    (cid, language_preference),
+                )
+
             conn.commit()
 
+            session["language"] = language_preference
+
             flash(
-                "Configuración de idioma actualizada."
-                if language_preference == "es"
-                else "Language setting updated."
+                _t("Language setting updated.", "Configuración de idioma actualizada.")
             )
             return redirect(url_for("settings.settings_language"))
 
@@ -4279,11 +4268,11 @@ def settings_language():
         <div class="card">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
                 <div>
-                    <h1 style="margin-bottom:6px;">{"Configuración de Idioma" if is_es else "Language Settings"}</h1>
-                    <div class="muted">{"Elige el idioma predeterminado para toda tu empresa." if is_es else "Choose the default language used across your company account."}</div>
+                    <h1 style="margin-bottom:6px;">{_t("Language Settings", "Configuración de idioma")}</h1>
+                    <div class="muted">{_t("Choose the default language used across your company account.", "Elige el idioma predeterminado usado en toda la cuenta de tu empresa.")}</div>
                 </div>
                 <div class="row-actions">
-                    <a class="btn secondary" href="{url_for('settings.settings')}">{"Volver a Configuración" if is_es else "Back to Settings"}</a>
+                    <a class="btn secondary" href="{url_for('settings.settings')}">{_t("Back to Settings", "Volver a Configuración")}</a>
                 </div>
             </div>
         </div>
@@ -4293,7 +4282,7 @@ def settings_language():
                 {csrf_input()}
                 <div class="grid">
                     <div>
-                        <label>{"Idioma Predeterminado" if is_es else "Default Language"}</label>
+                        <label>{_t("Default Language", "Idioma predeterminado")}</label>
                         <select name="language_preference">
                             <option value="en" {"selected" if current_language == "en" else ""}>English</option>
                             <option value="es" {"selected" if current_language == "es" else ""}>Español</option>
@@ -4302,12 +4291,12 @@ def settings_language():
                 </div>
 
                 <div class="row-actions" style="margin-top:16px;">
-                    <button type="submit" class="btn success">{"Guardar Idioma" if is_es else "Save Language"}</button>
+                    <button type="submit" class="btn success">{_t("Save Language", "Guardar idioma")}</button>
                 </div>
             </form>
         </div>
         """
-        return render_page(content, "Configuración de Idioma" if is_es else "Language Settings")
+        return render_page(content, _t("Language Settings", "Configuración de idioma"))
 
     finally:
         conn.close()

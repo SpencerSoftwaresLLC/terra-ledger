@@ -27,6 +27,22 @@ payment_setup_bp = Blueprint("payment_setup", __name__)
 
 
 # =========================================================
+# Language Helpers
+# =========================================================
+
+def _lang():
+    return "es" if session.get("language") == "es" else "en"
+
+
+def _is_es():
+    return _lang() == "es"
+
+
+def _t(en, es):
+    return es if _is_es() else en
+
+
+# =========================================================
 # Helpers
 # =========================================================
 
@@ -250,7 +266,10 @@ def _normalize_external_base_url(raw_url):
     base_url = (raw_url or "").strip()
 
     if not base_url:
-        raise ValueError("A base URL could not be determined.")
+        raise ValueError(_t(
+            "A base URL could not be determined.",
+            "No se pudo determinar una URL base.",
+        ))
 
     if not base_url.startswith(("http://", "https://")):
         base_url = f"https://{base_url}"
@@ -286,7 +305,7 @@ def _row_value(row, key, default=None):
 
 def create_connected_account_for_company(company_row):
     if not stripe_is_ready():
-        raise RuntimeError("Stripe is not configured.")
+        raise RuntimeError(_t("Stripe is not configured.", "Stripe no está configurado."))
 
     stripe.api_key = _stripe_secret_key()
 
@@ -311,7 +330,7 @@ def create_connected_account_for_company(company_row):
 
 def create_account_link(stripe_account_id):
     if not stripe_is_ready():
-        raise RuntimeError("Stripe is not configured.")
+        raise RuntimeError(_t("Stripe is not configured.", "Stripe no está configurado."))
 
     stripe.api_key = _stripe_secret_key()
 
@@ -377,13 +396,13 @@ def payment_setup():
 
     company_id = session.get("company_id")
     if not company_id:
-        flash("Company session not found.")
+        flash(_t("Company session not found.", "No se encontró la sesión de la empresa."))
         return redirect(url_for("dashboard.dashboard"))
 
     company = get_company(company_id)
 
     if not company:
-        flash("Company not found.")
+        flash(_t("Company not found.", "Empresa no encontrada."))
         return redirect(url_for("dashboard.dashboard"))
 
     settings_row = get_payment_settings(company_id)
@@ -397,20 +416,29 @@ def payment_setup():
     onboarding_complete = bool(_row_value(settings_row, "onboarding_complete", False))
 
     if onboarding_complete:
-        connection_status = "Connected and ready"
+        connection_status = _t("Connected and ready", "Conectado y listo")
         status_badge = "ready"
     elif stripe_connected:
-        connection_status = "Connected, but setup still needs attention"
+        connection_status = _t(
+            "Connected, but setup still needs attention",
+            "Conectado, pero la configuración todavía necesita atención",
+        )
         status_badge = "warning"
     else:
-        connection_status = "Not connected"
+        connection_status = _t("Not connected", "No conectado")
         status_badge = "not-connected"
 
     default_message = _row_value(
         settings_row,
         "default_payment_message",
+        _t(
+            "Click the button below to pay this invoice securely online.",
+            "Haz clic en el botón de abajo para pagar esta factura de forma segura en línea.",
+        ),
+    ) or _t(
         "Click the button below to pay this invoice securely online.",
-    ) or "Click the button below to pay this invoice securely online."
+        "Haz clic en el botón de abajo para pagar esta factura de forma segura en línea.",
+    )
 
     stripe_account_id = _row_value(settings_row, "stripe_account_id", "")
     stripe_account_email = _row_value(settings_row, "stripe_account_email", "")
@@ -603,57 +631,57 @@ def payment_setup():
         <div class="payment-wrap">
             <div class="payment-header">
                 <div>
-                    <h1 class="payment-title">Payment Setup</h1>
+                    <h1 class="payment-title">{{ page_title }}</h1>
                     <div class="payment-subtitle">
-                        Connect Stripe so your customers can pay invoices online and funds go to your business.
+                        {{ page_subtitle }}
                     </div>
                 </div>
                 <div>
-                    <a class="btn-tl btn-secondary-tl" href="{{ url_for('settings.settings') }}">Back to Settings</a>
+                    <a class="btn-tl btn-secondary-tl" href="{{ url_for('settings.settings') }}">{{ back_to_settings_label }}</a>
                 </div>
             </div>
 
             <div class="payment-grid">
 
                 <div class="payment-card">
-                    <h3>Stripe Connection</h3>
+                    <h3>{{ stripe_connection_label }}</h3>
 
                     <span class="status-pill {{ status_badge }}">{{ connection_status }}</span>
 
                     <div class="payment-meta">
                         <div class="payment-meta-row">
-                            <span class="payment-meta-label">Provider</span>
+                            <span class="payment-meta-label">{{ provider_label }}</span>
                             <span>Stripe Connect</span>
                         </div>
 
                         <div class="payment-meta-row">
-                            <span class="payment-meta-label">Stripe Account ID</span>
-                            <span>{{ stripe_account_id or 'Not connected yet' }}</span>
+                            <span class="payment-meta-label">{{ stripe_account_id_label }}</span>
+                            <span>{{ stripe_account_id or not_connected_yet_label }}</span>
                         </div>
 
                         <div class="payment-meta-row">
-                            <span class="payment-meta-label">Stripe Email</span>
-                            <span>{{ stripe_account_email or '—' }}</span>
+                            <span class="payment-meta-label">{{ stripe_email_label }}</span>
+                            <span>{{ stripe_account_email or dash_label }}</span>
                         </div>
 
                         <div class="payment-meta-row">
-                            <span class="payment-meta-label">Charges Enabled</span>
-                            <span>{{ 'Yes' if charges_enabled else 'No' }}</span>
+                            <span class="payment-meta-label">{{ charges_enabled_label }}</span>
+                            <span>{{ yes_label if charges_enabled else no_label }}</span>
                         </div>
 
                         <div class="payment-meta-row">
-                            <span class="payment-meta-label">Payouts Enabled</span>
-                            <span>{{ 'Yes' if payouts_enabled else 'No' }}</span>
+                            <span class="payment-meta-label">{{ payouts_enabled_label }}</span>
+                            <span>{{ yes_label if payouts_enabled else no_label }}</span>
                         </div>
 
                         <div class="payment-meta-row">
-                            <span class="payment-meta-label">Details Submitted</span>
-                            <span>{{ 'Yes' if details_submitted else 'No' }}</span>
+                            <span class="payment-meta-label">{{ details_submitted_label }}</span>
+                            <span>{{ yes_label if details_submitted else no_label }}</span>
                         </div>
 
                         <div class="payment-meta-row">
-                            <span class="payment-meta-label">Last Status Sync</span>
-                            <span>{{ last_sync if last_sync else 'Not synced yet' }}</span>
+                            <span class="payment-meta-label">{{ last_status_sync_label }}</span>
+                            <span>{{ last_sync if last_sync else not_synced_yet_label }}</span>
                         </div>
                     </div>
 
@@ -661,46 +689,45 @@ def payment_setup():
                         {% if not stripe_connected %}
                             <form method="POST" action="{{ url_for('payment_setup.connect_stripe_account') }}" style="display:inline;">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <button type="submit" class="btn-tl btn-primary-tl">Connect Stripe</button>
+                                <button type="submit" class="btn-tl btn-primary-tl">{{ connect_stripe_label }}</button>
                             </form>
                         {% elif not onboarding_complete %}
                             <form method="POST" action="{{ url_for('payment_setup.connect_stripe_account') }}" style="display:inline;">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <button type="submit" class="btn-tl btn-warning-tl">Continue Setup</button>
+                                <button type="submit" class="btn-tl btn-warning-tl">{{ continue_setup_label }}</button>
                             </form>
                         {% else %}
                             <form method="POST" action="{{ url_for('payment_setup.connect_stripe_account') }}" style="display:inline;">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <button type="submit" class="btn-tl btn-secondary-tl">Reconnect Stripe</button>
+                                <button type="submit" class="btn-tl btn-secondary-tl">{{ reconnect_stripe_label }}</button>
                             </form>
                         {% endif %}
 
                         <form method="POST" action="{{ url_for('payment_setup.payment_setup_refresh') }}" style="display:inline;">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <button type="submit" class="btn-tl btn-secondary-tl">Refresh Status</button>
+                            <button type="submit" class="btn-tl btn-secondary-tl">{{ refresh_status_label }}</button>
                         </form>
                     </div>
 
                     <div class="callout">
-                        TerraLedger does not need to hold your invoice funds.
-                        Your customers pay through Stripe, and payouts go to the connected business account.
+                        {{ stripe_callout }}
                     </div>
                 </div>
 
                 <div class="payment-card">
-                    <h3>Invoice Payment Settings</h3>
+                    <h3>{{ invoice_payment_settings_label }}</h3>
 
                     <form method="POST" action="{{ url_for('payment_setup.save_payment_preferences') }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <div class="form-section">
-                            <label class="form-label">Default payment message for invoice emails</label>
+                            <label class="form-label">{{ default_payment_message_label }}</label>
                             <textarea
                                 class="form-textarea-tl"
                                 name="default_payment_message"
-                                placeholder="Enter the message you want shown above the Pay Invoice button..."
+                                placeholder="{{ default_payment_placeholder }}"
                             >{{ default_message }}</textarea>
                             <div class="form-help">
-                                This message can be shown in invoice emails when online payments are enabled.
+                                {{ default_payment_help }}
                             </div>
                         </div>
 
@@ -713,11 +740,11 @@ def payment_setup():
                                 {% if payments_enabled %}checked{% endif %}
                             >
                             <div>
-                                <div class="check-title">Enable online invoice payments</div>
+                                <div class="check-title">{{ enable_online_payments_title }}</div>
                                 <div class="check-subtitle">
-                                    Lets TerraLedger include a Pay Invoice link in invoice emails.
+                                    {{ enable_online_payments_subtitle }}
                                     {% if not onboarding_complete %}
-                                        Stripe must be fully connected before this can stay enabled.
+                                        {{ onboarding_required_note }}
                                     {% endif %}
                                 </div>
                             </div>
@@ -732,54 +759,52 @@ def payment_setup():
                                 {% if allow_partial %}checked{% endif %}
                             >
                             <div>
-                                <div class="check-title">Allow partial online payments</div>
+                                <div class="check-title">{{ allow_partial_title }}</div>
                                 <div class="check-subtitle">
-                                    Leave this off for now if you want the first version to only collect the full remaining balance.
+                                    {{ allow_partial_subtitle }}
                                 </div>
                             </div>
                         </div>
 
                         <div class="btn-row">
-                            <button type="submit" class="btn-tl btn-primary-tl">Save Payment Settings</button>
+                            <button type="submit" class="btn-tl btn-primary-tl">{{ save_payment_settings_label }}</button>
                         </div>
                     </form>
                 </div>
 
                 <div class="payment-card">
-                    <h3>Setup Notes</h3>
+                    <h3>{{ setup_notes_label }}</h3>
 
                     <div class="payment-meta">
                         <div class="payment-meta-row">
-                            <span class="payment-meta-label">Company</span>
+                            <span class="payment-meta-label">{{ company_label }}</span>
                             <span>{{ company_name }}</span>
                         </div>
 
                         <div class="payment-meta-row">
-                            <span class="payment-meta-label">Platform Key Loaded</span>
-                            <span>{{ 'Yes' if stripe_ready else 'No' }}</span>
+                            <span class="payment-meta-label">{{ platform_key_loaded_label }}</span>
+                            <span>{{ yes_label if stripe_ready else no_label }}</span>
                         </div>
 
                         <div class="payment-meta-row">
-                            <span class="payment-meta-label">Publishable Key Loaded</span>
-                            <span>{{ 'Yes' if publishable_ready else 'No' }}</span>
+                            <span class="payment-meta-label">{{ publishable_key_loaded_label }}</span>
+                            <span>{{ yes_label if publishable_ready else no_label }}</span>
                         </div>
                     </div>
 
                     <div class="callout">
-                        Next step after this page is connected:
-                        TerraLedger will create a Stripe Checkout session for each invoice email,
-                        then a Stripe webhook will mark the invoice paid automatically after a successful payment.
+                        {{ next_step_callout }}
                     </div>
 
                     <p class="small-muted" style="margin-top:16px;">
-                        Recommended first version: full remaining balance only.
+                        {{ recommended_first_version }}
                     </p>
                 </div>
 
             </div>
         </div>
         """,
-        company_name=_row_value(company, "name", "Your Company"),
+        company_name=_row_value(company, "name", _t("Your Company", "Su empresa")),
         status_badge=status_badge,
         connection_status=connection_status,
         stripe_account_id=stripe_account_id,
@@ -794,9 +819,91 @@ def payment_setup():
         last_sync=last_sync,
         stripe_ready=stripe_is_ready(),
         publishable_ready=bool(_stripe_publishable_key()),
+        page_title=_t("Payment Setup", "Configuración de pagos"),
+        page_subtitle=_t(
+            "Connect Stripe so your customers can pay invoices online and funds go to your business.",
+            "Conecta Stripe para que tus clientes puedan pagar facturas en línea y los fondos lleguen a tu negocio.",
+        ),
+        back_to_settings_label=_t("Back to Settings", "Volver a configuración"),
+        stripe_connection_label=_t("Stripe Connection", "Conexión de Stripe"),
+        provider_label=_t("Provider", "Proveedor"),
+        stripe_account_id_label=_t("Stripe Account ID", "ID de cuenta de Stripe"),
+        stripe_email_label=_t("Stripe Email", "Correo de Stripe"),
+        charges_enabled_label=_t("Charges Enabled", "Cobros habilitados"),
+        payouts_enabled_label=_t("Payouts Enabled", "Depósitos habilitados"),
+        details_submitted_label=_t("Details Submitted", "Detalles enviados"),
+        last_status_sync_label=_t("Last Status Sync", "Última sincronización de estado"),
+        not_connected_yet_label=_t("Not connected yet", "Todavía no conectado"),
+        dash_label="—",
+        yes_label=_t("Yes", "Sí"),
+        no_label=_t("No", "No"),
+        not_synced_yet_label=_t("Not synced yet", "Aún no sincronizado"),
+        connect_stripe_label=_t("Connect Stripe", "Conectar Stripe"),
+        continue_setup_label=_t("Continue Setup", "Continuar configuración"),
+        reconnect_stripe_label=_t("Reconnect Stripe", "Reconectar Stripe"),
+        refresh_status_label=_t("Refresh Status", "Actualizar estado"),
+        stripe_callout=_t(
+            "TerraLedger does not need to hold your invoice funds. Your customers pay through Stripe, and payouts go to the connected business account.",
+            "TerraLedger no necesita retener los fondos de tus facturas. Tus clientes pagan a través de Stripe y los depósitos van a la cuenta comercial conectada.",
+        ),
+        invoice_payment_settings_label=_t("Invoice Payment Settings", "Configuración de pago de facturas"),
+        default_payment_message_label=_t(
+            "Default payment message for invoice emails",
+            "Mensaje de pago predeterminado para correos de facturas",
+        ),
+        default_payment_placeholder=_t(
+            "Enter the message you want shown above the Pay Invoice button...",
+            "Escribe el mensaje que quieres mostrar encima del botón Pagar factura...",
+        ),
+        default_payment_help=_t(
+            "This message can be shown in invoice emails when online payments are enabled.",
+            "Este mensaje puede mostrarse en los correos de facturas cuando los pagos en línea estén habilitados.",
+        ),
+        enable_online_payments_title=_t(
+            "Enable online invoice payments",
+            "Habilitar pagos de facturas en línea",
+        ),
+        enable_online_payments_subtitle=_t(
+            "Lets TerraLedger include a Pay Invoice link in invoice emails.",
+            "Permite que TerraLedger incluya un enlace para pagar la factura en los correos de facturas.",
+        ),
+        onboarding_required_note=_t(
+            "Stripe must be fully connected before this can stay enabled.",
+            "Stripe debe estar completamente conectado antes de que esto pueda permanecer habilitado.",
+        ),
+        allow_partial_title=_t(
+            "Allow partial online payments",
+            "Permitir pagos parciales en línea",
+        ),
+        allow_partial_subtitle=_t(
+            "Leave this off for now if you want the first version to only collect the full remaining balance.",
+            "Déjalo desactivado por ahora si quieres que la primera versión solo cobre el saldo restante completo.",
+        ),
+        save_payment_settings_label=_t(
+            "Save Payment Settings",
+            "Guardar configuración de pagos",
+        ),
+        setup_notes_label=_t("Setup Notes", "Notas de configuración"),
+        company_label=_t("Company", "Empresa"),
+        platform_key_loaded_label=_t(
+            "Platform Key Loaded",
+            "Clave de plataforma cargada",
+        ),
+        publishable_key_loaded_label=_t(
+            "Publishable Key Loaded",
+            "Clave pública cargada",
+        ),
+        next_step_callout=_t(
+            "Next step after this page is connected: TerraLedger will create a Stripe Checkout session for each invoice email, then a Stripe webhook will mark the invoice paid automatically after a successful payment.",
+            "Siguiente paso después de conectar esta página: TerraLedger creará una sesión de Stripe Checkout para cada correo de factura, y luego un webhook de Stripe marcará la factura como pagada automáticamente después de un pago exitoso.",
+        ),
+        recommended_first_version=_t(
+            "Recommended first version: full remaining balance only.",
+            "Primera versión recomendada: solo el saldo restante completo.",
+        ),
     )
 
-    return render_page(html, "Payment Setup")
+    return render_page(html, _t("Payment Setup", "Configuración de pagos"))
 
 
 @payment_setup_bp.route("/payment-setup/save", methods=["POST"])
@@ -808,7 +915,7 @@ def save_payment_preferences():
 
     company_id = session.get("company_id")
     if not company_id:
-        flash("Company session not found.")
+        flash(_t("Company session not found.", "No se encontró la sesión de la empresa."))
         return redirect(url_for("dashboard.dashboard"))
 
     settings_row = get_payment_settings(company_id)
@@ -820,7 +927,10 @@ def save_payment_preferences():
     default_message = (request.form.get("default_payment_message") or "").strip()
 
     if requested_payments_enabled and not onboarding_complete:
-        flash("Finish Stripe setup before enabling online invoice payments.")
+        flash(_t(
+            "Finish Stripe setup before enabling online invoice payments.",
+            "Termina la configuración de Stripe antes de habilitar pagos de facturas en línea.",
+        ))
         requested_payments_enabled = False
 
     upsert_payment_settings(
@@ -830,7 +940,7 @@ def save_payment_preferences():
         default_payment_message=default_message,
     )
 
-    flash("Payment settings saved.")
+    flash(_t("Payment settings saved.", "Configuración de pagos guardada."))
     return redirect(url_for("payment_setup.payment_setup"))
 
 
@@ -843,21 +953,27 @@ def connect_stripe_account():
 
     company_id = session.get("company_id")
     if not company_id:
-        flash("Company session not found.")
+        flash(_t("Company session not found.", "No se encontró la sesión de la empresa."))
         return redirect(url_for("dashboard.dashboard"))
 
     company = get_company(company_id)
 
     if not company:
-        flash("Company not found.")
+        flash(_t("Company not found.", "Empresa no encontrada."))
         return redirect(url_for("dashboard.dashboard"))
 
     if stripe is None:
-        flash("Stripe is not installed. Run: pip install stripe")
+        flash(_t(
+            "Stripe is not installed. Run: pip install stripe",
+            "Stripe no está instalado. Ejecuta: pip install stripe",
+        ))
         return redirect(url_for("payment_setup.payment_setup"))
 
     if not _stripe_secret_key():
-        flash("Missing STRIPE_SECRET_KEY in environment variables.")
+        flash(_t(
+            "Missing STRIPE_SECRET_KEY in environment variables.",
+            "Falta STRIPE_SECRET_KEY en las variables de entorno.",
+        ))
         return redirect(url_for("payment_setup.payment_setup"))
 
     settings_row = get_payment_settings(company_id)
@@ -885,7 +1001,10 @@ def connect_stripe_account():
 
     except Exception as e:
         current_app.logger.exception("Stripe connect setup failed.")
-        flash(f"Stripe connection failed: {escape(str(e))}")
+        flash(_t(
+            f"Stripe connection failed: {escape(str(e))}",
+            f"La conexión con Stripe falló: {escape(str(e))}",
+        ))
         return redirect(url_for("payment_setup.payment_setup"))
 
 
@@ -896,7 +1015,7 @@ def connect_stripe_account():
 def payment_setup_return():
     company_id = session.get("company_id")
     if not company_id:
-        flash("Company session not found.")
+        flash(_t("Company session not found.", "No se encontró la sesión de la empresa."))
         return redirect(url_for("dashboard.dashboard"))
 
     try:
@@ -909,14 +1028,26 @@ def payment_setup_return():
             onboarding_complete = bool(_row_value(refreshed, "onboarding_complete", False))
 
             if onboarding_complete:
-                flash("Stripe setup complete. Online payments can now be enabled.")
+                flash(_t(
+                    "Stripe setup complete. Online payments can now be enabled.",
+                    "La configuración de Stripe está completa. Ahora se pueden habilitar los pagos en línea.",
+                ))
             else:
-                flash("Stripe setup was updated, but more information may still be required.")
+                flash(_t(
+                    "Stripe setup was updated, but more information may still be required.",
+                    "La configuración de Stripe se actualizó, pero todavía puede requerirse más información.",
+                ))
         else:
-            flash("Stripe account was not found for this company.")
+            flash(_t(
+                "Stripe account was not found for this company.",
+                "No se encontró una cuenta de Stripe para esta empresa.",
+            ))
     except Exception as e:
         current_app.logger.exception("Stripe return sync failed.")
-        flash(f"Could not refresh Stripe status: {escape(str(e))}")
+        flash(_t(
+            f"Could not refresh Stripe status: {escape(str(e))}",
+            f"No se pudo actualizar el estado de Stripe: {escape(str(e))}",
+        ))
 
     return redirect(url_for("payment_setup.payment_setup"))
 
@@ -928,7 +1059,7 @@ def payment_setup_return():
 def payment_setup_refresh():
     company_id = session.get("company_id")
     if not company_id:
-        flash("Company session not found.")
+        flash(_t("Company session not found.", "No se encontró la sesión de la empresa."))
         return redirect(url_for("dashboard.dashboard"))
 
     try:
@@ -936,13 +1067,19 @@ def payment_setup_refresh():
         stripe_account_id = _row_value(settings_row, "stripe_account_id")
 
         if not stripe_account_id:
-            flash("No Stripe account is connected yet.")
+            flash(_t(
+                "No Stripe account is connected yet.",
+                "Todavía no hay una cuenta de Stripe conectada.",
+            ))
             return redirect(url_for("payment_setup.payment_setup"))
 
         sync_stripe_status(company_id, stripe_account_id)
-        flash("Stripe status refreshed.")
+        flash(_t("Stripe status refreshed.", "Estado de Stripe actualizado."))
     except Exception as e:
         current_app.logger.exception("Stripe status refresh failed.")
-        flash(f"Could not refresh Stripe status: {escape(str(e))}")
+        flash(_t(
+            f"Could not refresh Stripe status: {escape(str(e))}",
+            f"No se pudo actualizar el estado de Stripe: {escape(str(e))}",
+        ))
 
     return redirect(url_for("payment_setup.payment_setup"))

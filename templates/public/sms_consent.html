@@ -1,10 +1,10 @@
 <!-- templates/public/sms_consent.html -->
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ 'es' if _lang == 'es' else 'en' }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SMS Consent | TerraLedger</title>
+    <title>{{ "Consentimiento SMS | TerraLedger" if _lang == "es" else "SMS Consent | TerraLedger" }}</title>
     <style>
         :root {
             --bg: #f7f7f5;
@@ -104,36 +104,59 @@
     <div class="wrap">
         <div class="card">
             <div class="brand">TerraLedger</div>
-            <h1>SMS Notifications Opt-In</h1>
+            <h1>{{ "Consentimiento para Notificaciones SMS" if _lang == "es" else "SMS Notifications Opt-In" }}</h1>
 
             <p>
+                {% if _lang == "es" %}
+                TerraLedger es una plataforma de gestión empresarial utilizada por empresas de servicios para comunicarse con sus clientes
+                sobre servicios activos y actualizaciones relacionadas con la cuenta.
+                {% else %}
                 TerraLedger is a business management platform used by service companies to communicate with customers
                 about active services and account-related updates.
+                {% endif %}
             </p>
 
             <p>
-                Customers may choose to receive SMS messages related to:
+                {{ "Los clientes pueden optar por recibir mensajes SMS relacionados con:" if _lang == "es" else "Customers may choose to receive SMS messages related to:" }}
             </p>
 
             <ul>
+                {% if _lang == "es" %}
+                <li>actualizaciones de programación de trabajos</li>
+                <li>recordatorios de citas</li>
+                <li>notificaciones de llegada en camino</li>
+                <li>alertas de inicio y finalización de trabajo</li>
+                <li>recordatorios de facturas y notificaciones de cuenta</li>
+                {% else %}
                 <li>job scheduling updates</li>
                 <li>appointment reminders</li>
                 <li>on-the-way notifications</li>
                 <li>job started / job completed alerts</li>
                 <li>invoice reminders and account notifications</li>
+                {% endif %}
             </ul>
 
-            <h2>How consent is collected</h2>
+            <h2>{{ "Cómo se obtiene el consentimiento" if _lang == "es" else "How consent is collected" }}</h2>
             <p>
+                {% if _lang == "es" %}
+                Durante el registro del cliente o la configuración del perfil, el cliente proporciona su número móvil y puede opcionalmente
+                marcar una casilla de consentimiento SMS para aceptar recibir mensajes de negocios que utilizan TerraLedger.
+                La casilla no está preseleccionada.
+                {% else %}
                 During customer intake or profile setup, the customer provides their mobile number and may optionally
                 check a dedicated SMS consent box agreeing to receive text messages from TerraLedger-powered businesses.
                 The checkbox is not preselected.
+                {% endif %}
             </p>
 
             <div class="example-box">
-                <h2 style="margin-bottom: 10px;">Example web opt-in</h2>
+                <h2 style="margin-bottom: 10px;">
+                    {{ "Ejemplo de consentimiento web" if _lang == "es" else "Example web opt-in" }}
+                </h2>
 
-                <label for="example-phone">Mobile phone number</label><br>
+                <label for="example-phone">
+                    {{ "Número de teléfono móvil" if _lang == "es" else "Mobile phone number" }}
+                </label><br>
                 <input
                     id="example-phone"
                     type="text"
@@ -145,33 +168,45 @@
                 <div class="consent-row">
                     <input type="checkbox" id="sms_opt_in_example">
                     <label for="sms_opt_in_example">
+                        {% if _lang == "es" %}
+                        Acepto recibir notificaciones SMS de TerraLedger sobre actualizaciones de programación, alertas de servicio
+                        y recordatorios de facturas. La frecuencia de los mensajes puede variar. Pueden aplicarse tarifas de mensajes y datos.
+                        Responda STOP para cancelar y HELP para ayuda.
+                        {% else %}
                         I agree to receive SMS notifications from TerraLedger regarding scheduling updates, service alerts,
                         and invoice reminders. Message frequency may vary. Message and data rates may apply.
                         Reply STOP to opt out and HELP for help.
+                        {% endif %}
                     </label>
                 </div>
 
                 <p class="muted" style="margin-bottom: 0;">
-                    The checkbox above is shown as an example of the consent language used in the platform.
+                    {{ "La casilla anterior es un ejemplo del lenguaje de consentimiento utilizado en la plataforma." if _lang == "es" else "The checkbox above is shown as an example of the consent language used in the platform." }}
                 </p>
             </div>
 
-            <h2>Message details</h2>
+            <h2>{{ "Detalles del mensaje" if _lang == "es" else "Message details" }}</h2>
             <p>
+                {% if _lang == "es" %}
+                La frecuencia de los mensajes puede variar. Pueden aplicarse tarifas de mensajes y datos. El consentimiento no es una condición de compra.
+                Los clientes pueden cancelar en cualquier momento respondiendo <strong>STOP</strong> y pueden responder
+                <strong>HELP</strong> para asistencia.
+                {% else %}
                 Message frequency may vary. Message and data rates may apply. Consent is not a condition of purchase.
                 Customers can opt out at any time by replying <strong>STOP</strong> and can reply
                 <strong>HELP</strong> for assistance.
+                {% endif %}
             </p>
 
             <p>
-                For more information, see our
-                <a href="/privacy">Privacy Policy</a>
-                and
-                <a href="/terms">Terms of Service</a>.
+                {{ "Para más información, consulte nuestra" if _lang == "es" else "For more information, see our" }}
+                <a href="/privacy">{{ "Política de Privacidad" if _lang == "es" else "Privacy Policy" }}</a>
+                {{ "y" if _lang == "es" else "and" }}
+                <a href="/terms">{{ "Términos de Servicio" if _lang == "es" else "Terms of Service" }}</a>.
             </p>
 
             <div class="footer-note">
-                Public compliance page for messaging verification.
+                {{ "Página pública de cumplimiento para verificación de mensajería." if _lang == "es" else "Public compliance page for messaging verification." }}
             </div>
         </div>
     </div>

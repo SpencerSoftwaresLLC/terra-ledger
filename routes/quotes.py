@@ -50,6 +50,37 @@ ITEM_TYPE_LABELS = {
 }
 
 
+ITEM_TYPE_LABELS_ES = {
+    "mowing": "Corte de césped",
+    "mulch": "Mantillo",
+    "stone": "Piedra",
+    "dump_fee": "Cargo de vertedero",
+    "plants": "Plantas",
+    "trees": "Árboles",
+    "soil": "Tierra",
+    "fertilizer": "Fertilizante",
+    "hardscape_material": "Material de paisajismo duro",
+    "labor": "Mano de obra",
+    "equipment": "Equipo",
+    "delivery": "Entrega",
+    "fuel": "Combustible",
+    "misc": "Varios",
+    "material": "Material",
+}
+
+
+def _lang():
+    return "es" if session.get("language") == "es" else "en"
+
+
+def _is_es():
+    return _lang() == "es"
+
+
+def _t(en, es):
+    return es if _is_es() else en
+
+
 def _safe_float(value):
     try:
         return float(value or 0)
@@ -66,6 +97,10 @@ def _clean_text(value):
 
 def _display_item_type(value):
     key = (value or "").strip().lower()
+    if _is_es():
+        if key in ITEM_TYPE_LABELS_ES:
+            return ITEM_TYPE_LABELS_ES[key]
+        return key.replace("_", " ").title() if key else "Material"
     if key in ITEM_TYPE_LABELS:
         return ITEM_TYPE_LABELS[key]
     return key.replace("_", " ").title() if key else "Material"
@@ -75,27 +110,45 @@ def _default_unit_for_quote_item_type(item_type):
     key = (item_type or "").strip().lower()
 
     if key == "mowing":
-        return "Cuts"
+        return _t("Cuts", "Cortes")
     if key == "mulch":
-        return "Yards"
+        return _t("Yards", "Yardas")
     if key == "stone":
-        return "Tons"
+        return _t("Tons", "Toneladas")
     if key == "soil":
-        return "Yards"
+        return _t("Yards", "Yardas")
     if key == "hardscape_material":
-        return "Tons"
+        return _t("Tons", "Toneladas")
     if key == "fuel":
-        return "Gallons"
+        return _t("Gallons", "Galones")
     if key == "delivery":
-        return "Miles"
+        return _t("Miles", "Millas")
     if key == "labor":
-        return "Hours"
+        return _t("Hours", "Horas")
     if key == "equipment":
-        return "Rentals"
+        return _t("Rentals", "Alquileres")
     if key == "dump_fee":
         return ""
 
     return ""
+
+
+def _status_label(status):
+    raw = _clean_text(status)
+    key = raw.lower()
+
+    if not _is_es():
+        return raw or "-"
+
+    translations = {
+        "draft": "Borrador",
+        "sent": "Enviada",
+        "approved": "Aprobada",
+        "converted": "Convertida",
+        "finished": "Finalizada",
+        "scheduled": "Programada",
+    }
+    return translations.get(key, raw or "-")
 
 
 def is_mowing_quote(items):
@@ -105,7 +158,7 @@ def is_mowing_quote(items):
     return False
 
 
-def _quote_summary_text(quote, items):
+def _quote_summary_text(quote, items, lang="en"):
     notes = _clean_text(quote["notes"]) if "notes" in quote.keys() else ""
     quote_title = _clean_text(quote["title"]) if "title" in quote.keys() else ""
     item_descriptions = []
@@ -124,11 +177,11 @@ def _quote_summary_text(quote, items):
             deduped.append(desc)
 
     if is_mowing_quote(items):
-        summary = "Proposed mowing service"
+        summary = "Servicio de corte de césped propuesto" if lang == "es" else "Proposed mowing service"
         if deduped:
-            summary += f" including {', '.join(deduped[:5])}."
+            summary += f" {'incluyendo' if lang == 'es' else 'including'} {', '.join(deduped[:5])}."
         elif quote_title:
-            summary += f" for {quote_title}."
+            summary += f" {'para' if lang == 'es' else 'for'} {quote_title}."
         else:
             summary += "."
         return summary
@@ -137,8 +190,8 @@ def _quote_summary_text(quote, items):
         if len(deduped) == 1:
             return deduped[0]
         if len(deduped) == 2:
-            return f"{deduped[0]} and {deduped[1]}"
-        return ", ".join(deduped[:-1]) + f", and {deduped[-1]}"
+            return f"{deduped[0]} {'y' if lang == 'es' else 'and'} {deduped[1]}"
+        return ", ".join(deduped[:-1]) + f", {'y' if lang == 'es' else 'and'} {deduped[-1]}"
 
     if notes:
         return notes
@@ -146,7 +199,7 @@ def _quote_summary_text(quote, items):
     if quote_title:
         return quote_title
 
-    return "Proposed service."
+    return "Servicio propuesto." if lang == "es" else "Proposed service."
 
 
 def ensure_quote_item_columns():
@@ -168,7 +221,7 @@ def ensure_quote_item_columns():
     conn.close()
 
 
-def build_quote_pdf(quote, items, company, profile):
+def build_quote_pdf(quote, items, company, profile, lang="en"):
     pdf_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     pdf_temp.close()
 
@@ -181,13 +234,13 @@ def build_quote_pdf(quote, items, company, profile):
             else (
                 profile["display_name"]
                 if profile and profile["display_name"]
-                else (company["name"] if company else "Your Company")
+                else (company["name"] if company else ("Su empresa" if lang == "es" else "Your Company"))
             )
         )
 
         footer_note = profile["quote_footer_note"] if profile and profile["quote_footer_note"] else ""
         logo_url = profile["logo_url"] if profile and profile["logo_url"] else ""
-        summary_text = _quote_summary_text(quote, items)
+        summary_text = _quote_summary_text(quote, items, lang=lang)
 
         address_parts = []
         if company:
@@ -250,6 +303,15 @@ def build_quote_pdf(quote, items, company, profile):
 
         footer_chunks = [footer_note[i:i + 95] for i in range(0, len(footer_note), 95)] if footer_note else []
 
+        quote_doc_label = "COTIZACIÓN" if lang == "es" else "QUOTE"
+        quote_number_label = "Cotización #:" if lang == "es" else "Quote #:"
+        customer_label = "Cliente:" if lang == "es" else "Customer:"
+        status_label = "Estado:" if lang == "es" else "Status:"
+        date_label = "Fecha:" if lang == "es" else "Date:"
+        service_summary_label = "Resumen del servicio" if lang == "es" else "Service Summary"
+        total_label = "Total:" if lang == "es" else "Total:"
+        notes_label = "Notas:" if lang == "es" else "Notes:"
+
         def draw_footer():
             if not footer_chunks:
                 return
@@ -299,10 +361,10 @@ def build_quote_pdf(quote, items, company, profile):
                     text_x = 50
 
             c.setFont("Helvetica-Bold", 18)
-            c.drawString(text_x, y_pos, str(company_name or "Your Company")[:45])
+            c.drawString(text_x, y_pos, str(company_name or ("Su empresa" if lang == "es" else "Your Company"))[:45])
 
             c.setFont("Helvetica-Bold", 20)
-            c.drawRightString(width - 50, height - 50, "QUOTE")
+            c.drawRightString(width - 50, height - 50, quote_doc_label)
 
             info_y = y_pos - 22
             c.setFont("Helvetica", 10)
@@ -326,22 +388,22 @@ def build_quote_pdf(quote, items, company, profile):
 
         ensure_space(90)
         c.setFont("Helvetica-Bold", 11)
-        c.drawString(50, y, f"Quote #: {quote_number}")
+        c.drawString(50, y, f"{quote_number_label} {quote_number}")
         y -= 16
-        c.drawString(50, y, f"Customer: {quote['customer_name'] or ''}")
+        c.drawString(50, y, f"{customer_label} {quote['customer_name'] or ''}")
         y -= 16
-        c.drawString(50, y, f"Status: {quote['status'] or ''}")
+        c.drawString(50, y, f"{status_label} {_status_label(quote['status']) if lang == 'es' else (quote['status'] or '')}")
         y -= 16
-        c.drawString(50, y, f"Date: {quote['quote_date'] or date.today().isoformat()}")
+        c.drawString(50, y, f"{date_label} {quote['quote_date'] or date.today().isoformat()}")
         y -= 24
 
         ensure_space(80)
         c.setFont("Helvetica-Bold", 11)
-        c.drawString(50, y, "Service Summary")
+        c.drawString(50, y, service_summary_label)
         y -= 18
 
         c.setFont("Helvetica", 10)
-        summary_chunks = [summary_text[i:i + 95] for i in range(0, len(summary_text), 95)] if summary_text else ["Proposed service."]
+        summary_chunks = [summary_text[i:i + 95] for i in range(0, len(summary_text), 95)] if summary_text else (["Servicio propuesto."] if lang == "es" else ["Proposed service."])
         for chunk in summary_chunks:
             ensure_space(18)
             c.drawString(50, y, chunk)
@@ -352,13 +414,13 @@ def build_quote_pdf(quote, items, company, profile):
         c.line(380, y, 560, y)
         y -= 18
         c.setFont("Helvetica-Bold", 12)
-        c.drawRightString(560, y, f"Total: ${float(quote['total'] or 0):.2f}")
+        c.drawRightString(560, y, f"{total_label} ${float(quote['total'] or 0):.2f}")
         y -= 28
 
         if quote["notes"]:
             ensure_space(50)
             c.setFont("Helvetica-Bold", 11)
-            c.drawString(50, y, "Notes:")
+            c.drawString(50, y, notes_label)
             y -= 18
 
             c.setFont("Helvetica", 10)
@@ -435,7 +497,7 @@ def quotes():
 
         if not customer_id:
             conn.close()
-            flash("Please select a customer from the search results.")
+            flash(_t("Please select a customer from the search results.", "Por favor selecciona un cliente de los resultados de búsqueda."))
             return redirect(url_for("quotes.quotes"))
 
         quote_number = (request.form.get("quote_number") or "").strip()
@@ -471,14 +533,14 @@ def quotes():
         if not row or "id" not in row:
             conn.rollback()
             conn.close()
-            flash("Could not create quote.")
+            flash(_t("Could not create quote.", "No se pudo crear la cotización."))
             return redirect(url_for("quotes.quotes"))
 
         quote_id = row["id"]
         conn.commit()
         conn.close()
 
-        flash(f"Quote #{quote_number} created. Add items next.")
+        flash(_t(f"Quote #{quote_number} created. Add items next.", f"Cotización #{quote_number} creada. Agrega artículos ahora."))
         return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
     rows = conn.execute(
@@ -500,6 +562,7 @@ def quotes():
 
     for r in rows:
         delete_csrf = generate_csrf()
+        confirm_delete = _t("Delete this quote?", "¿Eliminar esta cotización?")
 
         quote_row_list.append(
             f"""<tr>
@@ -507,18 +570,18 @@ def quotes():
                 <td>{escape(r['quote_number'] or '-')}</td>
                 <td>{escape(r['customer_name'] or '-')}</td>
                 <td>${float(r['total'] or 0):.2f}</td>
-                <td>{escape(r['status'] or '-')}</td>
+                <td>{escape(_status_label(r['status']))}</td>
                 <td>
                     <div class='row-actions'>
-                        <a class='btn secondary small' href='{url_for("quotes.view_quote", quote_id=r["id"])}'>View</a>
-                        <a class='btn small' href='{url_for("quotes.email_quote_preview", quote_id=r["id"])}'>Email</a>
-                        <a class='btn success small' href='{url_for("quotes.convert_quote_to_job", quote_id=r["id"])}'>Convert to Job</a>
+                        <a class='btn secondary small' href='{url_for("quotes.view_quote", quote_id=r["id"])}'>{_t("View", "Ver")}</a>
+                        <a class='btn small' href='{url_for("quotes.email_quote_preview", quote_id=r["id"])}'>{_t("Email", "Correo")}</a>
+                        <a class='btn success small' href='{url_for("quotes.convert_quote_to_job", quote_id=r["id"])}'>{_t("Convert to Job", "Convertir a trabajo")}</a>
                         <form method='post'
                               action='{url_for("quotes.delete_quote", quote_id=r["id"])}'
                               style='display:inline;'
-                              onsubmit="return confirm('Delete this quote?');">
+                              onsubmit="return confirm({confirm_delete!r});">
                             <input type="hidden" name="csrf_token" value="{delete_csrf}">
-                            <button class='btn danger small' type='submit'>Delete</button>
+                            <button class='btn danger small' type='submit'>{_t("Delete", "Eliminar")}</button>
                         </form>
                     </div>
                 </td>
@@ -529,27 +592,27 @@ def quotes():
             f"""
             <div class='mobile-list-card'>
                 <div class='mobile-list-top'>
-                    <div class='mobile-list-title'>Quote #{escape(r['quote_number'] or '-')}</div>
-                    <div class='mobile-badge'>{escape(r['status'] or '-')}</div>
+                    <div class='mobile-list-title'>{_t("Quote", "Cotización")} #{escape(r['quote_number'] or '-')}</div>
+                    <div class='mobile-badge'>{escape(_status_label(r['status']))}</div>
                 </div>
 
                 <div class='mobile-list-grid'>
                     <div><span>ID</span><strong>#{r['id']}</strong></div>
-                    <div><span>Customer</span><strong>{escape(r['customer_name'] or '-')}</strong></div>
-                    <div><span>Total</span><strong>${float(r['total'] or 0):.2f}</strong></div>
-                    <div><span>Status</span><strong>{escape(r['status'] or '-')}</strong></div>
+                    <div><span>{_t("Customer", "Cliente")}</span><strong>{escape(r['customer_name'] or '-')}</strong></div>
+                    <div><span>{_t("Total", "Total")}</span><strong>${float(r['total'] or 0):.2f}</strong></div>
+                    <div><span>{_t("Status", "Estado")}</span><strong>{escape(_status_label(r['status']))}</strong></div>
                 </div>
 
                 <div class='mobile-list-actions'>
-                    <a class='btn secondary small' href='{url_for("quotes.view_quote", quote_id=r["id"])}'>View</a>
-                    <a class='btn small' href='{url_for("quotes.email_quote_preview", quote_id=r["id"])}'>Email</a>
-                    <a class='btn success small' href='{url_for("quotes.convert_quote_to_job", quote_id=r["id"])}'>Convert to Job</a>
+                    <a class='btn secondary small' href='{url_for("quotes.view_quote", quote_id=r["id"])}'>{_t("View", "Ver")}</a>
+                    <a class='btn small' href='{url_for("quotes.email_quote_preview", quote_id=r["id"])}'>{_t("Email", "Correo")}</a>
+                    <a class='btn success small' href='{url_for("quotes.convert_quote_to_job", quote_id=r["id"])}'>{_t("Convert to Job", "Convertir a trabajo")}</a>
                     <form method='post'
                           action='{url_for("quotes.delete_quote", quote_id=r["id"])}'
                           style='display:inline;'
-                          onsubmit="return confirm('Delete this quote?');">
+                          onsubmit="return confirm({confirm_delete!r});">
                         <input type="hidden" name="csrf_token" value="{delete_csrf}">
-                        <button class='btn danger small' type='submit'>Delete</button>
+                        <button class='btn danger small' type='submit'>{_t("Delete", "Eliminar")}</button>
                     </form>
                 </div>
             </div>
@@ -724,9 +787,9 @@ def quotes():
     <div class='quotes-page'>
         <div class='card'>
             <div class='quotes-head'>
-                <h1 style='margin:0;'>Quotes</h1>
+                <h1 style='margin:0;'>{_t("Quotes", "Cotizaciones")}</h1>
                 <div class='row-actions'>
-                    <a class='btn warning' href='{url_for("quotes.finished_quotes")}'>Finished Quotes</a>
+                    <a class='btn warning' href='{url_for("quotes.finished_quotes")}'>{_t("Finished Quotes", "Cotizaciones finalizadas")}</a>
                 </div>
             </div>
 
@@ -734,63 +797,65 @@ def quotes():
                 <input type="hidden" name="csrf_token" value="{form_csrf}">
                 <div class='grid'>
                     <div class='customer-search-wrap'>
-                        <label>Customer</label>
+                        <label>{_t("Customer", "Cliente")}</label>
                         <div class='customer-search-input-wrap'>
-                            <input type='text' id='customer_search' placeholder='Search customer name, company, or email...' autocomplete='off' required>
+                            <input type='text' id='customer_search' placeholder='{escape(_t("Search customer name, company, or email...", "Busca nombre del cliente, empresa o correo..."), quote=True)}' autocomplete='off' required>
                             <input type='hidden' name='customer_id' id='customer_id' required>
                             <div id='customer_results' class='customer-results'></div>
                         </div>
                     </div>
 
                     <div>
-                        <label>Quote Number</label>
-                        <input name='quote_number' placeholder='Auto-assigned if left blank'>
+                        <label>{_t("Quote Number", "Número de cotización")}</label>
+                        <input name='quote_number' placeholder='{escape(_t("Auto-assigned if left blank", "Se asigna automáticamente si se deja en blanco"), quote=True)}'>
                     </div>
 
                     <div>
-                        <label>Quote Date</label>
+                        <label>{_t("Quote Date", "Fecha de cotización")}</label>
                         <input type='date' name='quote_date' value='{date.today().isoformat()}'>
                     </div>
 
                     <div>
-                        <label>Expiration Date</label>
+                        <label>{_t("Expiration Date", "Fecha de vencimiento")}</label>
                         <input type='date' name='expiration_date'>
                     </div>
 
                     <div>
-                        <label>Status</label>
+                        <label>{_t("Status", "Estado")}</label>
                         <select name='status'>
-                            <option>Draft</option>
-                            <option>Sent</option>
-                            <option>Approved</option>
+                            <option value='Draft'>{_t("Draft", "Borrador")}</option>
+                            <option value='Sent'>{_t("Sent", "Enviada")}</option>
+                            <option value='Approved'>{_t("Approved", "Aprobada")}</option>
                         </select>
                     </div>
                 </div>
 
-                <br><label>Notes</label><textarea name='notes'>{escape(default_quote_notes)}</textarea><br>
-                <button class='btn'>Create Quote</button>
+                <br><label>{_t("Notes", "Notas")}</label><textarea name='notes'>{escape(default_quote_notes)}</textarea><br>
+                <button class='btn'>{_t("Create Quote", "Crear cotización")}</button>
             </form>
         </div>
 
         <div class='card'>
-            <h2>Quote List</h2>
+            <h2>{_t("Quote List", "Lista de cotizaciones")}</h2>
 
             <div class='table-wrap desktop-only'>
                 <table>
-                    <tr><th>ID</th><th>Number</th><th>Customer</th><th>Total</th><th>Status</th><th>Actions</th></tr>
-                    {quote_rows or '<tr><td colspan="6" class="muted">No quotes yet.</td></tr>'}
+                    <tr><th>ID</th><th>{_t("Number", "Número")}</th><th>{_t("Customer", "Cliente")}</th><th>{_t("Total", "Total")}</th><th>{_t("Status", "Estado")}</th><th>{_t("Actions", "Acciones")}</th></tr>
+                    {quote_rows or f'<tr><td colspan="6" class="muted">{_t("No quotes yet.", "Todavía no hay cotizaciones.")}</td></tr>'}
                 </table>
             </div>
 
             <div class='mobile-only'>
                 <div class='mobile-list'>
-                    {quote_mobile_cards_html or "<div class='mobile-list-card muted'>No quotes yet.</div>"}
+                    {quote_mobile_cards_html or f"<div class='mobile-list-card muted'>{_t('No quotes yet.', 'Todavía no hay cotizaciones.')}</div>"}
                 </div>
             </div>
         </div>
 
         <script>
             const customers = {json.dumps(customer_list)};
+            const noCustomersFoundText = {json.dumps(_t("No customers found", "No se encontraron clientes"))};
+            const unnamedCustomerText = {json.dumps(_t("Unnamed Customer", "Cliente sin nombre"))};
 
             const searchInput = document.getElementById("customer_search");
             const customerIdInput = document.getElementById("customer_id");
@@ -812,14 +877,14 @@ def quotes():
 
             function renderCustomerResults(matches) {{
                 if (!matches.length) {{
-                    resultsBox.innerHTML = "<div class='customer-result-item muted'>No customers found</div>";
+                    resultsBox.innerHTML = "<div class='customer-result-item muted'>" + escapeHtml(noCustomersFoundText) + "</div>";
                     resultsBox.classList.add("show");
                     return;
                 }}
 
                 resultsBox.innerHTML = matches.map(c => `
                     <div class="customer-result-item" data-id="${{c.id}}">
-                        <strong>${{escapeHtml(c.name || "Unnamed Customer")}}</strong>
+                        <strong>${{escapeHtml(c.name || unnamedCustomerText)}}</strong>
                         ${{c.company ? `<div class="muted small">${{escapeHtml(c.company)}}</div>` : ""}}
                         ${{c.email ? `<div class="muted small">${{escapeHtml(c.email)}}</div>` : ""}}
                     </div>
@@ -836,7 +901,7 @@ def quotes():
                         customerIdInput.value = customer.id;
                         searchInput.value = customer.company
                             ? `${{customer.name}} - ${{customer.company}}`
-                            : customer.name;
+                            : (customer.name || unnamedCustomerText);
 
                         closeResults();
                     }});
@@ -869,7 +934,7 @@ def quotes():
         </script>
     </div>
     """
-    return render_page(content, "Quotes")
+    return render_page(content, _t("Quotes", "Cotizaciones"))
 
 
 @quotes_bp.route("/quotes/<int:quote_id>", methods=["GET", "POST"])
@@ -906,7 +971,7 @@ def view_quote(quote_id):
 
         if not description:
             conn.close()
-            flash("Description is required.")
+            flash(_t("Description is required.", "La descripción es obligatoria."))
             return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
         default_unit = _default_unit_for_quote_item_type(item_type)
@@ -924,7 +989,7 @@ def view_quote(quote_id):
             if quantity <= 0:
                 quantity = 1
             if not unit:
-                unit = "Cuts"
+                unit = _t("Cuts", "Cortes")
 
         if item_type == "dump_fee":
             unit = ""
@@ -945,7 +1010,7 @@ def view_quote(quote_id):
         conn.commit()
         conn.close()
 
-        flash("Quote item added.")
+        flash(_t("Quote item added.", "Artículo de cotización agregado."))
         return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
     items = conn.execute(
@@ -960,6 +1025,7 @@ def view_quote(quote_id):
     for i in items:
         delete_item_csrf = generate_csrf()
         unit_cost_display = "-" if (i["item_type"] or "").strip().lower() in ["dump_fee", "labor"] else f"${float(i['unit_cost'] or 0):.2f}"
+        confirm_delete = _t("Delete this line item?", "¿Eliminar esta línea?")
 
         item_row_list.append(
             f"""
@@ -975,9 +1041,9 @@ def view_quote(quote_id):
                     <form method="post"
                           action="{url_for('quotes.delete_quote_item', quote_id=quote_id, item_id=i['id'])}"
                           style="display:inline;"
-                          onsubmit="return confirm('Delete this line item?');">
+                          onsubmit="return confirm({confirm_delete!r});">
                         <input type="hidden" name="csrf_token" value="{delete_item_csrf}">
-                        <button class="btn danger small" type="submit">Delete</button>
+                        <button class="btn danger small" type="submit">{_t("Delete", "Eliminar")}</button>
                     </form>
                 </td>
             </tr>
@@ -992,20 +1058,20 @@ def view_quote(quote_id):
                 </div>
 
                 <div class='mobile-list-grid'>
-                    <div><span>Qty</span><strong>{float(i['quantity'] or 0):g}</strong></div>
-                    <div><span>Unit</span><strong>{escape(i['unit'] or '-')}</strong></div>
-                    <div><span>Sale Price / Rate / Fee</span><strong>${float(i['unit_price'] or 0):.2f}</strong></div>
-                    <div><span>Unit Cost (Internal)</span><strong>{unit_cost_display}</strong></div>
-                    <div><span>Line Total</span><strong>${float(i['line_total'] or 0):.2f}</strong></div>
+                    <div><span>{_t("Qty", "Cant.")}</span><strong>{float(i['quantity'] or 0):g}</strong></div>
+                    <div><span>{_t("Unit", "Unidad")}</span><strong>{escape(i['unit'] or '-')}</strong></div>
+                    <div><span>{_t("Sale Price / Rate / Fee", "Precio de venta / tarifa / cargo")}</span><strong>${float(i['unit_price'] or 0):.2f}</strong></div>
+                    <div><span>{_t("Unit Cost (Internal)", "Costo unitario (interno)")}</span><strong>{unit_cost_display}</strong></div>
+                    <div><span>{_t("Line Total", "Total de línea")}</span><strong>${float(i['line_total'] or 0):.2f}</strong></div>
                 </div>
 
                 <div class='mobile-list-actions'>
                     <form method="post"
                           action="{url_for('quotes.delete_quote_item', quote_id=quote_id, item_id=i['id'])}"
                           style="display:inline;"
-                          onsubmit="return confirm('Delete this line item?');">
+                          onsubmit="return confirm({confirm_delete!r});">
                         <input type="hidden" name="csrf_token" value="{delete_item_csrf}">
-                        <button class="btn danger small" type="submit">Delete</button>
+                        <button class="btn danger small" type="submit">{_t("Delete", "Eliminar")}</button>
                     </form>
                 </div>
             </div>
@@ -1181,45 +1247,45 @@ def view_quote(quote_id):
         <div class='card'>
             <div class='quote-head'>
                 <div>
-                    <h1 style='margin-bottom:6px;'>Quote #{quote['id']} <span class='pill'>{escape(quote['status'] or '-')}</span></h1>
+                    <h1 style='margin-bottom:6px;'>{_t("Quote", "Cotización")} #{quote['id']} <span class='pill'>{escape(_status_label(quote['status']))}</span></h1>
                 </div>
                 <div class='row-actions'>
-                    <a class='btn secondary' href='{url_for("quotes.quotes")}'>Back to Quotes</a>
-                    <a class='btn' href='{url_for("quotes.email_quote_preview", quote_id=quote_id)}'>Email Quote</a>
-                    <a class='btn success' href='{url_for("quotes.convert_quote_to_job", quote_id=quote_id)}'>Convert to Job</a>
+                    <a class='btn secondary' href='{url_for("quotes.quotes")}'>{_t("Back to Quotes", "Volver a cotizaciones")}</a>
+                    <a class='btn' href='{url_for("quotes.email_quote_preview", quote_id=quote_id)}'>{_t("Email Quote", "Enviar cotización")}</a>
+                    <a class='btn success' href='{url_for("quotes.convert_quote_to_job", quote_id=quote_id)}'>{_t("Convert to Job", "Convertir a trabajo")}</a>
                 </div>
             </div>
 
             <div class='quote-meta-grid'>
                 <div class='quote-meta-card'>
-                    <span>Customer</span>
+                    <span>{_t("Customer", "Cliente")}</span>
                     <strong>{escape(quote['customer_name'] or '-')}</strong>
                 </div>
                 <div class='quote-meta-card'>
-                    <span>Customer Email</span>
+                    <span>{_t("Customer Email", "Correo del cliente")}</span>
                     <strong>{escape(quote['customer_email'] or '-')}</strong>
                 </div>
                 <div class='quote-meta-card'>
-                    <span>Status</span>
-                    <strong>{escape(quote['status'] or '-')}</strong>
+                    <span>{_t("Status", "Estado")}</span>
+                    <strong>{escape(_status_label(quote['status']))}</strong>
                 </div>
                 <div class='quote-meta-card'>
-                    <span>Quote Number</span>
+                    <span>{_t("Quote Number", "Número de cotización")}</span>
                     <strong>{escape(quote['quote_number'] or '-')}</strong>
                 </div>
                 <div class='quote-meta-card'>
-                    <span>Quote Date</span>
+                    <span>{_t("Quote Date", "Fecha de cotización")}</span>
                     <strong>{escape(str(quote['quote_date'] or '-'))}</strong>
                 </div>
                 <div class='quote-meta-card'>
-                    <span>Expiration Date</span>
+                    <span>{_t("Expiration Date", "Fecha de vencimiento")}</span>
                     <strong>{escape(str(quote['expiration_date'] or '-'))}</strong>
                 </div>
             </div>
 
             <div class='quote-total-grid'>
                 <div class='quote-total-card'>
-                    <span>Total</span>
+                    <span>{_t("Total", "Total")}</span>
                     <strong>${float(quote['total'] or 0):.2f}</strong>
                 </div>
             </div>
@@ -1227,82 +1293,85 @@ def view_quote(quote_id):
 
         <div class='card'>
             <div class='notice' style='margin-bottom:16px;'>
-                <strong>Internal pricing note:</strong> “Your Cost (Internal)” is saved for your records and job profit tracking only.
-                It is not shown on the customer PDF or email.
+                <strong>{_t("Internal pricing note:", "Nota de precio interno:")}</strong>
+                {_t(
+                    "“Your Cost (Internal)” is saved for your records and job profit tracking only. It is not shown on the customer PDF or email.",
+                    "“Tu costo (interno)” se guarda solo para tus registros y seguimiento de ganancias del trabajo. No se muestra en el PDF ni en el correo del cliente."
+                )}
             </div>
 
-            <h2>Add Quote Item</h2>
+            <h2>{_t("Add Quote Item", "Agregar artículo a la cotización")}</h2>
             <form method='post'>
                 <input type="hidden" name="csrf_token" value="{add_item_csrf}">
                 <div class='grid'>
                     <div>
-                        <label>Item Type</label>
+                        <label>{_t("Item Type", "Tipo de artículo")}</label>
                         <select name='item_type' id='quote_item_type' onchange='toggleQuoteItemType()'>
-                            <option value='mowing'>Mowing</option>
-                            <option value='mulch'>Mulch</option>
-                            <option value='stone'>Stone</option>
-                            <option value='dump_fee'>Dump Fee</option>
-                            <option value='plants'>Plants</option>
-                            <option value='trees'>Trees</option>
-                            <option value='soil'>Soil</option>
-                            <option value='fertilizer'>Fertilizer</option>
-                            <option value='hardscape_material'>Hardscape Material</option>
-                            <option value='labor'>Labor</option>
-                            <option value='equipment'>Equipment</option>
-                            <option value='delivery'>Delivery</option>
-                            <option value='fuel'>Fuel</option>
-                            <option value='misc'>Misc</option>
+                            <option value='mowing'>{_t("Mowing", "Corte de césped")}</option>
+                            <option value='mulch'>{_t("Mulch", "Mantillo")}</option>
+                            <option value='stone'>{_t("Stone", "Piedra")}</option>
+                            <option value='dump_fee'>{_t("Dump Fee", "Cargo de vertedero")}</option>
+                            <option value='plants'>{_t("Plants", "Plantas")}</option>
+                            <option value='trees'>{_t("Trees", "Árboles")}</option>
+                            <option value='soil'>{_t("Soil", "Tierra")}</option>
+                            <option value='fertilizer'>{_t("Fertilizer", "Fertilizante")}</option>
+                            <option value='hardscape_material'>{_t("Hardscape Material", "Material de paisajismo duro")}</option>
+                            <option value='labor'>{_t("Labor", "Mano de obra")}</option>
+                            <option value='equipment'>{_t("Equipment", "Equipo")}</option>
+                            <option value='delivery'>{_t("Delivery", "Entrega")}</option>
+                            <option value='fuel'>{_t("Fuel", "Combustible")}</option>
+                            <option value='misc'>{_t("Misc", "Varios")}</option>
                         </select>
-                        <div class='quote-item-helper'>Use mowing for recurring lawn cuts or flat per-cut pricing.</div>
+                        <div class='quote-item-helper'>{_t("Use mowing for recurring lawn cuts or flat per-cut pricing.", "Usa corte de césped para cortes recurrentes o precios fijos por corte.")}</div>
                     </div>
                     <div>
-                        <label>Description</label>
+                        <label>{_t("Description", "Descripción")}</label>
                         <input name='description' required>
                     </div>
                     <div>
-                        <label id='quantity_label'>Quantity</label>
+                        <label id='quantity_label'>{_t("Quantity", "Cantidad")}</label>
                         <input name='quantity' id='quote_quantity' type='number' step='0.01' min='0' required>
                     </div>
                     <div>
-                        <label>Unit</label>
-                        <input name='unit' id='quote_unit' placeholder='Unit'>
+                        <label>{_t("Unit", "Unidad")}</label>
+                        <input name='unit' id='quote_unit' placeholder='{escape(_t("Unit", "Unidad"), quote=True)}'>
                     </div>
                     <div>
-                        <label id='unit_price_label'>Sale Price</label>
+                        <label id='unit_price_label'>{_t("Sale Price", "Precio de venta")}</label>
                         <input name='unit_price' id='quote_unit_price' type='number' step='0.01' min='0' required>
                     </div>
                     <div id='unit_cost_wrap'>
-                        <label id='unit_cost_label'>Unit Cost (Internal)</label>
+                        <label id='unit_cost_label'>{_t("Unit Cost (Internal)", "Costo unitario (interno)")}</label>
                         <input name='unit_cost' id='quote_unit_cost' type='number' step='0.01' min='0' value='0'>
                     </div>
                 </div>
                 <br>
-                <button class='btn'>Add Item</button>
+                <button class='btn'>{_t("Add Item", "Agregar artículo")}</button>
             </form>
         </div>
 
         <div class='card'>
-            <h2>Items</h2>
+            <h2>{_t("Items", "Artículos")}</h2>
 
             <div class='table-wrap desktop-only'>
                 <table>
                     <tr>
-                        <th>Type</th>
-                        <th>Description</th>
-                        <th>Qty</th>
-                        <th>Unit</th>
-                        <th>Sale Price / Rate / Fee</th>
-                        <th>Unit Cost (Internal)</th>
-                        <th>Line Total</th>
-                        <th>Actions</th>
+                        <th>{_t("Type", "Tipo")}</th>
+                        <th>{_t("Description", "Descripción")}</th>
+                        <th>{_t("Qty", "Cant.")}</th>
+                        <th>{_t("Unit", "Unidad")}</th>
+                        <th>{_t("Sale Price / Rate / Fee", "Precio de venta / tarifa / cargo")}</th>
+                        <th>{_t("Unit Cost (Internal)", "Costo unitario (interno)")}</th>
+                        <th>{_t("Line Total", "Total de línea")}</th>
+                        <th>{_t("Actions", "Acciones")}</th>
                     </tr>
-                    {item_rows or '<tr><td colspan="8" class="muted">No items yet.</td></tr>'}
+                    {item_rows or f'<tr><td colspan="8" class="muted">{_t("No items yet.", "Todavía no hay artículos.")}</td></tr>'}
                 </table>
             </div>
 
             <div class='mobile-only'>
                 <div class='mobile-list'>
-                    {item_mobile_cards_html or "<div class='mobile-list-card muted'>No items yet.</div>"}
+                    {item_mobile_cards_html or f"<div class='mobile-list-card muted'>{_t('No items yet.', 'Todavía no hay artículos.')}</div>"}
                 </div>
             </div>
         </div>
@@ -1318,61 +1387,61 @@ def view_quote(quote_id):
                 var quantityInput = document.getElementById("quote_quantity");
                 var unitCostInput = document.getElementById("quote_unit_cost");
 
-                quantityLabel.textContent = "Quantity";
-                unitPriceLabel.textContent = "Sale Price";
-                unitCostLabel.textContent = "Unit Cost (Internal)";
+                quantityLabel.textContent = {json.dumps(_t("Quantity", "Cantidad"))};
+                unitPriceLabel.textContent = {json.dumps(_t("Sale Price", "Precio de venta"))};
+                unitCostLabel.textContent = {json.dumps(_t("Unit Cost (Internal)", "Costo unitario (interno)"))};
                 unitField.value = "";
                 unitCostWrap.style.display = "";
                 quantityInput.readOnly = false;
                 quantityInput.step = "0.01";
 
                 if (type === "mowing") {{
-                    quantityLabel.textContent = "Cuts";
-                    unitPriceLabel.textContent = "Price Per Cut";
-                    unitField.value = "Cuts";
+                    quantityLabel.textContent = {json.dumps(_t("Cuts", "Cortes"))};
+                    unitPriceLabel.textContent = {json.dumps(_t("Price Per Cut", "Precio por corte"))};
+                    unitField.value = {json.dumps(_t("Cuts", "Cortes"))};
                 }}
                 else if (type === "mulch") {{
-                    quantityLabel.textContent = "Yards";
-                    unitField.value = "Yards";
+                    quantityLabel.textContent = {json.dumps(_t("Yards", "Yardas"))};
+                    unitField.value = {json.dumps(_t("Yards", "Yardas"))};
                 }}
                 else if (type === "stone") {{
-                    quantityLabel.textContent = "Tons";
-                    unitField.value = "Tons";
+                    quantityLabel.textContent = {json.dumps(_t("Tons", "Toneladas"))};
+                    unitField.value = {json.dumps(_t("Tons", "Toneladas"))};
                 }}
                 else if (type === "soil") {{
-                    quantityLabel.textContent = "Yards";
-                    unitField.value = "Yards";
+                    quantityLabel.textContent = {json.dumps(_t("Yards", "Yardas"))};
+                    unitField.value = {json.dumps(_t("Yards", "Yardas"))};
                 }}
                 else if (type === "hardscape_material") {{
-                    quantityLabel.textContent = "Tons";
-                    unitField.value = "Tons";
+                    quantityLabel.textContent = {json.dumps(_t("Tons", "Toneladas"))};
+                    unitField.value = {json.dumps(_t("Tons", "Toneladas"))};
                 }}
                 else if (type === "fuel") {{
-                    quantityLabel.textContent = "Gallons";
-                    unitField.value = "Gallons";
+                    quantityLabel.textContent = {json.dumps(_t("Gallons", "Galones"))};
+                    unitField.value = {json.dumps(_t("Gallons", "Galones"))};
                 }}
                 else if (type === "delivery") {{
-                    quantityLabel.textContent = "Miles";
-                    unitField.value = "Miles";
+                    quantityLabel.textContent = {json.dumps(_t("Miles", "Millas"))};
+                    unitField.value = {json.dumps(_t("Miles", "Millas"))};
                 }}
                 else if (type === "labor") {{
-                    quantityLabel.textContent = "Billable Hours";
-                    unitPriceLabel.textContent = "Hourly Rate";
-                    unitField.value = "Hours";
+                    quantityLabel.textContent = {json.dumps(_t("Billable Hours", "Horas facturables"))};
+                    unitPriceLabel.textContent = {json.dumps(_t("Hourly Rate", "Tarifa por hora"))};
+                    unitField.value = {json.dumps(_t("Hours", "Horas"))};
                     unitCostWrap.style.display = "none";
                     unitCostInput.value = "0";
                 }}
                 else if (type === "equipment") {{
-                    quantityLabel.textContent = "Rentals";
-                    unitField.value = "Rentals";
+                    quantityLabel.textContent = {json.dumps(_t("Rentals", "Alquileres"))};
+                    unitField.value = {json.dumps(_t("Rentals", "Alquileres"))};
                 }}
                 else if (type === "plants" || type === "trees" || type === "misc") {{
-                    quantityLabel.textContent = "Quantity";
+                    quantityLabel.textContent = {json.dumps(_t("Quantity", "Cantidad"))};
                     unitField.value = "";
                 }}
                 else if (type === "dump_fee") {{
-                    quantityLabel.textContent = "Fee";
-                    unitPriceLabel.textContent = "Fee Amount";
+                    quantityLabel.textContent = {json.dumps(_t("Fee", "Cargo"))};
+                    unitPriceLabel.textContent = {json.dumps(_t("Fee Amount", "Monto del cargo"))};
                     unitField.value = "";
                     unitCostWrap.style.display = "none";
                     unitCostInput.value = "0";
@@ -1381,7 +1450,7 @@ def view_quote(quote_id):
                     }}
                 }}
                 else if (type === "fertilizer") {{
-                    quantityLabel.textContent = "Quantity";
+                    quantityLabel.textContent = {json.dumps(_t("Quantity", "Cantidad"))};
                     unitField.value = "";
                 }}
             }}
@@ -1392,7 +1461,7 @@ def view_quote(quote_id):
         </script>
     </div>
     """
-    return render_page(content, f"Quote #{quote_id}")
+    return render_page(content, f"{_t('Quote', 'Cotización')} #{quote_id}")
 
 
 @quotes_bp.route("/quotes/<int:quote_id>/email")
@@ -1404,6 +1473,7 @@ def email_quote_preview(quote_id):
 
     conn = get_db_connection()
     cid = session["company_id"]
+    lang = _lang()
 
     quote = conn.execute(
         """
@@ -1425,7 +1495,7 @@ def email_quote_preview(quote_id):
     ).fetchall()
 
     recipient = (quote["customer_email"] or "").strip()
-    summary_text = _quote_summary_text(quote, items)
+    summary_text = _quote_summary_text(quote, items, lang=lang)
     conn.close()
 
     preview_url = url_for("quotes.preview_quote_pdf", quote_id=quote_id)
@@ -1436,45 +1506,48 @@ def email_quote_preview(quote_id):
     <div class='card'>
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
             <div>
-                <h1 style='margin-bottom:6px;'>Email Quote #{quote['id']}</h1>
+                <h1 style='margin-bottom:6px;'>{_t("Email Quote", "Enviar cotización")} #{quote['id']}</h1>
                 <p style='margin:0;'>
-                    <strong>Customer:</strong> {escape(quote['customer_name'] or '-')}<br>
-                    <strong>Email:</strong> {escape(recipient or 'No email on file')}<br>
-                    <strong>Total:</strong> ${float(quote['total'] or 0):.2f}
+                    <strong>{_t("Customer", "Cliente")}:</strong> {escape(quote['customer_name'] or '-')}<br>
+                    <strong>{_t("Email", "Correo")}:</strong> {escape(recipient or _t('No email on file', 'No hay correo registrado'))}<br>
+                    <strong>{_t("Total", "Total")}:</strong> ${float(quote['total'] or 0):.2f}
                 </p>
             </div>
             <div class='row-actions'>
-                <a class='btn secondary' href='{url_for("quotes.view_quote", quote_id=quote_id)}'>Back to Quote</a>
-                <a class='btn secondary' href='{preview_url}' target='_blank'>Open PDF Preview</a>
+                <a class='btn secondary' href='{url_for("quotes.view_quote", quote_id=quote_id)}'>{_t("Back to Quote", "Volver a la cotización")}</a>
+                <a class='btn secondary' href='{preview_url}' target='_blank'>{_t("Open PDF Preview", "Abrir vista previa PDF")}</a>
             </div>
         </div>
     </div>
 
     <div class='card'>
         <div class='notice' style='margin-bottom:16px;'>
-            Customer-facing quote delivery uses a clean service summary and total. Internal cost fields and line-by-line item pricing are not shown in the email body or PDF.
+            {_t(
+                "Customer-facing quote delivery uses a clean service summary and total. Internal cost fields and line-by-line item pricing are not shown in the email body or PDF.",
+                "La entrega de cotizaciones al cliente usa un resumen limpio del servicio y el total. Los campos de costo interno y el precio detallado por línea no se muestran en el correo ni en el PDF."
+            )}
         </div>
 
-        <h2>Email Summary</h2>
+        <h2>{_t("Email Summary", "Resumen del correo")}</h2>
         <div class='card' style='background:#fafafa; margin-bottom:16px;'>
-            <p style='margin:0 0 10px 0;'><strong>Service Summary</strong></p>
+            <p style='margin:0 0 10px 0;'><strong>{_t("Service Summary", "Resumen del servicio")}</strong></p>
             <p style='margin:0;'>{escape(summary_text)}</p>
         </div>
 
-        <h2>PDF Preview</h2>
+        <h2>{_t("PDF Preview", "Vista previa PDF")}</h2>
         <div style='margin-bottom:14px;'>
             <iframe src='{preview_url}' style='width:100%; height:820px; border:1px solid #dbe2ea; border-radius:12px; background:#fff;'></iframe>
         </div>
 
-        {"<div class='notice warning'>This customer does not have an email address yet. Add one before sending.</div>" if not recipient else ""}
+        {f"<div class='notice warning'>{_t('This customer does not have an email address yet. Add one before sending.', 'Este cliente todavía no tiene correo electrónico. Agrega uno antes de enviar.')}</div>" if not recipient else ""}
 
-        <form method='post' action='{send_url}' onsubmit="return confirm('Send this quote by email now?');">
+        <form method='post' action='{send_url}' onsubmit="return confirm({json.dumps(_t('Send this quote by email now?', '¿Enviar esta cotización por correo ahora?'))});">
             <input type="hidden" name="csrf_token" value="{send_csrf}">
-            <button class='btn' type='submit' {"disabled" if not recipient else ""}>Send Email Now</button>
+            <button class='btn' type='submit' {"disabled" if not recipient else ""}>{_t("Send Email Now", "Enviar correo ahora")}</button>
         </form>
     </div>
     """
-    return render_page(content, f"Email Quote #{quote_id}")
+    return render_page(content, f"{_t('Email Quote', 'Enviar cotización')} #{quote_id}")
 
 
 @quotes_bp.route("/quotes/<int:quote_id>/preview_pdf")
@@ -1486,6 +1559,7 @@ def preview_quote_pdf(quote_id):
 
     conn = get_db_connection()
     cid = session["company_id"]
+    lang = _lang()
 
     quote = conn.execute(
         """
@@ -1526,7 +1600,7 @@ def preview_quote_pdf(quote_id):
 
     conn.close()
 
-    pdf_data = build_quote_pdf(quote, items, company, profile)
+    pdf_data = build_quote_pdf(quote, items, company, profile, lang=lang)
 
     response = make_response(pdf_data)
     response.headers["Content-Type"] = "application/pdf"
@@ -1544,6 +1618,7 @@ def send_quote_email(quote_id):
     conn = get_db_connection()
     cid = session["company_id"]
     uid = session.get("user_id")
+    lang = _lang()
 
     quote = conn.execute(
         """
@@ -1586,58 +1661,91 @@ def send_quote_email(quote_id):
 
     recipient = (quote["customer_email"] or "").strip()
     if not recipient:
-        flash("This customer does not have an email address.")
+        flash(_t("This customer does not have an email address.", "Este cliente no tiene una dirección de correo electrónico."))
         return redirect(url_for("quotes.email_quote_preview", quote_id=quote_id))
 
     quote_number = quote["quote_number"] or quote["id"]
     total_amount = float(quote["total"] or 0)
-    summary_text = _quote_summary_text(quote, items)
+    summary_text = _quote_summary_text(quote, items, lang=lang)
 
     try:
-        pdf_data = build_quote_pdf(quote, items, company, profile)
+        pdf_data = build_quote_pdf(quote, items, company, profile, lang=lang)
 
-        text_body = (
-            f"Hello {quote['customer_name']},\n\n"
-            f"Please find attached Quote #{quote_number}.\n\n"
-            f"Service Summary: {summary_text}\n\n"
-            f"Total: ${total_amount:.2f}\n\n"
-            f"Thank you."
-        )
+        if lang == "es":
+            text_body = (
+                f"Hola {quote['customer_name']},\n\n"
+                f"Adjunta encontrarás la cotización #{quote_number}.\n\n"
+                f"Resumen del servicio: {summary_text}\n\n"
+                f"Total: ${total_amount:.2f}\n\n"
+                f"Gracias."
+            )
 
-        html_body = f"""
-            <div style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222;">
-                <p>Hello {escape(quote['customer_name'])},</p>
+            html_body = f"""
+                <div style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222;">
+                    <p>Hola {escape(quote['customer_name'])},</p>
 
-                <p>Please find attached Quote #{escape(str(quote_number))}.</p>
+                    <p>Adjunta encontrarás la cotización #{escape(str(quote_number))}.</p>
 
-                <p>
-                    <strong>Service Summary:</strong><br>
-                    {escape(summary_text)}
-                </p>
+                    <p>
+                        <strong>Resumen del servicio:</strong><br>
+                        {escape(summary_text)}
+                    </p>
 
-                <p>
-                    <strong>Total:</strong> ${total_amount:.2f}
-                </p>
+                    <p>
+                        <strong>Total:</strong> ${total_amount:.2f}
+                    </p>
 
-                <p>Thank you.</p>
-            </div>
-        """
+                    <p>Gracias.</p>
+                </div>
+            """
+            subject = f"Cotización #{quote_number}"
+        else:
+            text_body = (
+                f"Hello {quote['customer_name']},\n\n"
+                f"Please find attached Quote #{quote_number}.\n\n"
+                f"Service Summary: {summary_text}\n\n"
+                f"Total: ${total_amount:.2f}\n\n"
+                f"Thank you."
+            )
+
+            html_body = f"""
+                <div style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222;">
+                    <p>Hello {escape(quote['customer_name'])},</p>
+
+                    <p>Please find attached Quote #{escape(str(quote_number))}.</p>
+
+                    <p>
+                        <strong>Service Summary:</strong><br>
+                        {escape(summary_text)}
+                    </p>
+
+                    <p>
+                        <strong>Total:</strong> ${total_amount:.2f}
+                    </p>
+
+                    <p>Thank you.</p>
+                </div>
+            """
+            subject = f"Quote #{quote_number}"
 
         send_company_email(
             company_id=cid,
             user_id=uid,
             to_email=recipient,
-            subject=f"Quote #{quote_number}",
+            subject=subject,
             html=html_body,
             body=text_body,
             attachment_bytes=pdf_data,
             attachment_filename=f"Quote_{quote_number}.pdf",
         )
 
-        flash("Quote emailed successfully as PDF.")
+        flash(_t("Quote emailed successfully as PDF.", "La cotización fue enviada correctamente como PDF."))
 
     except Exception as e:
-        flash(f"Could not email quote: {e}")
+        flash(_t(
+            f"Could not email quote: {e}",
+            f"No se pudo enviar la cotización por correo: {e}"
+        ))
 
     return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
@@ -1676,7 +1784,7 @@ def convert_quote_to_job(quote_id):
         ).fetchone()
 
         if existing_job:
-            flash("This quote has already been converted.")
+            flash(_t("This quote has already been converted.", "Esta cotización ya fue convertida."))
             return redirect(url_for("jobs.view_job", job_id=existing_job["id"]))
 
         items = conn.execute(
@@ -1690,7 +1798,7 @@ def convert_quote_to_job(quote_id):
         ).fetchall()
 
         if not items:
-            flash("No items to convert.")
+            flash(_t("No items to convert.", "No hay artículos para convertir."))
             return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
         service_type = None
@@ -1706,7 +1814,7 @@ def convert_quote_to_job(quote_id):
         quote_number = quote["quote_number"] or quote_id
         quote_title = (quote["title"] or "").strip() if "title" in quote.keys() and quote["title"] else ""
         quote_notes = (quote["notes"] or "").strip() if "notes" in quote.keys() and quote["notes"] else ""
-        job_title = quote_title or f"Job from Quote {quote_number}"
+        job_title = quote_title or _t(f"Job from Quote {quote_number}", f"Trabajo de la cotización {quote_number}")
 
         recurring_interval_weeks = 1
         recurring_start_date = date.today().isoformat()
@@ -1816,7 +1924,7 @@ def convert_quote_to_job(quote_id):
 
         job_row = cur.fetchone()
         if not job_row or "id" not in job_row:
-            raise Exception("Failed to create job.")
+            raise Exception(_t("Failed to create job.", "No se pudo crear el trabajo."))
 
         job_id = job_row["id"]
 
@@ -1871,7 +1979,7 @@ def convert_quote_to_job(quote_id):
 
                 schedule_row = cur.fetchone()
                 if not schedule_row or "id" not in schedule_row:
-                    raise Exception("Failed to create recurring mowing schedule.")
+                    raise Exception(_t("Failed to create recurring mowing schedule.", "No se pudo crear el horario recurrente de corte de césped."))
 
                 recurring_schedule_id = schedule_row["id"]
 
@@ -1899,7 +2007,7 @@ def convert_quote_to_job(quote_id):
                         pass
 
             except Exception as e:
-                raise Exception(f"Failed creating recurring schedule: {e}")
+                raise Exception(f"{_t('Failed creating recurring schedule:', 'Error al crear el horario recurrente:')} {e}")
 
         for i in items:
             raw_qty = float(i["quantity"] or 0)
@@ -1918,39 +2026,39 @@ def convert_quote_to_job(quote_id):
 
             elif item_type == "labor":
                 if not unit:
-                    unit = "Hours"
+                    unit = _t("Hours", "Horas")
                 cost = 0.0
 
             elif item_type == "mulch" and not unit:
-                unit = "Yards"
+                unit = _t("Yards", "Yardas")
 
             elif item_type == "stone" and not unit:
-                unit = "Tons"
+                unit = _t("Tons", "Toneladas")
 
             elif item_type == "soil" and not unit:
-                unit = "Yards"
+                unit = _t("Yards", "Yardas")
 
             elif item_type == "hardscape_material" and not unit:
-                unit = "Tons"
+                unit = _t("Tons", "Toneladas")
 
             elif item_type == "fuel" and not unit:
-                unit = "Gallons"
+                unit = _t("Gallons", "Galones")
 
             elif item_type == "delivery" and not unit:
-                unit = "Miles"
+                unit = _t("Miles", "Millas")
 
             elif item_type == "equipment" and not unit:
-                unit = "Rentals"
+                unit = _t("Rentals", "Alquileres")
 
             elif item_type == "fertilizer" and not unit:
-                unit = "Bags"
+                unit = _t("Bags", "Bolsas")
 
             elif item_type in ["plants", "trees", "misc"]:
                 unit = ""
 
             if is_recurring and item_type == "mowing":
                 qty = 1.0
-                unit = "Cut"
+                unit = _t("Cut", "Corte")
 
             line_total = qty * price
             cost_amount = qty * cost
@@ -1990,7 +2098,7 @@ def convert_quote_to_job(quote_id):
 
             item_row = cur.fetchone()
             if not item_row or "id" not in item_row:
-                raise Exception(f"Failed to create job item for quote item {i['id']}.")
+                raise Exception(_t(f"Failed to create job item for quote item {i['id']}.", f"No se pudo crear el artículo de trabajo para el artículo de cotización {i['id']}."))
 
             ensure_job_cost_ledger(conn, item_row["id"])
 
@@ -2003,7 +2111,7 @@ def convert_quote_to_job(quote_id):
 
                 if item_type == "mowing":
                     recurring_qty = 1.0
-                    recurring_unit = "Cut"
+                    recurring_unit = _t("Cut", "Corte")
 
                 elif item_type == "dump_fee":
                     recurring_qty = 1.0
@@ -2058,15 +2166,18 @@ def convert_quote_to_job(quote_id):
         conn.commit()
 
         if recurring_schedule_id:
-            flash("Quote converted to job and recurring schedule created.")
+            flash(_t("Quote converted to job and recurring schedule created.", "La cotización se convirtió en trabajo y se creó un horario recurrente."))
         else:
-            flash("Quote converted to job successfully.")
+            flash(_t("Quote converted to job successfully.", "La cotización se convirtió en trabajo correctamente."))
 
         return redirect(url_for("jobs.view_job", job_id=job_id))
 
     except Exception as e:
         conn.rollback()
-        flash(f"Conversion failed: {e}")
+        flash(_t(
+            f"Conversion failed: {e}",
+            f"La conversión falló: {e}"
+        ))
         return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
     finally:
@@ -2090,7 +2201,7 @@ def delete_quote(quote_id):
 
     if not quote:
         conn.close()
-        flash("Quote not found.")
+        flash(_t("Quote not found.", "Cotización no encontrada."))
         return redirect(url_for("quotes.quotes"))
 
     conn.execute("DELETE FROM quote_items WHERE quote_id = %s", (quote_id,))
@@ -2102,7 +2213,7 @@ def delete_quote(quote_id):
     conn.commit()
     conn.close()
 
-    flash("Quote deleted.")
+    flash(_t("Quote deleted.", "Cotización eliminada."))
     return redirect(url_for("quotes.quotes"))
 
 
@@ -2123,7 +2234,7 @@ def delete_quote_item(quote_id, item_id):
 
     if not quote:
         conn.close()
-        flash("Quote not found.")
+        flash(_t("Quote not found.", "Cotización no encontrada."))
         return redirect(url_for("quotes.quotes"))
 
     item = conn.execute(
@@ -2138,7 +2249,7 @@ def delete_quote_item(quote_id, item_id):
 
     if not item:
         conn.close()
-        flash("Quote item not found.")
+        flash(_t("Quote item not found.", "Artículo de cotización no encontrado."))
         return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
     conn.execute(
@@ -2150,7 +2261,7 @@ def delete_quote_item(quote_id, item_id):
     conn.commit()
     conn.close()
 
-    flash("Quote line item deleted.")
+    flash(_t("Quote line item deleted.", "Línea de cotización eliminada."))
     return redirect(url_for("quotes.view_quote", quote_id=quote_id))
 
 
@@ -2189,11 +2300,11 @@ def finished_quotes():
                 <td>{escape(r['quote_number'] or '-')}</td>
                 <td>{escape(r['customer_name'] or '-')}</td>
                 <td>${float(r['total'] or 0):.2f}</td>
-                <td>{escape(r['status'] or '-')}</td>
+                <td>{escape(_status_label(r['status']))}</td>
                 <td>
                     <div class='row-actions'>
-                        <a class='btn secondary small' href='{url_for("quotes.view_quote", quote_id=r["id"])}'>View</a>
-                        <a class='btn warning small' href='{url_for("quotes.reopen_quote", quote_id=r["id"])}'>Reopen</a>
+                        <a class='btn secondary small' href='{url_for("quotes.view_quote", quote_id=r["id"])}'>{_t("View", "Ver")}</a>
+                        <a class='btn warning small' href='{url_for("quotes.reopen_quote", quote_id=r["id"])}'>{_t("Reopen", "Reabrir")}</a>
                     </div>
                 </td>
             </tr>
@@ -2204,20 +2315,20 @@ def finished_quotes():
             f"""
             <div class='mobile-list-card'>
                 <div class='mobile-list-top'>
-                    <div class='mobile-list-title'>Quote #{escape(r['quote_number'] or '-')}</div>
-                    <div class='mobile-badge'>{escape(r['status'] or '-')}</div>
+                    <div class='mobile-list-title'>{_t("Quote", "Cotización")} #{escape(r['quote_number'] or '-')}</div>
+                    <div class='mobile-badge'>{escape(_status_label(r['status']))}</div>
                 </div>
 
                 <div class='mobile-list-grid'>
                     <div><span>ID</span><strong>#{r['id']}</strong></div>
-                    <div><span>Customer</span><strong>{escape(r['customer_name'] or '-')}</strong></div>
-                    <div><span>Total</span><strong>${float(r['total'] or 0):.2f}</strong></div>
-                    <div><span>Status</span><strong>{escape(r['status'] or '-')}</strong></div>
+                    <div><span>{_t("Customer", "Cliente")}</span><strong>{escape(r['customer_name'] or '-')}</strong></div>
+                    <div><span>{_t("Total", "Total")}</span><strong>${float(r['total'] or 0):.2f}</strong></div>
+                    <div><span>{_t("Status", "Estado")}</span><strong>{escape(_status_label(r['status']))}</strong></div>
                 </div>
 
                 <div class='mobile-list-actions'>
-                    <a class='btn secondary small' href='{url_for("quotes.view_quote", quote_id=r["id"])}'>View</a>
-                    <a class='btn warning small' href='{url_for("quotes.reopen_quote", quote_id=r["id"])}'>Reopen</a>
+                    <a class='btn secondary small' href='{url_for("quotes.view_quote", quote_id=r["id"])}'>{_t("View", "Ver")}</a>
+                    <a class='btn warning small' href='{url_for("quotes.reopen_quote", quote_id=r["id"])}'>{_t("Reopen", "Reabrir")}</a>
                 </div>
             </div>
             """
@@ -2339,11 +2450,11 @@ def finished_quotes():
         <div class='card'>
             <div class='quotes-head'>
                 <div>
-                    <h1 style='margin:0;'>Finished Quotes</h1>
-                    <p class='muted' style='margin:6px 0 0 0;'>Quotes tied to fully paid work.</p>
+                    <h1 style='margin:0;'>{_t("Finished Quotes", "Cotizaciones finalizadas")}</h1>
+                    <p class='muted' style='margin:6px 0 0 0;'>{_t("Quotes tied to fully paid work.", "Cotizaciones vinculadas a trabajos totalmente pagados.")}</p>
                 </div>
                 <div class='row-actions'>
-                    <a class='btn secondary' href='{url_for("quotes.quotes")}'>Back to Active Quotes</a>
+                    <a class='btn secondary' href='{url_for("quotes.quotes")}'>{_t("Back to Active Quotes", "Volver a cotizaciones activas")}</a>
                 </div>
             </div>
         </div>
@@ -2351,20 +2462,20 @@ def finished_quotes():
         <div class='card'>
             <div class='table-wrap desktop-only'>
                 <table>
-                    <tr><th>ID</th><th>Number</th><th>Customer</th><th>Total</th><th>Status</th><th>Actions</th></tr>
-                    {quote_rows_html or '<tr><td colspan="6" class="muted">No finished quotes yet.</td></tr>'}
+                    <tr><th>ID</th><th>{_t("Number", "Número")}</th><th>{_t("Customer", "Cliente")}</th><th>{_t("Total", "Total")}</th><th>{_t("Status", "Estado")}</th><th>{_t("Actions", "Acciones")}</th></tr>
+                    {quote_rows_html or f'<tr><td colspan="6" class="muted">{_t("No finished quotes yet.", "Todavía no hay cotizaciones finalizadas.")}</td></tr>'}
                 </table>
             </div>
 
             <div class='mobile-only'>
                 <div class='mobile-list'>
-                    {quote_mobile_cards_html or "<div class='mobile-list-card muted'>No finished quotes yet.</div>"}
+                    {quote_mobile_cards_html or f"<div class='mobile-list-card muted'>{_t('No finished quotes yet.', 'Todavía no hay cotizaciones finalizadas.')}</div>"}
                 </div>
             </div>
         </div>
     </div>
     """
-    return render_page(content, "Finished Quotes")
+    return render_page(content, _t("Finished Quotes", "Cotizaciones finalizadas"))
 
 
 @quotes_bp.route("/quotes/<int:quote_id>/reopen")
@@ -2386,7 +2497,7 @@ def reopen_quote(quote_id):
 
     if not quote:
         conn.close()
-        flash("Quote not found.")
+        flash(_t("Quote not found.", "Cotización no encontrada."))
         return redirect(url_for("quotes.finished_quotes"))
 
     conn.execute(
@@ -2401,5 +2512,5 @@ def reopen_quote(quote_id):
     conn.commit()
     conn.close()
 
-    flash("Quote reopened.")
+    flash(_t("Quote reopened.", "Cotización reabierta."))
     return redirect(url_for("quotes.view_quote", quote_id=quote_id))

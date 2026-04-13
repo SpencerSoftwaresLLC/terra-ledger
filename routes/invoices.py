@@ -54,6 +54,40 @@ def _clean_display(value):
     return text if text else "-"
 
 
+def _lang():
+    return "es" if session.get("language") == "es" else "en"
+
+
+def _is_es():
+    return _lang() == "es"
+
+
+def _t(en_text, es_text):
+    return es_text if _is_es() else en_text
+
+
+def _status_label(status):
+    raw = _clean_text(status)
+    key = raw.lower()
+
+    translations = {
+        "draft": "Borrador",
+        "unpaid": "No pagada",
+        "partial": "Parcial",
+        "paid": "Pagada",
+        "approved": "Aprobada",
+        "converted": "Convertida",
+        "finished": "Finalizada",
+        "invoiced": "Facturada",
+        "scheduled": "Programada",
+        "completed": "Completada",
+    }
+
+    if _is_es():
+        return translations.get(key, raw or "-")
+    return raw or "-"
+
+
 def _table_columns(conn, table_name):
     rows = conn.execute(
         """
@@ -216,7 +250,7 @@ def _invoice_display_mode(invoice):
     return mode if mode in {"detailed", "summary_only"} else "detailed"
 
 
-def _invoice_summary_text(invoice, items):
+def _invoice_summary_text(invoice, items, lang="en"):
     stored = _clean_text(invoice["summary_description"]) if hasattr(invoice, "keys") and "summary_description" in invoice.keys() else ""
     if stored:
         return stored
@@ -239,14 +273,14 @@ def _invoice_summary_text(invoice, items):
         if len(deduped) == 1:
             return deduped[0]
         if len(deduped) == 2:
-            return f"{deduped[0]} and {deduped[1]}"
-        return ", ".join(deduped[:-1]) + f", and {deduped[-1]}"
+            return f"{deduped[0]} {'y' if lang == 'es' else 'and'} {deduped[1]}"
+        return ", ".join(deduped[:-1]) + f", {'y' if lang == 'es' else 'and'} {deduped[-1]}"
 
     notes = _clean_text(invoice["notes"]) if hasattr(invoice, "keys") and "notes" in invoice.keys() else ""
     if notes:
         return notes
 
-    return "Service completed."
+    return "Servicio completado." if lang == "es" else "Service completed."
 
 
 def _should_use_summary_only(invoice, items):
@@ -483,7 +517,7 @@ def _sync_invoice_status_and_bookkeeping(invoice_id):
         conn.close()
 
 
-def build_invoice_pdf(invoice, items, company, profile):
+def build_invoice_pdf(invoice, items, company, profile, lang="en"):
     pdf_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     pdf_temp.close()
 
@@ -496,7 +530,7 @@ def build_invoice_pdf(invoice, items, company, profile):
             else (
                 profile["display_name"]
                 if profile and "display_name" in profile.keys() and profile["display_name"]
-                else (company["name"] if company else "Your Company")
+                else (company["name"] if company else ("Su Empresa" if lang == "es" else "Your Company"))
             )
         )
 
@@ -568,6 +602,24 @@ def build_invoice_pdf(invoice, items, company, profile):
 
         footer_chunks = [footer_note[i:i + 95] for i in range(0, len(footer_note), 95)] if footer_note else []
 
+        invoice_label = "FACTURA" if lang == "es" else "INVOICE"
+        invoice_num_label = "Factura #:" if lang == "es" else "Invoice #:"
+        customer_label = "Cliente:" if lang == "es" else "Customer:"
+        status_label = "Estado:" if lang == "es" else "Status:"
+        invoice_date_label = "Fecha de factura:" if lang == "es" else "Invoice Date:"
+        due_date_label = "Fecha de vencimiento:" if lang == "es" else "Due Date:"
+        service_performed_label = "Servicio realizado" if lang == "es" else "Service Performed"
+        description_label = "Descripción" if lang == "es" else "Description"
+        qty_label = "Cant." if lang == "es" else "Qty"
+        unit_label = "Unidad" if lang == "es" else "Unit"
+        unit_price_label = "Precio unitario" if lang == "es" else "Unit Price"
+        line_total_label = "Total línea" if lang == "es" else "Line Total"
+        no_items_label = "No hay artículos." if lang == "es" else "No items."
+        total_label = "Total:" if lang == "es" else "Total:"
+        amount_paid_label = "Pagado:" if lang == "es" else "Amount Paid:"
+        balance_due_label = "Saldo pendiente:" if lang == "es" else "Balance Due:"
+        notes_label = "Notas:" if lang == "es" else "Notes:"
+
         def draw_footer():
             if not footer_chunks:
                 return
@@ -617,10 +669,10 @@ def build_invoice_pdf(invoice, items, company, profile):
                     text_x = 50
 
             c.setFont("Helvetica-Bold", 18)
-            c.drawString(text_x, y_pos, str(company_name or "Your Company")[:45])
+            c.drawString(text_x, y_pos, str(company_name or ("Su Empresa" if lang == "es" else "Your Company"))[:45])
 
             c.setFont("Helvetica-Bold", 20)
-            c.drawRightString(width - 50, height - 50, "INVOICE")
+            c.drawRightString(width - 50, height - 50, invoice_label)
 
             info_y = y_pos - 22
             c.setFont("Helvetica", 10)
@@ -644,28 +696,29 @@ def build_invoice_pdf(invoice, items, company, profile):
 
         ensure_space(110)
         c.setFont("Helvetica-Bold", 11)
-        c.drawString(50, y, f"Invoice #: {invoice_number}")
+        c.drawString(50, y, f"{invoice_num_label} {invoice_number}")
         y -= 16
-        c.drawString(50, y, f"Customer: {invoice['customer_name'] or ''}")
+        c.drawString(50, y, f"{customer_label} {invoice['customer_name'] or ''}")
         y -= 16
-        c.drawString(50, y, f"Status: {invoice['status'] or ''}")
+        c.drawString(50, y, f"{status_label} {_status_label(invoice['status']) if lang == 'es' else (invoice['status'] or '')}")
         y -= 16
-        c.drawString(50, y, f"Invoice Date: {invoice['invoice_date'] or date.today().isoformat()}")
+        c.drawString(50, y, f"{invoice_date_label} {invoice['invoice_date'] or date.today().isoformat()}")
         y -= 16
-        c.drawString(50, y, f"Due Date: {invoice['due_date'] or '-'}")
+        c.drawString(50, y, f"{due_date_label} {invoice['due_date'] or '-'}")
         y -= 24
 
         summary_only = _should_use_summary_only(invoice, items)
-        summary_text = _invoice_summary_text(invoice, items)
+        summary_text = _invoice_summary_text(invoice, items, lang=lang)
 
         if summary_only:
             ensure_space(90)
             c.setFont("Helvetica-Bold", 11)
-            c.drawString(50, y, "Service Performed")
+            c.drawString(50, y, service_performed_label)
             y -= 18
 
             c.setFont("Helvetica", 10)
-            summary_chunks = [summary_text[i:i + 95] for i in range(0, len(summary_text), 95)] if summary_text else ["Service completed."]
+            fallback_text = "Servicio completado." if lang == "es" else "Service completed."
+            summary_chunks = [summary_text[i:i + 95] for i in range(0, len(summary_text), 95)] if summary_text else [fallback_text]
             for chunk in summary_chunks:
                 ensure_space(18)
                 c.drawString(50, y, chunk)
@@ -673,11 +726,11 @@ def build_invoice_pdf(invoice, items, company, profile):
         else:
             ensure_space(40)
             c.setFont("Helvetica-Bold", 10)
-            c.drawString(50, y, "Description")
-            c.drawString(280, y, "Qty")
-            c.drawString(330, y, "Unit")
-            c.drawString(390, y, "Unit Price")
-            c.drawString(480, y, "Line Total")
+            c.drawString(50, y, description_label)
+            c.drawString(280, y, qty_label)
+            c.drawString(330, y, unit_label)
+            c.drawString(390, y, unit_price_label)
+            c.drawString(480, y, line_total_label)
             y -= 10
 
             c.line(50, y, 560, y)
@@ -703,7 +756,7 @@ def build_invoice_pdf(invoice, items, company, profile):
 
                     y -= 18
             else:
-                c.drawString(50, y, "No items.")
+                c.drawString(50, y, no_items_label)
                 y -= 18
 
         ensure_space(80)
@@ -711,17 +764,17 @@ def build_invoice_pdf(invoice, items, company, profile):
         c.line(380, y, 560, y)
         y -= 18
         c.setFont("Helvetica-Bold", 12)
-        c.drawRightString(560, y, f"Total: ${float(invoice['total'] or 0):.2f}")
+        c.drawRightString(560, y, f"{total_label} ${float(invoice['total'] or 0):.2f}")
         y -= 16
-        c.drawRightString(560, y, f"Amount Paid: ${float(invoice['amount_paid'] or 0):.2f}")
+        c.drawRightString(560, y, f"{amount_paid_label} ${float(invoice['amount_paid'] or 0):.2f}")
         y -= 16
-        c.drawRightString(560, y, f"Balance Due: ${float(invoice['balance_due'] or 0):.2f}")
+        c.drawRightString(560, y, f"{balance_due_label} ${float(invoice['balance_due'] or 0):.2f}")
         y -= 24
 
         if invoice["notes"]:
             ensure_space(50)
             c.setFont("Helvetica-Bold", 11)
-            c.drawString(50, y, "Notes:")
+            c.drawString(50, y, notes_label)
             y -= 18
 
             c.setFont("Helvetica", 10)
@@ -836,11 +889,9 @@ def create_invoice_checkout_session(invoice, company_id):
 
     base_url = _get_public_base_url()
 
-    # 🔥 YOUR PLATFORM FEE
     platform_fee_percent = _safe_float(os.environ.get("STRIPE_PLATFORM_FEE_PERCENT"), 3.0)
     application_fee_amount = int(round(amount * (platform_fee_percent / 100.0)))
 
-    # Never allow the fee to equal or exceed the full charge
     if application_fee_amount >= amount:
         application_fee_amount = max(amount - 1, 0)
 
@@ -863,23 +914,19 @@ def create_invoice_checkout_session(invoice, company_id):
             "invoice_id": str(invoice["id"]),
             "company_id": str(company_id),
         },
-
-        # ✅ THIS IS WHAT MAKES YOU MONEY
         "payment_intent_data": {
             "transfer_data": {
                 "destination": stripe_account_id,
             },
             "application_fee_amount": application_fee_amount,
         },
-
         "success_url": f"{base_url}/payment-success",
         "cancel_url": f"{base_url}/payment-cancel",
     }
 
-    # ❌ DO NOT USE stripe_account= anymore
     checkout_session = stripe.checkout.Session.create(**session_kwargs)
-
     return checkout_session.url
+
 
 # =========================================================
 # Routes
@@ -913,8 +960,25 @@ def invoices():
     invoice_rows_html = ""
     invoice_mobile_cards = ""
 
+    page_title = _t("Invoices", "Facturas")
+    page_subtitle = _t(
+        "Track active invoice totals, payments, balances, and status.",
+        "Haz seguimiento de los totales de facturas activas, pagos, saldos y estado.",
+    )
+    paid_invoices_btn = _t("Paid Invoices", "Facturas pagadas")
+    new_invoice_btn = _t("New Invoice", "Nueva factura")
+    open_label = _t("Open", "Abrir")
+    no_active_invoices = _t("No active invoices found.", "No se encontraron facturas activas.")
+    invoice_col = _t("Invoice", "Factura")
+    customer_col = _t("Customer", "Cliente")
+    date_col = _t("Date", "Fecha")
+    total_col = _t("Total", "Total")
+    paid_col = _t("Paid", "Pagado")
+    balance_col = _t("Balance", "Saldo")
+    status_col = _t("Status", "Estado")
+
     for inv in rows:
-        status = _clean_display(inv["status"])
+        status = _status_label(inv["status"])
         invoice_number = _clean_display(inv["invoice_number"] or inv["id"])
 
         invoice_rows_html += f"""
@@ -927,7 +991,7 @@ def invoices():
             <td>${_safe_float(inv["balance_due"]):,.2f}</td>
             <td>{escape(status)}</td>
             <td>
-                <a class='btn small' href='{url_for("invoices.view_invoice", invoice_id=inv["id"])}'>Open</a>
+                <a class='btn small' href='{url_for("invoices.view_invoice", invoice_id=inv["id"])}'>{open_label}</a>
             </td>
         </tr>
         """
@@ -935,31 +999,31 @@ def invoices():
         invoice_mobile_cards += f"""
         <div class='mobile-list-card'>
             <div class='mobile-list-top'>
-                <div class='mobile-list-title'>Invoice #{escape(str(invoice_number))}</div>
+                <div class='mobile-list-title'>{escape(_t("Invoice", "Factura"))} #{escape(str(invoice_number))}</div>
                 <div class='mobile-badge'>{escape(status)}</div>
             </div>
             <div class='mobile-list-grid'>
-                <div><span>Customer</span><strong>{escape(_clean_display(inv["customer_name"]))}</strong></div>
-                <div><span>Date</span><strong>{escape(str(inv["invoice_date"] or "-"))}</strong></div>
-                <div><span>Total</span><strong>${_safe_float(inv["total"]):,.2f}</strong></div>
-                <div><span>Paid</span><strong>${_safe_float(inv["amount_paid"]):,.2f}</strong></div>
-                <div><span>Balance</span><strong>${_safe_float(inv["balance_due"]):,.2f}</strong></div>
+                <div><span>{customer_col}</span><strong>{escape(_clean_display(inv["customer_name"]))}</strong></div>
+                <div><span>{date_col}</span><strong>{escape(str(inv["invoice_date"] or "-"))}</strong></div>
+                <div><span>{total_col}</span><strong>${_safe_float(inv["total"]):,.2f}</strong></div>
+                <div><span>{paid_col}</span><strong>${_safe_float(inv["amount_paid"]):,.2f}</strong></div>
+                <div><span>{balance_col}</span><strong>${_safe_float(inv["balance_due"]):,.2f}</strong></div>
             </div>
             <div class='mobile-list-actions'>
-                <a class='btn small' href='{url_for("invoices.view_invoice", invoice_id=inv["id"])}'>Open</a>
+                <a class='btn small' href='{url_for("invoices.view_invoice", invoice_id=inv["id"])}'>{open_label}</a>
             </div>
         </div>
         """
 
     if not invoice_rows_html:
-        invoice_rows_html = """
+        invoice_rows_html = f"""
         <tr>
-            <td colspan="8" class="muted">No active invoices found.</td>
+            <td colspan="8" class="muted">{no_active_invoices}</td>
         </tr>
         """
 
     if not invoice_mobile_cards:
-        invoice_mobile_cards = "<div class='mobile-list-card muted'>No active invoices found.</div>"
+        invoice_mobile_cards = f"<div class='mobile-list-card muted'>{no_active_invoices}</div>"
 
     content = f"""
     <style>
@@ -1074,12 +1138,12 @@ def invoices():
         <div class='card'>
             <div class='invoice-page-head'>
                 <div>
-                    <h1>Invoices</h1>
-                    <p class='muted'>Track active invoice totals, payments, balances, and status.</p>
+                    <h1>{page_title}</h1>
+                    <p class='muted'>{page_subtitle}</p>
                 </div>
                 <div class='row-actions'>
-                    <a class='btn secondary' href='{url_for("invoices.paid_invoices")}'>Paid Invoices</a>
-                    <a class='btn success' href='{url_for("invoices.new_invoice")}'>New Invoice</a>
+                    <a class='btn secondary' href='{url_for("invoices.paid_invoices")}'>{paid_invoices_btn}</a>
+                    <a class='btn success' href='{url_for("invoices.new_invoice")}'>{new_invoice_btn}</a>
                 </div>
             </div>
         </div>
@@ -1089,13 +1153,13 @@ def invoices():
                 <table class='table'>
                     <thead>
                         <tr>
-                            <th>Invoice</th>
-                            <th>Customer</th>
-                            <th>Date</th>
-                            <th>Total</th>
-                            <th>Paid</th>
-                            <th>Balance</th>
-                            <th>Status</th>
+                            <th>{invoice_col}</th>
+                            <th>{customer_col}</th>
+                            <th>{date_col}</th>
+                            <th>{total_col}</th>
+                            <th>{paid_col}</th>
+                            <th>{balance_col}</th>
+                            <th>{status_col}</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -1113,7 +1177,7 @@ def invoices():
         </div>
     </div>
     """
-    return render_page(content, "Invoices")
+    return render_page(content, page_title)
 
 
 @invoices_bp.route("/invoices/paid")
@@ -1144,8 +1208,24 @@ def paid_invoices():
     invoice_rows_html = ""
     invoice_mobile_cards = ""
 
+    page_title = _t("Paid Invoices", "Facturas pagadas")
+    page_subtitle = _t(
+        "Invoices that have been paid in full.",
+        "Facturas que han sido pagadas por completo.",
+    )
+    back_btn = _t("Back to Invoices", "Volver a facturas")
+    open_label = _t("Open", "Abrir")
+    no_paid_invoices = _t("No paid invoices found.", "No se encontraron facturas pagadas.")
+    invoice_col = _t("Invoice", "Factura")
+    customer_col = _t("Customer", "Cliente")
+    date_col = _t("Date", "Fecha")
+    total_col = _t("Total", "Total")
+    paid_col = _t("Paid", "Pagado")
+    balance_col = _t("Balance", "Saldo")
+    status_col = _t("Status", "Estado")
+
     for inv in rows:
-        status = _clean_display(inv["status"])
+        status = _status_label(inv["status"])
         invoice_number = _clean_display(inv["invoice_number"] or inv["id"])
 
         invoice_rows_html += f"""
@@ -1158,7 +1238,7 @@ def paid_invoices():
             <td>${_safe_float(inv["balance_due"]):,.2f}</td>
             <td>{escape(status)}</td>
             <td>
-                <a class='btn small' href='{url_for("invoices.view_invoice", invoice_id=inv["id"])}'>Open</a>
+                <a class='btn small' href='{url_for("invoices.view_invoice", invoice_id=inv["id"])}'>{open_label}</a>
             </td>
         </tr>
         """
@@ -1166,31 +1246,31 @@ def paid_invoices():
         invoice_mobile_cards += f"""
         <div class='mobile-list-card'>
             <div class='mobile-list-top'>
-                <div class='mobile-list-title'>Invoice #{escape(str(invoice_number))}</div>
+                <div class='mobile-list-title'>{escape(_t("Invoice", "Factura"))} #{escape(str(invoice_number))}</div>
                 <div class='mobile-badge'>{escape(status)}</div>
             </div>
             <div class='mobile-list-grid'>
-                <div><span>Customer</span><strong>{escape(_clean_display(inv["customer_name"]))}</strong></div>
-                <div><span>Date</span><strong>{escape(str(inv["invoice_date"] or "-"))}</strong></div>
-                <div><span>Total</span><strong>${_safe_float(inv["total"]):,.2f}</strong></div>
-                <div><span>Paid</span><strong>${_safe_float(inv["amount_paid"]):,.2f}</strong></div>
-                <div><span>Balance</span><strong>${_safe_float(inv["balance_due"]):,.2f}</strong></div>
+                <div><span>{customer_col}</span><strong>{escape(_clean_display(inv["customer_name"]))}</strong></div>
+                <div><span>{date_col}</span><strong>{escape(str(inv["invoice_date"] or "-"))}</strong></div>
+                <div><span>{total_col}</span><strong>${_safe_float(inv["total"]):,.2f}</strong></div>
+                <div><span>{paid_col}</span><strong>${_safe_float(inv["amount_paid"]):,.2f}</strong></div>
+                <div><span>{balance_col}</span><strong>${_safe_float(inv["balance_due"]):,.2f}</strong></div>
             </div>
             <div class='mobile-list-actions'>
-                <a class='btn small' href='{url_for("invoices.view_invoice", invoice_id=inv["id"])}'>Open</a>
+                <a class='btn small' href='{url_for("invoices.view_invoice", invoice_id=inv["id"])}'>{open_label}</a>
             </div>
         </div>
         """
 
     if not invoice_rows_html:
-        invoice_rows_html = """
+        invoice_rows_html = f"""
         <tr>
-            <td colspan="8" class="muted">No paid invoices found.</td>
+            <td colspan="8" class="muted">{no_paid_invoices}</td>
         </tr>
         """
 
     if not invoice_mobile_cards:
-        invoice_mobile_cards = "<div class='mobile-list-card muted'>No paid invoices found.</div>"
+        invoice_mobile_cards = f"<div class='mobile-list-card muted'>{no_paid_invoices}</div>"
 
     content = f"""
     <style>
@@ -1305,11 +1385,11 @@ def paid_invoices():
         <div class='card'>
             <div class='invoice-page-head'>
                 <div>
-                    <h1>Paid Invoices</h1>
-                    <p class='muted'>Invoices that have been paid in full.</p>
+                    <h1>{page_title}</h1>
+                    <p class='muted'>{page_subtitle}</p>
                 </div>
                 <div class='row-actions'>
-                    <a class='btn secondary' href='{url_for("invoices.invoices")}'>Back to Invoices</a>
+                    <a class='btn secondary' href='{url_for("invoices.invoices")}'>{back_btn}</a>
                 </div>
             </div>
         </div>
@@ -1319,13 +1399,13 @@ def paid_invoices():
                 <table class='table'>
                     <thead>
                         <tr>
-                            <th>Invoice</th>
-                            <th>Customer</th>
-                            <th>Date</th>
-                            <th>Total</th>
-                            <th>Paid</th>
-                            <th>Balance</th>
-                            <th>Status</th>
+                            <th>{invoice_col}</th>
+                            <th>{customer_col}</th>
+                            <th>{date_col}</th>
+                            <th>{total_col}</th>
+                            <th>{paid_col}</th>
+                            <th>{balance_col}</th>
+                            <th>{status_col}</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -1343,7 +1423,7 @@ def paid_invoices():
         </div>
     </div>
     """
-    return render_page(content, "Paid Invoices")
+    return render_page(content, page_title)
 
 
 @invoices_bp.route("/invoices/new", methods=["GET", "POST"])
@@ -1401,7 +1481,7 @@ def new_invoice():
 
         if not customer_id:
             conn.close()
-            flash("Please select a customer.")
+            flash(_t("Please select a customer.", "Por favor selecciona un cliente."))
             return redirect(url_for("invoices.new_invoice"))
 
         if not invoice_number:
@@ -1410,7 +1490,7 @@ def new_invoice():
             conn = get_db_connection()
 
         display_mode = "summary_only"
-        summary_description = description or "Service completed."
+        summary_description = description or _t("Service completed.", "Servicio completado.")
 
         cur = conn.cursor()
         cur.execute(
@@ -1454,7 +1534,7 @@ def new_invoice():
         if not row or "id" not in row:
             conn.rollback()
             conn.close()
-            flash("Could not create invoice.")
+            flash(_t("Could not create invoice.", "No se pudo crear la factura."))
             return redirect(url_for("invoices.new_invoice"))
 
         invoice_id = row["id"]
@@ -1474,7 +1554,7 @@ def new_invoice():
                 """,
                 (
                     invoice_id,
-                    description or "Manual Invoice",
+                    description or _t("Manual Invoice", "Factura manual"),
                     1,
                     "ea",
                     total,
@@ -1496,7 +1576,7 @@ def new_invoice():
                     total,
                     "Manual Entry",
                     "",
-                    "Invoice created as paid",
+                    _t("Invoice created as paid", "Factura creada como pagada"),
                 ),
             )
 
@@ -1505,12 +1585,43 @@ def new_invoice():
 
         _sync_invoice_status_and_bookkeeping(invoice_id)
 
-        flash(f"Invoice #{invoice_number} created successfully.")
+        flash(_t(
+            f"Invoice #{invoice_number} created successfully.",
+            f"Factura #{invoice_number} creada correctamente."
+        ))
         return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
     conn.close()
 
     csrf_token_value = generate_csrf()
+
+    page_title = _t("Create Invoice", "Crear factura")
+    page_subtitle = _t(
+        "Create a clean customer-facing invoice without itemized line pricing.",
+        "Crea una factura clara para el cliente sin precios detallados por línea.",
+    )
+    customer_label = _t("Customer", "Cliente")
+    customer_placeholder = _t(
+        "Search customer name, company, or email...",
+        "Buscar nombre del cliente, empresa o correo...",
+    )
+    invoice_number_label = _t("Invoice Number", "Número de factura")
+    invoice_number_placeholder = _t("Auto-assigned if left blank", "Se asigna automáticamente si se deja en blanco")
+    next_number_label = _t("Next invoice number on file:", "Próximo número de factura en archivo:")
+    invoice_date_label = _t("Invoice Date", "Fecha de factura")
+    due_date_label = _t("Due Date", "Fecha de vencimiento")
+    status_label = _t("Status", "Estado")
+    total_label = _t("Total", "Total")
+    service_label = _t("Service Performed", "Servicio realizado")
+    service_placeholder = _t(
+        "Example: Weekly mowing service including mowing, trimming, and cleanup.",
+        "Ejemplo: Servicio semanal de corte de césped incluyendo corte, recorte y limpieza.",
+    )
+    create_btn = _t("Create Invoice", "Crear factura")
+    back_btn = _t("Back to Invoices", "Volver a facturas")
+
+    no_customers_found = _t("No customers found", "No se encontraron clientes")
+    unnamed_customer = _t("Unnamed Customer", "Cliente sin nombre")
 
     content = f"""
     <style>
@@ -1581,8 +1692,8 @@ def new_invoice():
     </style>
 
     <div class='card'>
-        <h1>Create Invoice</h1>
-        <p class='muted'>Create a clean customer-facing invoice without itemized line pricing.</p>
+        <h1>{page_title}</h1>
+        <p class='muted'>{page_subtitle}</p>
     </div>
 
     <div class='card'>
@@ -1590,11 +1701,11 @@ def new_invoice():
             <input type="hidden" name="csrf_token" value="{csrf_token_value}">
             <div class='grid'>
                 <div class='customer-search-wrap'>
-                    <label>Customer</label>
+                    <label>{customer_label}</label>
                     <div class='customer-search-input-wrap'>
                         <input type='text'
                                id='customer_search'
-                               placeholder='Search customer name, company, or email...'
+                               placeholder='{escape(customer_placeholder, quote=True)}'
                                autocomplete='off'
                                required>
                         <input type='hidden' name='customer_id' id='customer_id' required>
@@ -1603,44 +1714,44 @@ def new_invoice():
                 </div>
 
                 <div>
-                    <label>Invoice Number</label>
-                    <input type='text' name='invoice_number' placeholder='Auto-assigned if left blank'>
-                    <div class='invoice-form-helper'>Next invoice number on file: {escape(next_invoice_number_preview)}</div>
+                    <label>{invoice_number_label}</label>
+                    <input type='text' name='invoice_number' placeholder='{escape(invoice_number_placeholder, quote=True)}'>
+                    <div class='invoice-form-helper'>{next_number_label} {escape(next_invoice_number_preview)}</div>
                 </div>
 
                 <div>
-                    <label>Invoice Date</label>
+                    <label>{invoice_date_label}</label>
                     <input type='date' name='invoice_date' value='{date.today().isoformat()}'>
                 </div>
 
                 <div>
-                    <label>Due Date</label>
+                    <label>{due_date_label}</label>
                     <input type='date' name='due_date'>
                 </div>
 
                 <div>
-                    <label>Status</label>
+                    <label>{status_label}</label>
                     <select name='status'>
-                        <option value='Unpaid'>Unpaid</option>
-                        <option value='Paid'>Paid</option>
-                        <option value='Partial'>Partial</option>
+                        <option value='Unpaid'>{_t("Unpaid", "No pagada")}</option>
+                        <option value='Paid'>{_t("Paid", "Pagada")}</option>
+                        <option value='Partial'>{_t("Partial", "Parcial")}</option>
                     </select>
                 </div>
 
                 <div>
-                    <label>Total</label>
+                    <label>{total_label}</label>
                     <input type='number' step='0.01' min='0' name='total' placeholder='0.00' required>
                 </div>
 
                 <div style='grid-column:1 / -1;'>
-                    <label>Service Performed</label>
-                    <textarea name='description' placeholder='Example: Weekly mowing service including mowing, trimming, and cleanup.'></textarea>
+                    <label>{service_label}</label>
+                    <textarea name='description' placeholder='{escape(service_placeholder, quote=True)}'></textarea>
                 </div>
             </div>
 
             <div class='row-actions' style='margin-top:20px;'>
-                <button class='btn success' type='submit'>Create Invoice</button>
-                <a class='btn secondary' href='{url_for("invoices.invoices")}'>Back to Invoices</a>
+                <button class='btn success' type='submit'>{create_btn}</button>
+                <a class='btn secondary' href='{url_for("invoices.invoices")}'>{back_btn}</a>
             </div>
         </form>
     </div>
@@ -1650,6 +1761,9 @@ def new_invoice():
         const searchInput = document.getElementById("customer_search");
         const customerIdInput = document.getElementById("customer_id");
         const resultsBox = document.getElementById("customer_results");
+
+        const noCustomersFoundText = {json.dumps(no_customers_found)};
+        const unnamedCustomerText = {json.dumps(unnamed_customer)};
 
         function escapeHtml(text) {{
             return String(text || "")
@@ -1667,14 +1781,14 @@ def new_invoice():
 
         function renderCustomerResults(matches) {{
             if (!matches.length) {{
-                resultsBox.innerHTML = "<div class='customer-result-item muted'>No customers found</div>";
+                resultsBox.innerHTML = "<div class='customer-result-item muted'>" + escapeHtml(noCustomersFoundText) + "</div>";
                 resultsBox.classList.add("show");
                 return;
             }}
 
             resultsBox.innerHTML = matches.map(c => `
                 <div class="customer-result-item" data-id="${{c.id}}">
-                    <strong>${{escapeHtml(c.name || "Unnamed Customer")}}</strong>
+                    <strong>${{escapeHtml(c.name || unnamedCustomerText)}}</strong>
                     ${{c.company ? `<div class="muted small">${{escapeHtml(c.company)}}</div>` : ""}}
                     ${{c.email ? `<div class="muted small">${{escapeHtml(c.email)}}</div>` : ""}}
                 </div>
@@ -1691,7 +1805,7 @@ def new_invoice():
                     customerIdInput.value = customer.id;
                     searchInput.value = customer.company
                         ? `${{customer.name}} - ${{customer.company}}`
-                        : (customer.name || "Unnamed Customer");
+                        : (customer.name || unnamedCustomerText);
 
                     closeResults();
                 }});
@@ -1735,7 +1849,7 @@ def new_invoice():
         }});
     </script>
     """
-    return render_page(content, "Create Invoice")
+    return render_page(content, page_title)
 
 
 @invoices_bp.route("/invoices/<int:invoice_id>")
@@ -1748,6 +1862,7 @@ def view_invoice(invoice_id):
 
     conn = get_db_connection()
     cid = session["company_id"]
+    lang = _lang()
 
     invoice = conn.execute(
         """
@@ -1781,7 +1896,7 @@ def view_invoice(invoice_id):
     conn.close()
 
     summary_only = _should_use_summary_only(invoice, items)
-    summary_text = _invoice_summary_text(invoice, items)
+    summary_text = _invoice_summary_text(invoice, items, lang=lang)
 
     item_rows = ""
     item_mobile_cards = ""
@@ -1801,19 +1916,19 @@ def view_invoice(invoice_id):
         <div class='mobile-list-card'>
             <div class='mobile-list-title'>{escape(_clean_display(item["description"]))}</div>
             <div class='mobile-list-grid'>
-                <div><span>Qty</span><strong>{_safe_float(item["quantity"]):.2f}</strong></div>
-                <div><span>Unit</span><strong>{escape(_clean_display(item["unit"]))}</strong></div>
-                <div><span>Unit Price</span><strong>${_safe_float(item["unit_price"]):.2f}</strong></div>
-                <div><span>Total</span><strong>${_safe_float(item["line_total"]):.2f}</strong></div>
+                <div><span>{_t("Qty", "Cant.")}</span><strong>{_safe_float(item["quantity"]):.2f}</strong></div>
+                <div><span>{_t("Unit", "Unidad")}</span><strong>{escape(_clean_display(item["unit"]))}</strong></div>
+                <div><span>{_t("Unit Price", "Precio unitario")}</span><strong>${_safe_float(item["unit_price"]):.2f}</strong></div>
+                <div><span>{_t("Total", "Total")}</span><strong>${_safe_float(item["line_total"]):.2f}</strong></div>
             </div>
         </div>
         """
 
     if not item_rows:
-        item_rows = "<tr><td colspan='5' class='muted'>No invoice items found.</td></tr>"
+        item_rows = f"<tr><td colspan='5' class='muted'>{_t('No invoice items found.', 'No se encontraron artículos de factura.')}</td></tr>"
 
     if not item_mobile_cards:
-        item_mobile_cards = "<div class='mobile-list-card muted'>No invoice items found.</div>"
+        item_mobile_cards = f"<div class='mobile-list-card muted'>{_t('No invoice items found.', 'No se encontraron artículos de factura.')}</div>"
 
     payment_rows = ""
     payment_mobile_cards = ""
@@ -1828,10 +1943,10 @@ def view_invoice(invoice_id):
             <td>{escape(_clean_display(p["payment_method"]))}</td>
             <td>{escape(_clean_display(p["reference"]))}</td>
             <td>
-                <a class='btn small' href='{url_for("invoices.edit_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}'>Edit</a>
+                <a class='btn small' href='{url_for("invoices.edit_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}'>{_t("Edit", "Editar")}</a>
                 <form method='post' action='{url_for("invoices.delete_invoice_payment", invoice_id=invoice_id, payment_id=p["id"])}' style='display:inline;'>
                     <input type="hidden" name="csrf_token" value="{csrf}">
-                    <button class='btn secondary small'>Delete</button>
+                    <button class='btn secondary small'>{_t("Delete", "Eliminar")}</button>
                 </form>
             </td>
         </tr>
@@ -1841,18 +1956,18 @@ def view_invoice(invoice_id):
         <div class='mobile-list-card'>
             <div class='mobile-list-title'>${_safe_float(p["amount"]):.2f}</div>
             <div class='mobile-list-grid'>
-                <div><span>Date</span><strong>{escape(str(p["payment_date"] or "-"))}</strong></div>
-                <div><span>Method</span><strong>{escape(_clean_display(p["payment_method"]))}</strong></div>
-                <div><span>Ref</span><strong>{escape(_clean_display(p["reference"]))}</strong></div>
+                <div><span>{_t("Date", "Fecha")}</span><strong>{escape(str(p["payment_date"] or "-"))}</strong></div>
+                <div><span>{_t("Method", "Método")}</span><strong>{escape(_clean_display(p["payment_method"]))}</strong></div>
+                <div><span>{_t("Ref", "Ref.")}</span><strong>{escape(_clean_display(p["reference"]))}</strong></div>
             </div>
         </div>
         """
 
     if not payment_rows:
-        payment_rows = "<tr><td colspan='5' class='muted'>No payments recorded.</td></tr>"
+        payment_rows = f"<tr><td colspan='5' class='muted'>{_t('No payments recorded.', 'No hay pagos registrados.')}</td></tr>"
 
     if not payment_mobile_cards:
-        payment_mobile_cards = "<div class='mobile-list-card muted'>No payments recorded.</div>"
+        payment_mobile_cards = f"<div class='mobile-list-card muted'>{_t('No payments recorded.', 'No hay pagos registrados.')}</div>"
 
     invoice_number = _clean_display(invoice["invoice_number"] or invoice["id"])
     is_paid = str(invoice["status"]).lower() == "paid"
@@ -1861,7 +1976,7 @@ def view_invoice(invoice_id):
     <form method='post' action='{url_for("invoices.toggle_invoice_paid", invoice_id=invoice_id)}'>
         <input type="hidden" name="csrf_token" value="{generate_csrf()}">
         <button class='btn {"secondary" if is_paid else "success"}'>
-            {"Mark Unpaid" if is_paid else "Mark Paid"}
+            {_t("Mark Unpaid", "Marcar como no pagada") if is_paid else _t("Mark Paid", "Marcar como pagada")}
         </button>
     </form>
     """
@@ -1869,22 +1984,27 @@ def view_invoice(invoice_id):
     email_invoice_btn = f"""
         <form method='post' action='{url_for("invoices.send_invoice_email", invoice_id=invoice_id)}'>
             <input type="hidden" name="csrf_token" value="{generate_csrf()}">
-            <button class='btn success'>Email Invoice</button>
+            <button class='btn success'>{_t("Email Invoice", "Enviar factura por correo")}</button>
         </form>
         """
 
     preview_invoice_btn = f"""
-        <a class='btn secondary' href='{url_for("invoices.email_invoice_preview", invoice_id=invoice_id)}'>Email Preview</a>
+        <a class='btn secondary' href='{url_for("invoices.email_invoice_preview", invoice_id=invoice_id)}'>{_t("Email Preview", "Vista previa del correo")}</a>
         """
 
     add_payment_btn = f"""
-        <a class='btn warning' href='{url_for("invoices.add_invoice_payment", invoice_id=invoice_id)}'>Add Payment</a>
+        <a class='btn warning' href='{url_for("invoices.add_invoice_payment", invoice_id=invoice_id)}'>{_t("Add Payment", "Agregar pago")}</a>
         """
 
+    confirm_delete_msg = _t(
+        "Delete this invoice, its items, and its payments?",
+        "¿Eliminar esta factura, sus artículos y sus pagos?",
+    )
+
     delete_invoice_btn = f"""
-        <form method='post' action='{url_for("invoices.delete_invoice", invoice_id=invoice_id)}' onsubmit="return confirm('Delete this invoice, its items, and its payments?');">
+        <form method='post' action='{url_for("invoices.delete_invoice", invoice_id=invoice_id)}' onsubmit="return confirm({json.dumps(confirm_delete_msg)});">
             <input type="hidden" name="csrf_token" value="{generate_csrf()}">
-            <button class='btn danger'>Delete Invoice</button>
+            <button class='btn danger'>{_t("Delete Invoice", "Eliminar factura")}</button>
         </form>
         """
 
@@ -1892,7 +2012,7 @@ def view_invoice(invoice_id):
     if summary_only:
         items_section_html = f"""
         <div class='card'>
-            <h2>Service Performed</h2>
+            <h2>{_t("Service Performed", "Servicio realizado")}</h2>
             <div class='invoice-card' style='margin-top:10px;'>
                 <strong>{escape(summary_text)}</strong>
             </div>
@@ -1901,17 +2021,17 @@ def view_invoice(invoice_id):
     else:
         items_section_html = f"""
         <div class='card'>
-            <h2>Items</h2>
+            <h2>{_t("Items", "Artículos")}</h2>
 
             <div class='desktop-only'>
                 <table class='table'>
                     <thead>
                         <tr>
-                            <th>Description</th>
-                            <th>Qty</th>
-                            <th>Unit</th>
-                            <th>Price</th>
-                            <th>Total</th>
+                            <th>{_t("Description", "Descripción")}</th>
+                            <th>{_t("Qty", "Cant.")}</th>
+                            <th>{_t("Unit", "Unidad")}</th>
+                            <th>{_t("Price", "Precio")}</th>
+                            <th>{_t("Total", "Total")}</th>
                         </tr>
                     </thead>
                     <tbody>{item_rows}</tbody>
@@ -1980,9 +2100,9 @@ def view_invoice(invoice_id):
     <div class='invoice-page'>
 
         <div class='card invoice-header'>
-            <h1>Invoice #{invoice_number}</h1>
+            <h1>{_t("Invoice", "Factura")} #{invoice_number}</h1>
             <div class='row-actions'>
-                <a class='btn secondary' href='{url_for("invoices.invoices")}'>Back</a>
+                <a class='btn secondary' href='{url_for("invoices.invoices")}'>{_t("Back", "Volver")}</a>
                 {email_invoice_btn}
                 {preview_invoice_btn}
                 {add_payment_btn}
@@ -1992,30 +2112,30 @@ def view_invoice(invoice_id):
         </div>
 
         <div class='invoice-grid'>
-            <div class='invoice-card'><span>Customer</span><strong>{escape(_clean_display(invoice["customer_name"]))}</strong></div>
-            <div class='invoice-card'><span>Date</span><strong>{escape(str(invoice["invoice_date"] or "-"))}</strong></div>
-            <div class='invoice-card'><span>Status</span><strong>{escape(_clean_display(invoice["status"]))}</strong></div>
+            <div class='invoice-card'><span>{_t("Customer", "Cliente")}</span><strong>{escape(_clean_display(invoice["customer_name"]))}</strong></div>
+            <div class='invoice-card'><span>{_t("Date", "Fecha")}</span><strong>{escape(str(invoice["invoice_date"] or "-"))}</strong></div>
+            <div class='invoice-card'><span>{_t("Status", "Estado")}</span><strong>{escape(_status_label(invoice["status"]))}</strong></div>
         </div>
 
         <div class='invoice-summary-grid'>
-            <div class='invoice-card'><span>Total</span><strong>${_safe_float(invoice["total"]):.2f}</strong></div>
-            <div class='invoice-card'><span>Amount Paid</span><strong>${_safe_float(invoice["amount_paid"]):.2f}</strong></div>
-            <div class='invoice-card'><span>Balance Due</span><strong>${_safe_float(invoice["balance_due"]):.2f}</strong></div>
+            <div class='invoice-card'><span>{_t("Total", "Total")}</span><strong>${_safe_float(invoice["total"]):.2f}</strong></div>
+            <div class='invoice-card'><span>{_t("Amount Paid", "Pagado")}</span><strong>${_safe_float(invoice["amount_paid"]):.2f}</strong></div>
+            <div class='invoice-card'><span>{_t("Balance Due", "Saldo pendiente")}</span><strong>${_safe_float(invoice["balance_due"]):.2f}</strong></div>
         </div>
 
         {items_section_html}
 
         <div class='card'>
-            <h2>Payments</h2>
+            <h2>{_t("Payments", "Pagos")}</h2>
 
             <div class='desktop-only'>
                 <table class='table'>
                     <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Amount</th>
-                            <th>Method</th>
-                            <th>Reference</th>
+                            <th>{_t("Date", "Fecha")}</th>
+                            <th>{_t("Amount", "Monto")}</th>
+                            <th>{_t("Method", "Método")}</th>
+                            <th>{_t("Reference", "Referencia")}</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -2031,7 +2151,7 @@ def view_invoice(invoice_id):
     </div>
     """
 
-    return render_page(content, f"Invoice #{invoice_number}")
+    return render_page(content, f"{_t('Invoice', 'Factura')} #{invoice_number}")
 
 
 @invoices_bp.route("/invoices/<int:invoice_id>/toggle_paid", methods=["POST"])
@@ -2053,7 +2173,7 @@ def toggle_invoice_paid(invoice_id):
 
     if not invoice:
         conn.close()
-        flash("Invoice not found.")
+        flash(_t("Invoice not found.", "Factura no encontrada."))
         return redirect(url_for("invoices.invoices"))
 
     current_status = str(invoice["status"] or "").strip().lower()
@@ -2072,14 +2192,17 @@ def toggle_invoice_paid(invoice_id):
 
         _sync_invoice_status_and_bookkeeping(invoice_id)
 
-        flash("Invoice marked unpaid and payment history cleared.")
+        flash(_t(
+            "Invoice marked unpaid and payment history cleared.",
+            "La factura fue marcada como no pagada y se borró el historial de pagos."
+        ))
         return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
     remaining_balance = _safe_float(invoice["balance_due"])
 
     if remaining_balance <= 0:
         conn.close()
-        flash("Invoice is already fully paid.")
+        flash(_t("Invoice is already fully paid.", "La factura ya está pagada por completo."))
         return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
     conn.execute(
@@ -2095,7 +2218,7 @@ def toggle_invoice_paid(invoice_id):
             remaining_balance,
             "Mark Paid",
             "",
-            "Remaining balance marked paid",
+            _t("Remaining balance marked paid", "Saldo restante marcado como pagado"),
         ),
     )
 
@@ -2104,7 +2227,7 @@ def toggle_invoice_paid(invoice_id):
 
     _sync_invoice_status_and_bookkeeping(invoice_id)
 
-    flash("Invoice marked paid.")
+    flash(_t("Invoice marked paid.", "Factura marcada como pagada."))
     return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
 
@@ -2118,6 +2241,7 @@ def email_invoice_preview(invoice_id):
 
     conn = get_db_connection()
     cid = session["company_id"]
+    lang = _lang()
 
     invoice = conn.execute(
         """
@@ -2164,11 +2288,11 @@ def email_invoice_preview(invoice_id):
     conn.close()
 
     invoice_number = invoice["invoice_number"] or invoice["id"]
-    customer_name = _clean_text(invoice["customer_name"]) or "Customer"
+    customer_name = _clean_text(invoice["customer_name"]) or _t("Customer", "Cliente")
     summary_only = _should_use_summary_only(invoice, items)
-    summary_text = _invoice_summary_text(invoice, items)
+    summary_text = _invoice_summary_text(invoice, items, lang=lang)
 
-    company_name = "Your Company"
+    company_name = _t("Your Company", "Su Empresa")
     if profile and "invoice_header_name" in profile.keys() and profile["invoice_header_name"]:
         company_name = profile["invoice_header_name"]
     elif profile and "display_name" in profile.keys() and profile["display_name"]:
@@ -2186,55 +2310,68 @@ def email_invoice_preview(invoice_id):
     if payment_url:
         payment_html = f"""
         <p style="margin:16px 0;">
-            Pay your invoice securely online:<br>
+            {_t("Pay your invoice securely online:", "Paga tu factura de forma segura en línea:")}<br>
             <a href="{payment_url}">{payment_url}</a>
         </p>
         """
 
     service_html = f"""
         <p>
-            <strong>Service Performed:</strong><br>
+            <strong>{_t("Service Performed:", "Servicio realizado:")}</strong><br>
             {escape(summary_text)}
         </p>
     """ if summary_only else ""
 
     preview_csrf = generate_csrf()
 
+    greeting = _t(f"Hello {customer_name},", f"Hola {customer_name},")
+    attached_msg = _t(
+        f"Please find attached Invoice #{invoice_number} from {company_name}.",
+        f"Adjunta encontrarás la factura #{invoice_number} de {company_name}.",
+    )
+    thanks = _t("Thank you.", "Gracias.")
+    total_label = _t("Total:", "Total:")
+    amount_paid_label = _t("Amount Paid:", "Pagado:")
+    balance_due_label = _t("Balance Due:", "Saldo pendiente:")
+    back_to_invoice = _t("Back to Invoice", "Volver a la factura")
+    send_invoice_email_btn = _t("Send Invoice Email", "Enviar factura por correo")
+    page_title = _t("Email Preview", "Vista previa del correo")
+
     content = f"""
     <div class='card'>
-        <h1>Email Preview - Invoice #{escape(str(invoice_number))}</h1>
+        <h1>{page_title} - {_t("Invoice", "Factura")} #{escape(str(invoice_number))}</h1>
 
         <div class='card' style='margin-top:14px; background:#fafafa;'>
             <div style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222;">
-                <p>Hello {escape(customer_name)},</p>
+                <p>{escape(greeting)}</p>
 
-                <p>Please find attached Invoice #{escape(str(invoice_number))} from {escape(company_name)}.</p>
+                <p>{escape(attached_msg)}</p>
 
                 {service_html}
 
                 <p>
-                    <strong>Total:</strong> ${_safe_float(invoice['total']):.2f}<br>
-                    <strong>Amount Paid:</strong> ${_safe_float(invoice['amount_paid']):.2f}<br>
-                    <strong>Balance Due:</strong> ${_safe_float(invoice['balance_due']):.2f}
+                    <strong>{total_label}</strong> ${_safe_float(invoice['total']):.2f}<br>
+                    <strong>{amount_paid_label}</strong> ${_safe_float(invoice['amount_paid']):.2f}<br>
+                    <strong>{balance_due_label}</strong> ${_safe_float(invoice['balance_due']):.2f}
                 </p>
 
                 {payment_html}
 
-                <p>Thank you.</p>
+                <p>{thanks}</p>
             </div>
         </div>
 
         <div class='row-actions' style='margin-top:16px;'>
-            <a class='btn secondary' href='{url_for("invoices.view_invoice", invoice_id=invoice_id)}'>Back to Invoice</a>
+            <a class='btn secondary' href='{url_for("invoices.view_invoice", invoice_id=invoice_id)}'>{back_to_invoice}</a>
 
             <form method='post' action='{url_for("invoices.send_invoice_email", invoice_id=invoice_id)}' style='margin:0;'>
                 <input type="hidden" name="csrf_token" value="{preview_csrf}">
-                <button class='btn success' type='submit'>Send Invoice Email</button>
+                <button class='btn success' type='submit'>{send_invoice_email_btn}</button>
             </form>
         </div>
     </div>
     """
-    return render_page(content, f"Email Preview - Invoice #{invoice_number}")
+    return render_page(content, f"{page_title} - {_t('Invoice', 'Factura')} #{invoice_number}")
 
 
 @invoices_bp.route("/invoices/<int:invoice_id>/send_email", methods=["POST"])
@@ -2248,6 +2385,7 @@ def send_invoice_email(invoice_id):
     conn = get_db_connection()
     cid = session["company_id"]
     uid = session.get("user_id")
+    lang = _lang()
 
     invoice = conn.execute(
         """
@@ -2315,15 +2453,15 @@ def send_invoice_email(invoice_id):
 
     recipient = (invoice["customer_email"] or "").strip()
     if not recipient:
-        flash("This customer does not have an email address.")
+        flash(_t("This customer does not have an email address.", "Este cliente no tiene una dirección de correo electrónico."))
         return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
     invoice_number = invoice["invoice_number"] or invoice["id"]
-    customer_name = (invoice["customer_name"] or "Customer").strip()
+    customer_name = (invoice["customer_name"] or _t("Customer", "Cliente")).strip()
     summary_only = _should_use_summary_only(invoice, items)
-    summary_text = _invoice_summary_text(invoice, items)
+    summary_text = _invoice_summary_text(invoice, items, lang=lang)
 
-    company_name = "Your Company"
+    company_name = _t("Your Company", "Su Empresa")
     if profile and "invoice_header_name" in profile.keys() and profile["invoice_header_name"]:
         company_name = profile["invoice_header_name"]
     elif profile and "display_name" in profile.keys() and profile["display_name"]:
@@ -2332,7 +2470,7 @@ def send_invoice_email(invoice_id):
         company_name = company["name"]
 
     try:
-        pdf_data = build_invoice_pdf(invoice, items, company, profile)
+        pdf_data = build_invoice_pdf(invoice, items, company, profile, lang=lang)
 
         payment_url = None
         try:
@@ -2340,63 +2478,107 @@ def send_invoice_email(invoice_id):
         except Exception:
             payment_url = None
 
-        payment_text_section = ""
-        payment_html_section = ""
-        if payment_url:
-            payment_text_section = f"\n\nPay your invoice securely online:\n{payment_url}\n"
+        if lang == "es":
+            payment_text_section = f"\n\nPaga tu factura de forma segura en línea:\n{payment_url}\n" if payment_url else ""
+            payment_html_section = f"""
+                <p style="margin: 16px 0;">
+                    Paga tu factura de forma segura en línea:<br>
+                    <a href="{payment_url}">{payment_url}</a>
+                </p>
+            """ if payment_url else ""
+
+            text_body = (
+                f"Hola {customer_name},\n\n"
+                f"Adjunta encontrarás la factura #{invoice_number} de {company_name}.\n\n"
+                + (f"Servicio realizado: {summary_text}\n\n" if summary_only else "")
+                + f"Total: ${_safe_float(invoice['total']):.2f}\n"
+                f"Pagado: ${_safe_float(invoice['amount_paid']):.2f}\n"
+                f"Saldo pendiente: ${_safe_float(invoice['balance_due']):.2f}"
+                f"{payment_text_section}\n"
+                f"Gracias."
+            )
+
+            html_body = f"""
+                <div style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222;">
+                    <p>Hola {escape(customer_name)},</p>
+
+                    <p>Adjunta encontrarás la factura #{escape(str(invoice_number))} de {escape(company_name)}.</p>
+
+                    {'<p><strong>Servicio realizado:</strong><br>' + escape(summary_text) + '</p>' if summary_only else ''}
+
+                    <p>
+                        <strong>Total:</strong> ${_safe_float(invoice['total']):.2f}<br>
+                        <strong>Pagado:</strong> ${_safe_float(invoice['amount_paid']):.2f}<br>
+                        <strong>Saldo pendiente:</strong> ${_safe_float(invoice['balance_due']):.2f}
+                    </p>
+
+                    {payment_html_section}
+
+                    <p>Gracias.</p>
+                </div>
+            """
+            subject = f"Factura #{invoice_number}"
+            attachment_filename = f"Factura_{invoice_number}.pdf"
+        else:
+            payment_text_section = f"\n\nPay your invoice securely online:\n{payment_url}\n" if payment_url else ""
             payment_html_section = f"""
                 <p style="margin: 16px 0;">
                     Pay your invoice securely online:<br>
                     <a href="{payment_url}">{payment_url}</a>
                 </p>
+            """ if payment_url else ""
+
+            text_body = (
+                f"Hello {customer_name},\n\n"
+                f"Please find attached Invoice #{invoice_number} from {company_name}.\n\n"
+                + (f"Service Performed: {summary_text}\n\n" if summary_only else "")
+                + f"Total: ${_safe_float(invoice['total']):.2f}\n"
+                f"Amount Paid: ${_safe_float(invoice['amount_paid']):.2f}\n"
+                f"Balance Due: ${_safe_float(invoice['balance_due']):.2f}"
+                f"{payment_text_section}\n"
+                f"Thank you."
+            )
+
+            html_body = f"""
+                <div style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222;">
+                    <p>Hello {escape(customer_name)},</p>
+
+                    <p>Please find attached Invoice #{escape(str(invoice_number))} from {escape(company_name)}.</p>
+
+                    {'<p><strong>Service Performed:</strong><br>' + escape(summary_text) + '</p>' if summary_only else ''}
+
+                    <p>
+                        <strong>Total:</strong> ${_safe_float(invoice['total']):.2f}<br>
+                        <strong>Amount Paid:</strong> ${_safe_float(invoice['amount_paid']):.2f}<br>
+                        <strong>Balance Due:</strong> ${_safe_float(invoice['balance_due']):.2f}
+                    </p>
+
+                    {payment_html_section}
+
+                    <p>Thank you.</p>
+                </div>
             """
-
-        text_body = (
-            f"Hello {customer_name},\n\n"
-            f"Please find attached Invoice #{invoice_number} from {company_name}.\n\n"
-            + (f"Service Performed: {summary_text}\n\n" if summary_only else "")
-            + f"Total: ${_safe_float(invoice['total']):.2f}\n"
-            f"Amount Paid: ${_safe_float(invoice['amount_paid']):.2f}\n"
-            f"Balance Due: ${_safe_float(invoice['balance_due']):.2f}"
-            f"{payment_text_section}\n"
-            f"Thank you."
-        )
-
-        html_body = f"""
-            <div style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222;">
-                <p>Hello {escape(customer_name)},</p>
-
-                <p>Please find attached Invoice #{escape(str(invoice_number))} from {escape(company_name)}.</p>
-
-                {'<p><strong>Service Performed:</strong><br>' + escape(summary_text) + '</p>' if summary_only else ''}
-
-                <p>
-                    <strong>Total:</strong> ${_safe_float(invoice['total']):.2f}<br>
-                    <strong>Amount Paid:</strong> ${_safe_float(invoice['amount_paid']):.2f}<br>
-                    <strong>Balance Due:</strong> ${_safe_float(invoice['balance_due']):.2f}
-                </p>
-
-                {payment_html_section}
-
-                <p>Thank you.</p>
-            </div>
-        """
+            subject = f"Invoice #{invoice_number}"
+            attachment_filename = f"Invoice_{invoice_number}.pdf"
 
         send_company_email(
             company_id=cid,
             user_id=uid,
             to_email=recipient,
-            subject=f"Invoice #{invoice_number}",
+            subject=subject,
             html=html_body,
             body=text_body,
             attachment_bytes=pdf_data,
-            attachment_filename=f"Invoice_{invoice_number}.pdf",
+            attachment_filename=attachment_filename,
         )
 
-        flash("Invoice emailed successfully as PDF.")
+        flash(_t("Invoice emailed successfully as PDF.", "La factura fue enviada correctamente como PDF."))
 
     except Exception as e:
-        flash(f"Could not email invoice: {e}")
+        flash(_t(
+            f"Could not email invoice: {e}",
+            f"No se pudo enviar la factura por correo: {e}"
+        ))
 
     return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
@@ -2434,7 +2616,7 @@ def add_invoice_payment(invoice_id):
 
         if amount <= 0:
             conn.close()
-            flash("Payment amount must be greater than 0.")
+            flash(_t("Payment amount must be greater than 0.", "El monto del pago debe ser mayor que 0."))
             return redirect(url_for("invoices.add_invoice_payment", invoice_id=invoice_id))
 
         current_paid = _safe_float(invoice["amount_paid"])
@@ -2442,7 +2624,7 @@ def add_invoice_payment(invoice_id):
 
         if current_paid + amount > invoice_total:
             conn.close()
-            flash("Payment total cannot exceed the invoice total.")
+            flash(_t("Payment total cannot exceed the invoice total.", "El total de pagos no puede exceder el total de la factura."))
             return redirect(url_for("invoices.add_invoice_payment", invoice_id=invoice_id))
 
         conn.execute(
@@ -2474,19 +2656,35 @@ def add_invoice_payment(invoice_id):
 
         _sync_invoice_status_and_bookkeeping(invoice_id)
 
-        flash("Payment added.")
+        flash(_t("Payment added.", "Pago agregado."))
         return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
     add_payment_csrf = generate_csrf()
 
+    page_title = _t("Add Payment", "Agregar pago")
+    invoice_label = _t("Invoice", "Factura")
+    customer_label = _t("Customer", "Cliente")
+    total_label = _t("Total", "Total")
+    amount_paid_label = _t("Amount Paid", "Pagado")
+    balance_due_label = _t("Balance Due", "Saldo pendiente")
+    payment_date_label = _t("Payment Date", "Fecha de pago")
+    amount_label = _t("Amount", "Monto")
+    payment_method_label = _t("Payment Method", "Método de pago")
+    payment_method_placeholder = _t("Cash, Card, Check, ACH", "Efectivo, Tarjeta, Cheque, ACH")
+    reference_label = _t("Reference", "Referencia")
+    reference_placeholder = _t("Check #, transaction ID, etc.", "Cheque #, ID de transacción, etc.")
+    notes_label = _t("Notes", "Notas")
+    save_payment_btn = _t("Save Payment", "Guardar pago")
+    cancel_btn = _t("Cancel", "Cancelar")
+
     content = f"""
     <div class='card'>
-        <h1>Add Payment - Invoice #{escape(str(invoice["invoice_number"] or invoice["id"]))}</h1>
+        <h1>{page_title} - {invoice_label} #{escape(str(invoice["invoice_number"] or invoice["id"]))}</h1>
         <p class='muted'>
-            Customer: {escape(_clean_display(invoice["customer_name"]))}<br>
-            Total: ${_safe_float(invoice["total"]):.2f}<br>
-            Amount Paid: ${_safe_float(invoice["amount_paid"]):.2f}<br>
-            Balance Due: ${_safe_float(invoice["balance_due"]):.2f}
+            {customer_label}: {escape(_clean_display(invoice["customer_name"]))}<br>
+            {total_label}: ${_safe_float(invoice["total"]):.2f}<br>
+            {amount_paid_label}: ${_safe_float(invoice["amount_paid"]):.2f}<br>
+            {balance_due_label}: ${_safe_float(invoice["balance_due"]):.2f}
         </p>
 
         <form method='post'>
@@ -2494,40 +2692,40 @@ def add_invoice_payment(invoice_id):
 
             <div class='grid'>
                 <div>
-                    <label>Payment Date</label>
+                    <label>{payment_date_label}</label>
                     <input type='date' name='payment_date' value='{date.today().isoformat()}' required>
                 </div>
 
                 <div>
-                    <label>Amount</label>
+                    <label>{amount_label}</label>
                     <input type='number' step='0.01' name='amount' min='0.01' required>
                 </div>
 
                 <div>
-                    <label>Payment Method</label>
-                    <input name='payment_method' placeholder='Cash, Card, Check, ACH'>
+                    <label>{payment_method_label}</label>
+                    <input name='payment_method' placeholder='{escape(payment_method_placeholder, quote=True)}'>
                 </div>
 
                 <div>
-                    <label>Reference</label>
-                    <input name='reference' placeholder='Check #, transaction ID, etc.'>
+                    <label>{reference_label}</label>
+                    <input name='reference' placeholder='{escape(reference_placeholder, quote=True)}'>
                 </div>
             </div>
 
             <br>
-            <label>Notes</label>
+            <label>{notes_label}</label>
             <textarea name='notes'></textarea>
 
             <br>
             <div class='row-actions'>
-                <button class='btn success' type='submit'>Save Payment</button>
-                <a class='btn secondary' href='{url_for("invoices.view_invoice", invoice_id=invoice_id)}'>Cancel</a>
+                <button class='btn success' type='submit'>{save_payment_btn}</button>
+                <a class='btn secondary' href='{url_for("invoices.view_invoice", invoice_id=invoice_id)}'>{cancel_btn}</a>
             </div>
         </form>
     </div>
     """
     conn.close()
-    return render_page(content, f"Add Payment - Invoice #{invoice['id']}")
+    return render_page(content, f"{page_title} - {invoice_label} #{invoice['id']}")
 
 
 @invoices_bp.route("/invoices/<int:invoice_id>/payments/<int:payment_id>/delete", methods=["POST"])
@@ -2549,7 +2747,7 @@ def delete_invoice_payment(invoice_id, payment_id):
 
     if not payment:
         conn.close()
-        flash("Payment not found.")
+        flash(_t("Payment not found.", "Pago no encontrado."))
         return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
     conn.execute(
@@ -2564,7 +2762,7 @@ def delete_invoice_payment(invoice_id, payment_id):
 
     _sync_invoice_status_and_bookkeeping(invoice_id)
 
-    flash("Payment deleted.")
+    flash(_t("Payment deleted.", "Pago eliminado."))
     return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
 
@@ -2587,7 +2785,7 @@ def edit_invoice_payment(invoice_id, payment_id):
 
     if not invoice:
         conn.close()
-        flash("Invoice not found.")
+        flash(_t("Invoice not found.", "Factura no encontrada."))
         return redirect(url_for("invoices.invoices"))
 
     payment = conn.execute(
@@ -2601,7 +2799,7 @@ def edit_invoice_payment(invoice_id, payment_id):
 
     if not payment:
         conn.close()
-        flash("Payment not found.")
+        flash(_t("Payment not found.", "Pago no encontrado."))
         return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
     if request.method == "POST":
@@ -2613,7 +2811,7 @@ def edit_invoice_payment(invoice_id, payment_id):
 
         if amount <= 0:
             conn.close()
-            flash("Payment amount must be greater than 0.")
+            flash(_t("Payment amount must be greater than 0.", "El monto del pago debe ser mayor que 0."))
             return redirect(url_for("invoices.edit_invoice_payment", invoice_id=invoice_id, payment_id=payment_id))
 
         other_paid_row = conn.execute(
@@ -2630,7 +2828,7 @@ def edit_invoice_payment(invoice_id, payment_id):
 
         if other_paid_total + amount > invoice_total:
             conn.close()
-            flash("Payment total cannot exceed the invoice total.")
+            flash(_t("Payment total cannot exceed the invoice total.", "El total de pagos no puede exceder el total de la factura."))
             return redirect(url_for("invoices.edit_invoice_payment", invoice_id=invoice_id, payment_id=payment_id))
 
         conn.execute(
@@ -2646,7 +2844,7 @@ def edit_invoice_payment(invoice_id, payment_id):
 
         _sync_invoice_status_and_bookkeeping(invoice_id)
 
-        flash("Payment updated.")
+        flash(_t("Payment updated.", "Pago actualizado."))
         return redirect(url_for("invoices.view_invoice", invoice_id=invoice_id))
 
     payment_method_val = escape(payment["payment_method"] or "", quote=True)
@@ -2658,44 +2856,45 @@ def edit_invoice_payment(invoice_id, payment_id):
     conn.close()
 
     edit_payment_csrf = generate_csrf()
+    page_title = _t("Edit Payment", "Editar pago")
 
     content = f"""
     <div class='card'>
-        <h1>Edit Payment</h1>
+        <h1>{page_title}</h1>
         <form method='post'>
             <input type="hidden" name="csrf_token" value="{edit_payment_csrf}">
             <div class='grid'>
                 <div>
-                    <label>Amount</label>
+                    <label>{_t("Amount", "Monto")}</label>
                     <input type='number' step='0.01' min='0.01' name='amount' value='{amount_val}' required>
                 </div>
                 <div>
-                    <label>Payment Date</label>
+                    <label>{_t("Payment Date", "Fecha de pago")}</label>
                     <input type='date' name='payment_date' value='{payment_date_val}'>
                 </div>
                 <div>
-                    <label>Payment Method</label>
-                    <input name='payment_method' value='{payment_method_val}' placeholder='Cash, Check, Card, ACH'>
+                    <label>{_t("Payment Method", "Método de pago")}</label>
+                    <input name='payment_method' value='{payment_method_val}' placeholder='{escape(_t("Cash, Check, Card, ACH", "Efectivo, Cheque, Tarjeta, ACH"), quote=True)}'>
                 </div>
                 <div>
-                    <label>Reference</label>
-                    <input name='reference' value='{reference_val}' placeholder='Check # or transaction ID'>
+                    <label>{_t("Reference", "Referencia")}</label>
+                    <input name='reference' value='{reference_val}' placeholder='{escape(_t("Check # or transaction ID", "Cheque # o ID de transacción"), quote=True)}'>
                 </div>
             </div>
 
             <br>
-            <label>Notes</label>
+            <label>{_t("Notes", "Notas")}</label>
             <textarea name='notes'>{notes_val}</textarea>
             <br>
 
             <div class='row-actions'>
-                <a class='btn secondary' href='{url_for("invoices.view_invoice", invoice_id=invoice_id)}'>Cancel</a>
-                <button class='btn success' type='submit'>Save Changes</button>
+                <a class='btn secondary' href='{url_for("invoices.view_invoice", invoice_id=invoice_id)}'>{_t("Cancel", "Cancelar")}</a>
+                <button class='btn success' type='submit'>{_t("Save Changes", "Guardar cambios")}</button>
             </div>
         </form>
     </div>
     """
-    return render_page(content, "Edit Payment")
+    return render_page(content, page_title)
 
 
 @invoices_bp.route("/invoices/<int:invoice_id>/delete", methods=["POST"])
@@ -2792,7 +2991,7 @@ def delete_invoice(invoice_id):
     conn.commit()
     conn.close()
 
-    flash("Invoice deleted.")
+    flash(_t("Invoice deleted.", "Factura eliminada."))
     return redirect(url_for("invoices.invoices"))
 
 

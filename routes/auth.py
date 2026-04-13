@@ -33,6 +33,40 @@ def _too_many_attempts():
     return session.get("login_attempts", 0) >= MAX_LOGIN_ATTEMPTS
 
 
+def _get_company_language(company_id):
+    conn = get_db_connection()
+    try:
+        try:
+            conn.execute(
+                """
+                ALTER TABLE company_profile
+                ADD COLUMN IF NOT EXISTS language_preference TEXT DEFAULT 'en'
+                """
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+        profile = conn.execute(
+            """
+            SELECT language_preference
+            FROM company_profile
+            WHERE company_id = %s
+            """,
+            (company_id,),
+        ).fetchone()
+
+        language = "en"
+        if profile and "language_preference" in profile.keys() and profile["language_preference"]:
+            language = str(profile["language_preference"]).strip().lower()
+            if language not in {"en", "es"}:
+                language = "en"
+
+        return language
+    finally:
+        conn.close()
+
+
 def _render_auth_page(title: str, heading: str, subtitle: str, body_html: str):
     content = render_template_string("""
     <div class="tl-auth-page">
@@ -126,6 +160,7 @@ def register():
         session["user_email"] = email
         session["company_id"] = company_id
         session["company_name"] = company_name
+        session["language"] = _get_company_language(company_id)
 
         _reset_login_attempts()
 
@@ -214,6 +249,7 @@ def login():
         session["user_email"] = email
         session["company_id"] = user["company_id"]
         session["company_name"] = user["company_name"]
+        session["language"] = _get_company_language(user["company_id"])
 
         _reset_login_attempts()
         return redirect(url_for("dashboard.dashboard"))

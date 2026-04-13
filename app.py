@@ -2,7 +2,7 @@ import os
 from datetime import timedelta
 
 from dotenv import load_dotenv
-from flask import Flask
+from flask import Flask, g, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 load_dotenv()
@@ -87,6 +87,15 @@ def run_startup_tasks():
     print("_ensure_bookkeeping_check_structure SUCCESS", flush=True)
 
 
+def _lang():
+    lang = session.get("language", "en")
+    return "es" if lang == "es" else "en"
+
+
+def _t(en, es):
+    return es if getattr(g, "lang", "en") == "es" else en
+
+
 def create_app():
     app = Flask(__name__)
 
@@ -156,6 +165,18 @@ def create_app():
     except Exception:
         pass
 
+    @app.before_request
+    def make_session_permanent_and_load_language():
+        session.permanent = True
+        g.lang = _lang()
+
+    @app.context_processor
+    def inject_translator():
+        return {
+            "_t": _t,
+            "current_lang": getattr(g, "lang", "en"),
+        }
+
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(customers_bp)
@@ -180,11 +201,6 @@ def create_app():
     app.register_blueprint(legal_bp)
     app.register_blueprint(material_usage_bp)
 
-    @app.before_request
-    def make_session_permanent():
-        from flask import session
-        session.permanent = True
-
     @app.after_request
     def add_security_headers(response):
         response.headers["X-Frame-Options"] = "SAMEORIGIN"
@@ -195,8 +211,6 @@ def create_app():
         if is_production and app.config["SESSION_COOKIE_SECURE"]:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
-        # Start with a safer CSP that still allows inline styles/scripts if your templates rely on them.
-        # Later you can tighten this further.
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "img-src 'self' data: https:; "

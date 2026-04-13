@@ -5,6 +5,19 @@ from page_helpers import render_page
 mobile_bp = Blueprint("mobile", __name__)
 
 
+def _lang():
+    value = str(session.get("language") or "en").strip().lower()
+    return "es" if value == "es" else "en"
+
+
+def _is_es():
+    return _lang() == "es"
+
+
+def _t(en, es):
+    return es if _is_es() else en
+
+
 @mobile_bp.route("/mobile")
 @login_required
 @subscription_required
@@ -94,7 +107,6 @@ def mobile_home():
             border-color: #2563eb;
         }}
 
-        /* 🔥 KEY MOBILE FIX */
         @media (max-width: 640px) {{
 
             .mobile-grid {{
@@ -131,54 +143,54 @@ def mobile_home():
 
     <div class="mobile-view-wrap">
         <div class="mobile-hero">
-            <h1>{company_name} Mobile Viewer</h1>
-            <p>Quick access to your TerraLedger tools.</p>
+            <h1>{company_name} {_t("Mobile Viewer", "Visor móvil")}</h1>
+            <p>{_t("Quick access to your TerraLedger tools.", "Acceso rápido a tus herramientas de TerraLedger.")}</p>
         </div>
 
         <div class="mobile-grid">
             <a class="mobile-card-btn" href="{url_for('dashboard.dashboard')}">
-                <div class="mobile-card-title">Dashboard</div>
-                <div class="mobile-card-text">Income, jobs, invoices</div>
+                <div class="mobile-card-title">{_t("Dashboard", "Panel")}</div>
+                <div class="mobile-card-text">{_t("Income, jobs, invoices", "Ingresos, trabajos, facturas")}</div>
             </a>
 
             <a class="mobile-card-btn" href="{url_for('customers.customers')}">
-                <div class="mobile-card-title">Customers</div>
-                <div class="mobile-card-text">Manage contacts</div>
+                <div class="mobile-card-title">{_t("Customers", "Clientes")}</div>
+                <div class="mobile-card-text">{_t("Manage contacts", "Administrar contactos")}</div>
             </a>
 
             <a class="mobile-card-btn" href="{url_for('quotes.quotes')}">
-                <div class="mobile-card-title">Quotes</div>
-                <div class="mobile-card-text">Create & send</div>
+                <div class="mobile-card-title">{_t("Quotes", "Cotizaciones")}</div>
+                <div class="mobile-card-text">{_t("Create & send", "Crear y enviar")}</div>
             </a>
 
             <a class="mobile-card-btn" href="{url_for('jobs.jobs')}">
-                <div class="mobile-card-title">Jobs</div>
-                <div class="mobile-card-text">Track work</div>
+                <div class="mobile-card-title">{_t("Jobs", "Trabajos")}</div>
+                <div class="mobile-card-text">{_t("Track work", "Seguimiento del trabajo")}</div>
             </a>
 
             <a class="mobile-card-btn" href="{url_for('invoices.invoices')}">
-                <div class="mobile-card-title">Invoices</div>
-                <div class="mobile-card-text">Balances & payments</div>
+                <div class="mobile-card-title">{_t("Invoices", "Facturas")}</div>
+                <div class="mobile-card-text">{_t("Balances & payments", "Saldos y pagos")}</div>
             </a>
 
             <a class="mobile-card-btn" href="{url_for('bookkeeping.bookkeeping')}">
-                <div class="mobile-card-title">Bookkeeping</div>
+                <div class="mobile-card-title">{_t("Bookkeeping", "Contabilidad")}</div>
             </a>
 
             <a class="mobile-card-btn" href="{url_for('employees.employees')}">
-                <div class="mobile-card-title">Employees</div>
+                <div class="mobile-card-title">{_t("Employees", "Empleados")}</div>
             </a>
 
             <a class="mobile-card-btn" href="{url_for('settings.settings')}">
-                <div class="mobile-card-title">Settings</div>
+                <div class="mobile-card-title">{_t("Settings", "Configuración")}</div>
             </a>
         </div>
 
         <div class="mobile-actions">
-            <a class="mobile-wide-btn primary" href="{url_for('quotes.quotes')}">Quotes</a>
-            <a class="mobile-wide-btn primary" href="{url_for('invoices.new_invoice')}">New Invoice</a>
-            <a class="mobile-wide-btn" href="{url_for('payroll.employee_payroll')}">Payroll</a>
+            <a class="mobile-wide-btn primary" href="{url_for('quotes.quotes')}">{_t("Quotes", "Cotizaciones")}</a>
+            <a class="mobile-wide-btn primary" href="{url_for('invoices.new_invoice')}">{_t("New Invoice", "Nueva factura")}</a>
+            <a class="mobile-wide-btn" href="{url_for('payroll.employee_payroll')}">{_t("Payroll", "Nómina")}</a>
         </div>
     </div>
     """
-    return render_page(content, "Mobile Viewer")
+    return render_page(content, _t("Mobile Viewer", "Visor móvil"))

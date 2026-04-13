@@ -25,6 +25,10 @@ EXPENSE_TYPES = {
 }
 
 
+def _t(lang, en, es):
+    return es if lang == "es" else en
+
+
 def _safe_float(value):
     try:
         return float(value or 0)
@@ -199,9 +203,11 @@ def _ledger_has_payroll_source_entries(conn, company_id):
 @login_required
 @subscription_required
 def dashboard():
+    lang = session.get("language_preference", "en")
     cid = session.get("company_id")
+
     if not cid:
-        flash("Company session not found.")
+        flash(_t(lang, "Company session not found.", "No se encontró la sesión de la empresa."))
         return redirect(url_for("auth.login"))
 
     conn = get_db_connection()
@@ -384,7 +390,7 @@ def dashboard():
             <td>{_safe_text(r['scheduled_date'])}</td>
             <td>{_safe_text(r['status'])}</td>
             <td>
-                <a class='btn secondary small dashboard-btn' href='{url_for("jobs.view_job", job_id=r["id"])}'>View</a>
+                <a class='btn secondary small dashboard-btn' href='{url_for("jobs.view_job", job_id=r["id"])}'>{_t(lang, "View", "Ver")}</a>
             </td>
         </tr>
         """
@@ -399,7 +405,7 @@ def dashboard():
             <td>{_safe_text(r['status'])}</td>
             <td>${_safe_float(r['balance_due']):,.2f}</td>
             <td>
-                <a class='btn secondary small dashboard-btn' href='{url_for("invoices.view_invoice", invoice_id=r["id"])}'>View</a>
+                <a class='btn secondary small dashboard-btn' href='{url_for("invoices.view_invoice", invoice_id=r["id"])}'>{_t(lang, "View", "Ver")}</a>
             </td>
         </tr>
         """
@@ -416,7 +422,7 @@ def dashboard():
             <td>{r['aging_bucket']}</td>
             <td>${_safe_float(r['balance_due']):,.2f}</td>
             <td>
-                <a class='btn secondary small dashboard-btn' href='{url_for("invoices.view_invoice", invoice_id=r["id"])}'>View</a>
+                <a class='btn secondary small dashboard-btn' href='{url_for("invoices.view_invoice", invoice_id=r["id"])}'>{_t(lang, "View", "Ver")}</a>
             </td>
         </tr>
         """
@@ -431,13 +437,13 @@ def dashboard():
                 <div class='mobile-list-amount'>${_safe_float(r['balance_due']):,.2f}</div>
             </div>
             <div class='mobile-list-grid'>
-                <div><span>Customer</span><strong>{_safe_text(r['customer_name'])}</strong></div>
-                <div><span>Bucket</span><strong>{_safe_text(r['aging_bucket'])}</strong></div>
-                <div><span>Invoice Date</span><strong>{_safe_text(r['invoice_date'])}</strong></div>
-                <div><span>Due Date</span><strong>{_safe_text(r['due_date'])}</strong></div>
+                <div><span>{_t(lang, "Customer", "Cliente")}</span><strong>{_safe_text(r['customer_name'])}</strong></div>
+                <div><span>{_t(lang, "Bucket", "Grupo")}</span><strong>{_safe_text(r['aging_bucket'])}</strong></div>
+                <div><span>{_t(lang, "Invoice Date", "Fecha de Factura")}</span><strong>{_safe_text(r['invoice_date'])}</strong></div>
+                <div><span>{_t(lang, "Due Date", "Fecha de Vencimiento")}</span><strong>{_safe_text(r['due_date'])}</strong></div>
             </div>
             <div class='mobile-list-actions'>
-                <a class='btn secondary small dashboard-btn' href='{url_for("invoices.view_invoice", invoice_id=r["id"])}'>View Invoice</a>
+                <a class='btn secondary small dashboard-btn' href='{url_for("invoices.view_invoice", invoice_id=r["id"])}'>{_t(lang, "View Invoice", "Ver Factura")}</a>
             </div>
         </div>
         """
@@ -452,13 +458,13 @@ def dashboard():
                 <div class='mobile-badge'>{_safe_text(r['status'])}</div>
             </div>
             <div class='mobile-list-grid'>
-                <div><span>Customer</span><strong>{_safe_text(r['customer_name'])}</strong></div>
-                <div><span>Date</span><strong>{_safe_text(r['scheduled_date'])}</strong></div>
-                <div><span>Start</span><strong>{_safe_text(r['scheduled_start_time'])}</strong></div>
-                <div><span>Status</span><strong>{_safe_text(r['status'])}</strong></div>
+                <div><span>{_t(lang, "Customer", "Cliente")}</span><strong>{_safe_text(r['customer_name'])}</strong></div>
+                <div><span>{_t(lang, "Date", "Fecha")}</span><strong>{_safe_text(r['scheduled_date'])}</strong></div>
+                <div><span>{_t(lang, "Start", "Inicio")}</span><strong>{_safe_text(r['scheduled_start_time'])}</strong></div>
+                <div><span>{_t(lang, "Status", "Estado")}</span><strong>{_safe_text(r['status'])}</strong></div>
             </div>
             <div class='mobile-list-actions'>
-                <a class='btn secondary small dashboard-btn' href='{url_for("jobs.view_job", job_id=r["id"])}'>View Job</a>
+                <a class='btn secondary small dashboard-btn' href='{url_for("jobs.view_job", job_id=r["id"])}'>{_t(lang, "View Job", "Ver Trabajo")}</a>
             </div>
         </div>
         """
@@ -473,11 +479,11 @@ def dashboard():
                 <div class='mobile-list-amount'>${_safe_float(r['balance_due']):,.2f}</div>
             </div>
             <div class='mobile-list-grid'>
-                <div><span>Status</span><strong>{_safe_text(r['status'])}</strong></div>
-                <div><span>Balance</span><strong>${_safe_float(r['balance_due']):,.2f}</strong></div>
+                <div><span>{_t(lang, "Status", "Estado")}</span><strong>{_safe_text(r['status'])}</strong></div>
+                <div><span>{_t(lang, "Balance", "Saldo")}</span><strong>${_safe_float(r['balance_due']):,.2f}</strong></div>
             </div>
             <div class='mobile-list-actions'>
-                <a class='btn secondary small dashboard-btn' href='{url_for("invoices.view_invoice", invoice_id=r["id"])}'>View Invoice</a>
+                <a class='btn secondary small dashboard-btn' href='{url_for("invoices.view_invoice", invoice_id=r["id"])}'>{_t(lang, "View Invoice", "Ver Factura")}</a>
             </div>
         </div>
         """
@@ -718,43 +724,43 @@ def dashboard():
     </style>
 
     <div class='dashboard-page'>
-        <h1>Dashboard</h1>
+        <h1>{_t(lang, "Dashboard", "Tablero")}</h1>
 
         <div class='dashboard-stats-grid'>
             <div class='card stat-card dashboard-stat-card'>
-                <div class='stat-label'>Customers</div>
+                <div class='stat-label'>{_t(lang, "Customers", "Clientes")}</div>
                 <div class='stat-value'>{customers_count}</div>
             </div>
 
             <div class='card stat-card dashboard-stat-card'>
-                <div class='stat-label'>Quotes</div>
+                <div class='stat-label'>{_t(lang, "Quotes", "Cotizaciones")}</div>
                 <div class='stat-value'>{quotes_count}</div>
             </div>
 
             <div class='card stat-card dashboard-stat-card'>
-                <div class='stat-label'>Jobs</div>
+                <div class='stat-label'>{_t(lang, "Jobs", "Trabajos")}</div>
                 <div class='stat-value'>{jobs_count}</div>
             </div>
 
             <div class='card stat-card dashboard-stat-card'>
-                <div class='stat-label'>Invoices</div>
+                <div class='stat-label'>{_t(lang, "Invoices", "Facturas")}</div>
                 <div class='stat-value'>{invoices_count}</div>
             </div>
         </div>
 
         <div class='dashboard-financials'>
             <div class='card stat-card dashboard-financial-card'>
-                <div class='stat-label'>Income</div>
+                <div class='stat-label'>{_t(lang, "Income", "Ingresos")}</div>
                 <div class='stat-value' style="color:#16a34a;">+${income_total:,.2f}</div>
             </div>
 
             <div class='card stat-card dashboard-financial-card'>
-                <div class='stat-label'>Expenses</div>
+                <div class='stat-label'>{_t(lang, "Expenses", "Gastos")}</div>
                 <div class='stat-value' style="color:#dc2626;">-${expense_total:,.2f}</div>
             </div>
 
             <div class='card stat-card dashboard-financial-card'>
-                <div class='stat-label'>Profit</div>
+                <div class='stat-label'>{_t(lang, "Profit", "Ganancia")}</div>
                 <div class='stat-value' style="color:{'#16a34a' if profit_total >= 0 else '#dc2626'};">
                     {'+' if profit_total >= 0 else '-'}${abs(profit_total):,.2f}
                 </div>
@@ -764,10 +770,10 @@ def dashboard():
         <div class='card' style='padding:20px;'>
             <div class='dashboard-section-head'>
                 <div>
-                    <h2 style='margin:0 0 6px 0;'>Outstanding Invoice Aging</h2>
+                    <h2 style='margin:0 0 6px 0;'>{_t(lang, "Outstanding Invoice Aging", "Antigüedad de Facturas Pendientes")}</h2>
                 </div>
                 <div class='dashboard-total-outstanding'>
-                    <div class='muted' style='font-size:.9rem;'>Total Outstanding</div>
+                    <div class='muted' style='font-size:.9rem;'>{_t(lang, "Total Outstanding", "Total Pendiente")}</div>
                     <div style='font-size:1.6rem; font-weight:800; color:#0f172a;'>${total_outstanding:,.2f}</div>
                 </div>
             </div>
@@ -775,7 +781,7 @@ def dashboard():
             <div class='dashboard-aging-table-wrap desktop-only'>
                 <table class='dashboard-aging-summary'>
                     <tr>
-                        <th style='width:20%;'>Current</th>
+                        <th style='width:20%;'>{_t(lang, "Current", "Actual")}</th>
                         <th style='width:20%;'>1-30</th>
                         <th style='width:20%;'>31-60</th>
                         <th style='width:20%;'>61-90</th>
@@ -795,7 +801,7 @@ def dashboard():
                 <div class='mobile-list'>
                     <div class='mobile-list-card'>
                         <div class='mobile-list-grid'>
-                            <div><span>Current</span><strong>${aging_totals["Current"]:,.2f}</strong></div>
+                            <div><span>{_t(lang, "Current", "Actual")}</span><strong>${aging_totals["Current"]:,.2f}</strong></div>
                             <div><span>1-30</span><strong>${aging_totals["1-30"]:,.2f}</strong></div>
                             <div><span>31-60</span><strong>${aging_totals["31-60"]:,.2f}</strong></div>
                             <div><span>61-90</span><strong>${aging_totals["61-90"]:,.2f}</strong></div>
@@ -808,21 +814,21 @@ def dashboard():
             <div class='table-wrap desktop-only'>
                 <table>
                     <tr>
-                        <th>Invoice</th>
-                        <th>Customer</th>
-                        <th>Invoice Date</th>
-                        <th>Due Date</th>
-                        <th>Bucket</th>
-                        <th>Balance Due</th>
+                        <th>{_t(lang, "Invoice", "Factura")}</th>
+                        <th>{_t(lang, "Customer", "Cliente")}</th>
+                        <th>{_t(lang, "Invoice Date", "Fecha de Factura")}</th>
+                        <th>{_t(lang, "Due Date", "Fecha de Vencimiento")}</th>
+                        <th>{_t(lang, "Bucket", "Grupo")}</th>
+                        <th>{_t(lang, "Balance Due", "Saldo Pendiente")}</th>
                         <th></th>
                     </tr>
-                    {aging_table_rows or "<tr><td colspan='7'>No outstanding invoices.</td></tr>"}
+                    {aging_table_rows or f"<tr><td colspan='7'>{_t(lang, 'No outstanding invoices.', 'No hay facturas pendientes.')}</td></tr>"}
                 </table>
             </div>
 
             <div class='mobile-only'>
                 <div class='mobile-list'>
-                    {aging_mobile_cards or "<div class='mobile-list-card'>No outstanding invoices.</div>"}
+                    {aging_mobile_cards or f"<div class='mobile-list-card'>{_t(lang, 'No outstanding invoices.', 'No hay facturas pendientes.')}</div>"}
                 </div>
             </div>
         </div>
@@ -830,53 +836,53 @@ def dashboard():
         <div class='dashboard-grid'>
             <div class='card'>
                 <div class='dashboard-section-head'>
-                    <h2 style='margin:0;'>Upcoming Jobs</h2>
-                    <a class='btn small dashboard-btn' href='{url_for("jobs.jobs")}'>View All</a>
+                    <h2 style='margin:0;'>{_t(lang, "Upcoming Jobs", "Próximos Trabajos")}</h2>
+                    <a class='btn small dashboard-btn' href='{url_for("jobs.jobs")}'>{_t(lang, "View All", "Ver Todo")}</a>
                 </div>
 
                 <div class='table-wrap desktop-only'>
                     <table>
                         <tr>
                             <th>ID</th>
-                            <th>Title</th>
-                            <th>Customer</th>
-                            <th>Date</th>
-                            <th>Status</th>
+                            <th>{_t(lang, "Title", "Título")}</th>
+                            <th>{_t(lang, "Customer", "Cliente")}</th>
+                            <th>{_t(lang, "Date", "Fecha")}</th>
+                            <th>{_t(lang, "Status", "Estado")}</th>
                             <th></th>
                         </tr>
-                        {upcoming_rows or "<tr><td colspan='5'>No jobs.</td></tr>"}
+                        {upcoming_rows or f"<tr><td colspan='6'>{_t(lang, 'No jobs.', 'No hay trabajos.')}</td></tr>"}
                     </table>
                 </div>
 
                 <div class='mobile-only'>
                     <div class='mobile-list'>
-                        {upcoming_mobile_cards or "<div class='mobile-list-card'>No jobs.</div>"}
+                        {upcoming_mobile_cards or f"<div class='mobile-list-card'>{_t(lang, 'No jobs.', 'No hay trabajos.')}</div>"}
                     </div>
                 </div>
             </div>
 
             <div class='card'>
                 <div class='dashboard-section-head'>
-                    <h2 style='margin:0;'>Unpaid Invoices</h2>
-                    <a class='btn small dashboard-btn' href='{url_for("invoices.invoices")}'>View All</a>
+                    <h2 style='margin:0;'>{_t(lang, "Unpaid Invoices", "Facturas No Pagadas")}</h2>
+                    <a class='btn small dashboard-btn' href='{url_for("invoices.invoices")}'>{_t(lang, "View All", "Ver Todo")}</a>
                 </div>
 
                 <div class='table-wrap desktop-only'>
                     <table>
                         <tr>
                             <th>ID</th>
-                            <th>Customer</th>
-                            <th>Status</th>
-                            <th>Balance</th>
+                            <th>{_t(lang, "Customer", "Cliente")}</th>
+                            <th>{_t(lang, "Status", "Estado")}</th>
+                            <th>{_t(lang, "Balance", "Saldo")}</th>
                             <th></th>
                         </tr>
-                        {unpaid_rows or "<tr><td colspan='5'>No unpaid invoices.</td></tr>"}
+                        {unpaid_rows or f"<tr><td colspan='5'>{_t(lang, 'No unpaid invoices.', 'No hay facturas sin pagar.')}</td></tr>"}
                     </table>
                 </div>
 
                 <div class='mobile-only'>
                     <div class='mobile-list'>
-                        {unpaid_mobile_cards or "<div class='mobile-list-card'>No unpaid invoices.</div>"}
+                        {unpaid_mobile_cards or f"<div class='mobile-list-card'>{_t(lang, 'No unpaid invoices.', 'No hay facturas sin pagar.')}</div>"}
                     </div>
                 </div>
             </div>
@@ -884,4 +890,4 @@ def dashboard():
     </div>
     """
 
-    return render_page(content, "Dashboard")
+    return render_page(content, _t(lang, "Dashboard", "Tablero"))

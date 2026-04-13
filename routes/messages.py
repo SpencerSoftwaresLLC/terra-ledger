@@ -37,6 +37,19 @@ HELP_WORDS = {"help", "info"}
 START_WORDS = {"start", "unstop", "yes"}
 
 
+def _lang():
+    value = str(session.get("language") or "en").strip().lower()
+    return "es" if value == "es" else "en"
+
+
+def _is_es():
+    return _lang() == "es"
+
+
+def _t(en, es):
+    return es if _is_es() else en
+
+
 def _safe_text(value, default=""):
     if value is None:
         return default
@@ -252,12 +265,12 @@ def _get_twilio_client():
     auth_token = _safe_text(os.environ.get("TWILIO_AUTH_TOKEN"))
 
     if not account_sid or not auth_token:
-        return None, "Twilio credentials are missing."
+        return None, _t("Twilio credentials are missing.", "Faltan las credenciales de Twilio.")
 
     try:
         return Client(account_sid, auth_token), None
     except Exception as e:
-        return None, f"Twilio client error: {e}"
+        return None, _t(f"Twilio client error: {e}", f"Error del cliente de Twilio: {e}")
 
 
 def _get_from_number():
@@ -962,17 +975,17 @@ def update_message_status_by_provider_id(provider_message_id, status, error_mess
 
 def send_text_message(to_number, message_body, settings_row=None):
     if not to_number:
-        return False, None, "Recipient phone number is missing."
+        return False, None, _t("Recipient phone number is missing.", "Falta el número de teléfono del destinatario.")
 
     if not message_body:
-        return False, None, "Message body is empty."
+        return False, None, _t("Message body is empty.", "El contenido del mensaje está vacío.")
 
     if settings_row and not _to_bool(settings_row.get("messaging_enabled")):
-        return False, None, "Messaging is disabled for this company."
+        return False, None, _t("Messaging is disabled for this company.", "La mensajería está desactivada para esta empresa.")
 
     from_number = _get_from_number()
     if not from_number:
-        return False, None, "TWILIO_FROM_NUMBER is missing or invalid."
+        return False, None, _t("TWILIO_FROM_NUMBER is missing or invalid.", "TWILIO_FROM_NUMBER falta o no es válido.")
 
     client, client_error = _get_twilio_client()
     if client_error:
@@ -1001,14 +1014,19 @@ def send_text_message(to_number, message_body, settings_row=None):
 
 def _render_job_reminder_message(template, job_row):
     scheduled_text = _format_datetime_for_message(job_row.get("scheduled_date"))
-    customer_name = _safe_text(job_row.get("customer_name"), "Customer")
-    company_name = _safe_text(job_row.get("company_name"), "our company")
-    job_title = _safe_text(job_row.get("job_title"), "your scheduled job")
+    customer_name = _safe_text(job_row.get("customer_name"), _t("Customer", "Cliente"))
+    company_name = _safe_text(job_row.get("company_name"), _t("our company", "nuestra empresa"))
+    job_title = _safe_text(job_row.get("job_title"), _t("your scheduled job", "tu trabajo programado"))
 
     message = template or (
-        "Hello {{customer_name}} — this is a reminder from {{company_name}} "
-        "about {{job_title}} scheduled for {{scheduled_date}}. "
-        "Reply STOP to opt out, HELP for help. Msg&data rates may apply."
+        _t(
+            "Hello {{customer_name}} — this is a reminder from {{company_name}} "
+            "about {{job_title}} scheduled for {{scheduled_date}}. "
+            "Reply STOP to opt out, HELP for help. Msg&data rates may apply.",
+            "Hola {{customer_name}} — este es un recordatorio de {{company_name}} "
+            "sobre {{job_title}} programado para {{scheduled_date}}. "
+            "Responde STOP para dejar de recibir mensajes, HELP para ayuda. Pueden aplicarse cargos por mensajes y datos."
+        )
     )
 
     replacements = {
@@ -1025,16 +1043,21 @@ def _render_job_reminder_message(template, job_row):
 
 
 def _render_invoice_late_message(template, invoice_row):
-    customer_name = _safe_text(invoice_row.get("customer_name"), "Customer")
-    company_name = _safe_text(invoice_row.get("company_name"), "our company")
-    invoice_number = _safe_text(invoice_row.get("invoice_number"), "your invoice")
+    customer_name = _safe_text(invoice_row.get("customer_name"), _t("Customer", "Cliente"))
+    company_name = _safe_text(invoice_row.get("company_name"), _t("our company", "nuestra empresa"))
+    invoice_number = _safe_text(invoice_row.get("invoice_number"), _t("your invoice", "tu factura"))
     balance_due = _format_currency(invoice_row.get("balance_due"))
     due_date_text = _format_datetime_for_message(invoice_row.get("due_date"))
 
     message = template or (
-        "Hello {{customer_name}} — this is a reminder from {{company_name}} that "
-        "invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. "
-        "Due date: {{due_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply."
+        _t(
+            "Hello {{customer_name}} — this is a reminder from {{company_name}} that "
+            "invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. "
+            "Due date: {{due_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.",
+            "Hola {{customer_name}} — este es un recordatorio de {{company_name}} de que "
+            "la factura {{invoice_number}} ahora está vencida. Saldo pendiente: {{balance_due}}. "
+            "Fecha de vencimiento: {{due_date}}. Responde STOP para dejar de recibir mensajes, HELP para ayuda. Pueden aplicarse cargos por mensajes y datos."
+        )
     )
 
     replacements = {
@@ -1071,10 +1094,13 @@ def _send_owner_relay_alert(company_id, customer_id, phone_number, inbound_body,
     display_name = customer_name or phone_number
     thread_link = _full_thread_link(thread_key)
 
-    relay_message = (
+    relay_message = _t(
         f"TerraLedger reply from {display_name}: "
         f"{_preview_text(inbound_body, 110)}\n"
-        f"Reply: {thread_link}"
+        f"Reply: {thread_link}",
+        f"Respuesta en TerraLedger de {display_name}: "
+        f"{_preview_text(inbound_body, 110)}\n"
+        f"Responder: {thread_link}"
     )
 
     success, provider_message_id, error_message = send_text_message(
@@ -1213,8 +1239,11 @@ def process_job_reminders():
                 company_id=row["company_id"],
                 user_id=None,
                 notif_type="message",
-                title="Job reminder sent",
-                message=f"Reminder sent to {phone_number} for {row.get('job_title') or 'scheduled job'}.",
+                title=_t("Job reminder sent", "Recordatorio de trabajo enviado"),
+                message=_t(
+                    f"Reminder sent to {phone_number} for {row.get('job_title') or 'scheduled job'}.",
+                    f"Recordatorio enviado a {phone_number} para {row.get('job_title') or 'trabajo programado'}."
+                ),
                 link=url_for("messages.messages_page"),
             )
         else:
@@ -1237,8 +1266,11 @@ def process_job_reminders():
                 company_id=row["company_id"],
                 user_id=None,
                 notif_type="message",
-                title="Job reminder failed",
-                message=f"Reminder to {phone_number} failed: {error_message}",
+                title=_t("Job reminder failed", "Falló el recordatorio de trabajo"),
+                message=_t(
+                    f"Reminder to {phone_number} failed: {error_message}",
+                    f"Falló el recordatorio a {phone_number}: {error_message}"
+                ),
                 link=url_for("messages.messages_page"),
             )
 
@@ -1366,8 +1398,11 @@ def process_late_invoice_reminders():
                 company_id=row["company_id"],
                 user_id=None,
                 notif_type="message",
-                title="Late invoice reminder sent",
-                message=f"Reminder sent to {phone_number} for invoice {row.get('invoice_number') or ''}.",
+                title=_t("Late invoice reminder sent", "Recordatorio de factura vencida enviado"),
+                message=_t(
+                    f"Reminder sent to {phone_number} for invoice {row.get('invoice_number') or ''}.",
+                    f"Recordatorio enviado a {phone_number} para la factura {row.get('invoice_number') or ''}."
+                ),
                 link=url_for("messages.messages_page"),
             )
         else:
@@ -1390,8 +1425,11 @@ def process_late_invoice_reminders():
                 company_id=row["company_id"],
                 user_id=None,
                 notif_type="message",
-                title="Late invoice reminder failed",
-                message=f"Reminder to {phone_number} failed: {error_message}",
+                title=_t("Late invoice reminder failed", "Falló el recordatorio de factura vencida"),
+                message=_t(
+                    f"Reminder to {phone_number} failed: {error_message}",
+                    f"Falló el recordatorio a {phone_number}: {error_message}"
+                ),
                 link=url_for("messages.messages_page"),
             )
 
@@ -1407,7 +1445,7 @@ def messages_page():
 
     company_id = session.get("company_id")
     if not company_id:
-        flash("Company session not found.")
+        flash(_t("Company session not found.", "No se encontró la sesión de la empresa."))
         return redirect(url_for("dashboard.dashboard"))
 
     settings = get_messaging_settings(company_id)
@@ -1633,25 +1671,25 @@ def messages_page():
         <div class="card">
             <div class="section-head">
                 <div>
-                    <h1 style="margin-bottom:6px;">Messages</h1>
-                    <div class="muted">Send manual customer texts, receive replies, and reply from TerraLedger threads.</div>
+                    <h1 style="margin-bottom:6px;">{{ _t("Messages", "Mensajes") }}</h1>
+                    <div class="muted">{{ _t("Send manual customer texts, receive replies, and reply from TerraLedger threads.", "Envía mensajes de texto manuales a clientes, recibe respuestas y responde desde los hilos de TerraLedger.") }}</div>
                 </div>
                 <div class="row-actions">
-                    <a class="btn secondary" href="{{ url_for('messages.messaging_configuration') }}">Messaging Configuration</a>
+                    <a class="btn secondary" href="{{ url_for('messages.messaging_configuration') }}">{{ _t("Messaging Configuration", "Configuración de Mensajería") }}</a>
                 </div>
             </div>
         </div>
 
         <div class="messages-top-grid">
             <div class="card">
-                <h3>Send Message</h3>
+                <h3>{{ _t("Send Message", "Enviar Mensaje") }}</h3>
                 <form method="post" action="{{ url_for('messages.send_message') }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
                     <div style="margin-bottom:14px;">
-                        <label>Customer</label>
+                        <label>{{ _t("Customer", "Cliente") }}</label>
                         <select id="customerSelect" onchange="fillCustomerPhoneFromDropdown()">
-                            <option value="">Select customer (required for consent-safe sending)</option>
+                            <option value="">{{ _t("Select customer (required for consent-safe sending)", "Selecciona cliente (requerido para enviar con consentimiento)") }}</option>
                             {% for customer in customers %}
                                 <option
                                     value="{{ customer['id'] }}"
@@ -1661,9 +1699,9 @@ def messages_page():
                                     {{ customer['name'] }}
                                     {% if customer['phone'] %} — {{ customer['phone'] }}{% endif %}
                                     {% if customer['sms_opt_in'] %}
-                                        — SMS Opted In
+                                        — {{ _t("SMS Opted In", "SMS Autorizado") }}
                                     {% else %}
-                                        — No SMS Consent
+                                        — {{ _t("No SMS Consent", "Sin Consentimiento SMS") }}
                                     {% endif %}
                                 </option>
                             {% endfor %}
@@ -1673,105 +1711,105 @@ def messages_page():
                     <input type="hidden" name="customer_id" id="customerIdField">
 
                     <div style="margin-bottom:10px;">
-                        <label>Phone Number</label>
-                        <input type="text" name="phone_number" id="phoneNumberField" placeholder="Enter mobile number" required>
+                        <label>{{ _t("Phone Number", "Número de Teléfono") }}</label>
+                        <input type="text" name="phone_number" id="phoneNumberField" placeholder="{{ _t('Enter mobile number', 'Ingresa número móvil') }}" required>
                     </div>
 
                     <div id="customerConsentStatus" class="muted" style="margin-bottom:14px;">
-                        Select a customer to verify SMS consent.
+                        {{ _t("Select a customer to verify SMS consent.", "Selecciona un cliente para verificar el consentimiento SMS.") }}
                     </div>
 
                     <div style="margin-bottom:14px;">
-                        <label>Template</label>
+                        <label>{{ _t("Template", "Plantilla") }}</label>
                         <select id="templateSelect" onchange="applyMessageTemplate()">
-                            <option value="">Choose a template (optional)</option>
-                            <option value="{{ settings['default_on_the_way_template'] if settings and settings['default_on_the_way_template'] else 'Hello from TerraLedger — we are on the way to your job site. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">On The Way</option>
-                            <option value="{{ settings['default_job_started_template'] if settings and settings['default_job_started_template'] else 'Hello from TerraLedger — we have started your scheduled job. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">Job Started</option>
-                            <option value="{{ settings['default_job_completed_template'] if settings and settings['default_job_completed_template'] else 'Hello from TerraLedger — your job has been completed. Thank you. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">Job Completed</option>
-                            <option value="{{ settings['default_invoice_reminder_template'] if settings and settings['default_invoice_reminder_template'] else 'Hello from TerraLedger — this is a reminder that your invoice is still outstanding. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">Invoice Reminder</option>
-                            <option value="{{ settings['default_job_reminder_template'] if settings and settings['default_job_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} about {{job_title}} scheduled for {{scheduled_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">Job Reminder</option>
-                            <option value="{{ settings['default_late_invoice_reminder_template'] if settings and settings['default_late_invoice_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} that invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. Due date: {{due_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}">Late Invoice Reminder</option>
+                            <option value="">{{ _t("Choose a template (optional)", "Elige una plantilla (opcional)") }}</option>
+                            <option value="{{ settings['default_on_the_way_template'] if settings and settings['default_on_the_way_template'] else _t('Hello from TerraLedger — we are on the way to your job site. Reply STOP to opt out, HELP for help. Msg&data rates may apply.', 'Hola desde TerraLedger — vamos en camino a tu lugar de trabajo. Responde STOP para dejar de recibir mensajes, HELP para ayuda. Pueden aplicarse cargos por mensajes y datos.') }}">{{ _t("On The Way", "En Camino") }}</option>
+                            <option value="{{ settings['default_job_started_template'] if settings and settings['default_job_started_template'] else _t('Hello from TerraLedger — we have started your scheduled job. Reply STOP to opt out, HELP for help. Msg&data rates may apply.', 'Hola desde TerraLedger — hemos comenzado tu trabajo programado. Responde STOP para dejar de recibir mensajes, HELP para ayuda. Pueden aplicarse cargos por mensajes y datos.') }}">{{ _t("Job Started", "Trabajo Iniciado") }}</option>
+                            <option value="{{ settings['default_job_completed_template'] if settings and settings['default_job_completed_template'] else _t('Hello from TerraLedger — your job has been completed. Thank you. Reply STOP to opt out, HELP for help. Msg&data rates may apply.', 'Hola desde TerraLedger — tu trabajo ha sido completado. Gracias. Responde STOP para dejar de recibir mensajes, HELP para ayuda. Pueden aplicarse cargos por mensajes y datos.') }}">{{ _t("Job Completed", "Trabajo Completado") }}</option>
+                            <option value="{{ settings['default_invoice_reminder_template'] if settings and settings['default_invoice_reminder_template'] else _t('Hello from TerraLedger — this is a reminder that your invoice is still outstanding. Reply STOP to opt out, HELP for help. Msg&data rates may apply.', 'Hola desde TerraLedger — este es un recordatorio de que tu factura sigue pendiente. Responde STOP para dejar de recibir mensajes, HELP para ayuda. Pueden aplicarse cargos por mensajes y datos.') }}">{{ _t("Invoice Reminder", "Recordatorio de Factura") }}</option>
+                            <option value="{{ settings['default_job_reminder_template'] if settings and settings['default_job_reminder_template'] else _t('Hello {{customer_name}} — this is a reminder from {{company_name}} about {{job_title}} scheduled for {{scheduled_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.', 'Hola {{customer_name}} — este es un recordatorio de {{company_name}} sobre {{job_title}} programado para {{scheduled_date}}. Responde STOP para dejar de recibir mensajes, HELP para ayuda. Pueden aplicarse cargos por mensajes y datos.') }}">{{ _t("Job Reminder", "Recordatorio de Trabajo") }}</option>
+                            <option value="{{ settings['default_late_invoice_reminder_template'] if settings and settings['default_late_invoice_reminder_template'] else _t('Hello {{customer_name}} — this is a reminder from {{company_name}} that invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. Due date: {{due_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.', 'Hola {{customer_name}} — este es un recordatorio de {{company_name}} de que la factura {{invoice_number}} ahora está vencida. Saldo pendiente: {{balance_due}}. Fecha de vencimiento: {{due_date}}. Responde STOP para dejar de recibir mensajes, HELP para ayuda. Pueden aplicarse cargos por mensajes y datos.') }}">{{ _t("Late Invoice Reminder", "Recordatorio de Factura Vencida") }}</option>
                         </select>
                     </div>
 
                     <div style="margin-bottom:14px;">
-                        <label>Message</label>
-                        <textarea name="message_body" id="messageBodyField" placeholder="Type your message here..." required></textarea>
+                        <label>{{ _t("Message", "Mensaje") }}</label>
+                        <textarea name="message_body" id="messageBodyField" placeholder="{{ _t('Type your message here...', 'Escribe tu mensaje aquí...') }}" required></textarea>
                     </div>
 
                     <div class="muted small" style="margin-bottom:14px;">
-                        Manual messages only send to customers with recorded SMS consent.
+                        {{ _t("Manual messages only send to customers with recorded SMS consent.", "Los mensajes manuales solo se envían a clientes con consentimiento SMS registrado.") }}
                     </div>
 
                     <div class="row-actions">
-                        <button type="submit" class="btn">Send Message</button>
+                        <button type="submit" class="btn">{{ _t("Send Message", "Enviar Mensaje") }}</button>
                     </div>
                 </form>
             </div>
 
             <div class="card">
-                <h3>Messaging Status</h3>
+                <h3>{{ _t("Messaging Status", "Estado de la Mensajería") }}</h3>
 
                 <div style="margin-bottom:12px;">
-                    <strong>Enabled:</strong>
+                    <strong>{{ _t("Enabled:", "Activado:") }}</strong>
                     {% if settings and settings['messaging_enabled'] %}
-                        <span class="pill" style="background:#dff3d2;color:#254314;">Enabled</span>
+                        <span class="pill" style="background:#dff3d2;color:#254314;">{{ _t("Enabled", "Activado") }}</span>
                     {% else %}
-                        <span class="pill warning">Not Enabled</span>
+                        <span class="pill warning">{{ _t("Not Enabled", "No Activado") }}</span>
                     {% endif %}
                 </div>
 
                 <div style="margin-bottom:12px;">
-                    <strong>Provider:</strong>
-                    <span class="muted">TerraLedger Messaging (Twilio)</span>
+                    <strong>{{ _t("Provider:", "Proveedor:") }}</strong>
+                    <span class="muted">{{ _t("TerraLedger Messaging (Twilio)", "Mensajería TerraLedger (Twilio)") }}</span>
                 </div>
 
                 <div style="margin-bottom:12px;">
-                    <strong>From Number:</strong>
-                    <span class="muted">{{ from_number if from_number else 'Platform number not configured' }}</span>
+                    <strong>{{ _t("From Number:", "Número de Envío:") }}</strong>
+                    <span class="muted">{{ from_number if from_number else _t('Platform number not configured', 'Número de plataforma no configurado') }}</span>
                 </div>
 
                 <div style="margin-bottom:12px;">
-                    <strong>Owner Relay Alerts:</strong>
+                    <strong>{{ _t("Owner Relay Alerts:", "Alertas de Reenvío al Propietario:") }}</strong>
                     <span class="muted">
-                        {% if settings and settings['forward_inbound_to_owner'] %}On{% else %}Off{% endif %}
+                        {% if settings and settings['forward_inbound_to_owner'] %}{{ _t("On", "Activado") }}{% else %}{{ _t("Off", "Desactivado") }}{% endif %}
                         {% if settings and settings['owner_forward_phone'] %} — {{ settings['owner_forward_phone'] }}{% endif %}
                     </span>
                 </div>
 
                 <div style="margin-bottom:12px;">
-                    <strong>Manual Messages:</strong>
-                    <span class="muted">{% if settings and settings['send_manual_messages'] %}On{% else %}Off{% endif %}</span>
+                    <strong>{{ _t("Manual Messages:", "Mensajes Manuales:") }}</strong>
+                    <span class="muted">{% if settings and settings['send_manual_messages'] %}{{ _t("On", "Activado") }}{% else %}{{ _t("Off", "Desactivado") }}{% endif %}</span>
                 </div>
 
                 <div style="margin-bottom:12px;">
-                    <strong>Job Updates:</strong>
-                    <span class="muted">{% if settings and settings['send_job_updates'] %}On{% else %}Off{% endif %}</span>
+                    <strong>{{ _t("Job Updates:", "Actualizaciones de Trabajo:") }}</strong>
+                    <span class="muted">{% if settings and settings['send_job_updates'] %}{{ _t("On", "Activado") }}{% else %}{{ _t("Off", "Desactivado") }}{% endif %}</span>
                 </div>
 
                 <div style="margin-bottom:12px;">
-                    <strong>Job Reminders:</strong>
+                    <strong>{{ _t("Job Reminders:", "Recordatorios de Trabajo:") }}</strong>
                     <span class="muted">
-                        {% if settings and settings['enable_job_reminders'] %}On{% else %}Off{% endif %}
-                        {% if settings %}( {{ settings['job_reminder_hours'] or 24 }} hrs before ){% endif %}
+                        {% if settings and settings['enable_job_reminders'] %}{{ _t("On", "Activado") }}{% else %}{{ _t("Off", "Desactivado") }}{% endif %}
+                        {% if settings %}( {{ settings['job_reminder_hours'] or 24 }} {{ _t("hrs before", "hrs antes") }} ){% endif %}
                     </span>
                 </div>
 
                 <div style="margin-bottom:12px;">
-                    <strong>Invoice Reminders:</strong>
-                    <span class="muted">{% if settings and settings['send_invoice_reminders'] %}On{% else %}Off{% endif %}</span>
+                    <strong>{{ _t("Invoice Reminders:", "Recordatorios de Factura:") }}</strong>
+                    <span class="muted">{% if settings and settings['send_invoice_reminders'] %}{{ _t("On", "Activado") }}{% else %}{{ _t("Off", "Desactivado") }}{% endif %}</span>
                 </div>
 
                 <div style="margin-bottom:12px;">
-                    <strong>Late Invoice Reminders:</strong>
+                    <strong>{{ _t("Late Invoice Reminders:", "Recordatorios de Facturas Vencidas:") }}</strong>
                     <span class="muted">
-                        {% if settings and settings['enable_late_invoice_reminders'] %}On{% else %}Off{% endif %}
-                        {% if settings %}( {{ settings['late_invoice_days'] or 30 }} days late ){% endif %}
+                        {% if settings and settings['enable_late_invoice_reminders'] %}{{ _t("On", "Activado") }}{% else %}{{ _t("Off", "Desactivado") }}{% endif %}
+                        {% if settings %}( {{ settings['late_invoice_days'] or 30 }} {{ _t("days late", "días de atraso") }} ){% endif %}
                     </span>
                 </div>
 
                 <div class="row-actions" style="margin-top:16px;">
-                    <a class="btn secondary" href="{{ url_for('messages.messaging_configuration') }}">Open Configuration</a>
+                    <a class="btn secondary" href="{{ url_for('messages.messaging_configuration') }}">{{ _t("Open Configuration", "Abrir Configuración") }}</a>
                 </div>
             </div>
         </div>
@@ -1779,8 +1817,8 @@ def messages_page():
         <div class="card">
             <div class="section-head">
                 <div>
-                    <h3 style="margin-bottom:6px;">Conversations</h3>
-                    <div class="muted">Reply from these threads so the customer always sees your TerraLedger number.</div>
+                    <h3 style="margin-bottom:6px;">{{ _t("Conversations", "Conversaciones") }}</h3>
+                    <div class="muted">{{ _t("Reply from these threads so the customer always sees your TerraLedger number.", "Responde desde estos hilos para que el cliente siempre vea tu número de TerraLedger.") }}</div>
                 </div>
             </div>
 
@@ -1789,38 +1827,38 @@ def messages_page():
                     {% for thread in threads %}
                         <div class="thread-row">
                             <div class="thread-main">
-                                <div class="thread-title">{{ thread['customer_name'] or thread['phone_number'] or 'Unknown' }}</div>
+                                <div class="thread-title">{{ thread['customer_name'] or thread['phone_number'] or _t('Unknown', 'Desconocido') }}</div>
                                 <div class="thread-meta">
                                     {{ thread['phone_number'] or '—' }} •
-                                    {{ thread['message_count'] or 0 }} message(s) •
+                                    {{ thread['message_count'] or 0 }} {{ _t("message(s)", "mensaje(s)") }} •
                                     {{ thread['last_created_at'] or '' }}
                                 </div>
                                 <div class="thread-preview">
                                     {% if thread['last_direction'] == 'inbound' %}
-                                        <strong>Customer:</strong>
+                                        <strong>{{ _t("Customer:", "Cliente:") }}</strong>
                                     {% else %}
-                                        <strong>You:</strong>
+                                        <strong>{{ _t("You:", "Tú:") }}</strong>
                                     {% endif %}
                                     {{ thread['last_message_body'] or '' }}
                                 </div>
                             </div>
 
                             <div class="row-actions">
-                                <a class="btn secondary small" href="{{ url_for('messages.view_thread', thread_key=thread['conversation_key']) }}">Open Thread</a>
+                                <a class="btn secondary small" href="{{ url_for('messages.view_thread', thread_key=thread['conversation_key']) }}">{{ _t("Open Thread", "Abrir Hilo") }}</a>
                             </div>
                         </div>
                     {% endfor %}
                 </div>
             {% else %}
-                <div class="muted">No conversations yet.</div>
+                <div class="muted">{{ _t("No conversations yet.", "Aún no hay conversaciones.") }}</div>
             {% endif %}
         </div>
 
         <div class="card">
             <div class="section-head">
                 <div>
-                    <h3 style="margin-bottom:6px;">Message History</h3>
-                    <div class="muted">Latest inbound and outbound messages for your company.</div>
+                    <h3 style="margin-bottom:6px;">{{ _t("Message History", "Historial de Mensajes") }}</h3>
+                    <div class="muted">{{ _t("Latest inbound and outbound messages for your company.", "Últimos mensajes entrantes y salientes de tu empresa.") }}</div>
                 </div>
             </div>
 
@@ -1829,13 +1867,13 @@ def messages_page():
                     <table class="message-history-table">
                         <thead>
                             <tr>
-                                <th>Date</th>
-                                <th>Direction</th>
-                                <th>Customer</th>
-                                <th>Phone</th>
-                                <th>Message</th>
-                                <th>Status</th>
-                                <th>Related</th>
+                                <th>{{ _t("Date", "Fecha") }}</th>
+                                <th>{{ _t("Direction", "Dirección") }}</th>
+                                <th>{{ _t("Customer", "Cliente") }}</th>
+                                <th>{{ _t("Phone", "Teléfono") }}</th>
+                                <th>{{ _t("Message", "Mensaje") }}</th>
+                                <th>{{ _t("Status", "Estado") }}</th>
+                                <th>{{ _t("Related", "Relacionado") }}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1844,9 +1882,9 @@ def messages_page():
                                 <td>{{ row['created_at'] or '' }}</td>
                                 <td>
                                     {% if row['direction'] == 'inbound' %}
-                                        <span class="pill direction-pill inbound">Inbound</span>
+                                        <span class="pill direction-pill inbound">{{ _t("Inbound", "Entrante") }}</span>
                                     {% else %}
-                                        <span class="pill direction-pill outbound">Outbound</span>
+                                        <span class="pill direction-pill outbound">{{ _t("Outbound", "Saliente") }}</span>
                                     {% endif %}
                                 </td>
                                 <td>{{ row['customer_name'] or '—' }}</td>
@@ -1854,19 +1892,24 @@ def messages_page():
                                 <td class="message-body-cell">{{ row['message_body'] or '' }}</td>
                                 <td>
                                     {% if row['status'] in ['sent', 'received', 'delivered'] %}
-                                        <span class="status-pill good">{{ row['status']|title }}</span>
+                                        <span class="status-pill good">
+                                            {% if row['status'] == 'sent' %}{{ _t("Sent", "Enviado") }}
+                                            {% elif row['status'] == 'received' %}{{ _t("Received", "Recibido") }}
+                                            {% elif row['status'] == 'delivered' %}{{ _t("Delivered", "Entregado") }}
+                                            {% else %}{{ row['status']|title }}{% endif %}
+                                        </span>
                                     {% elif row['status'] == 'failed' %}
-                                        <span class="status-pill bad">Failed</span>
+                                        <span class="status-pill bad">{{ _t("Failed", "Falló") }}</span>
                                     {% else %}
                                         <span class="status-pill neutral">{{ row['status'] }}</span>
                                     {% endif %}
                                 </td>
                                 <td>
                                     {% if row['job_title'] %}
-                                        Job: {{ row['job_title'] }}<br>
+                                        {{ _t("Job:", "Trabajo:") }} {{ row['job_title'] }}<br>
                                     {% endif %}
                                     {% if row['invoice_number'] %}
-                                        Invoice: {{ row['invoice_number'] }}
+                                        {{ _t("Invoice:", "Factura:") }} {{ row['invoice_number'] }}
                                     {% endif %}
                                     {% if not row['job_title'] and not row['invoice_number'] %}
                                         —
@@ -1884,30 +1927,35 @@ def messages_page():
                             <div class="mobile-list-card">
                                 <div class="mobile-list-top">
                                     <div>
-                                        <div class="mobile-list-title">{{ row['customer_name'] or 'Unknown Customer' }}</div>
+                                        <div class="mobile-list-title">{{ row['customer_name'] or _t('Unknown Customer', 'Cliente Desconocido') }}</div>
                                         <div class="mobile-list-subtitle">{{ row['created_at'] or '' }}</div>
                                     </div>
 
                                     {% if row['direction'] == 'inbound' %}
-                                        <div class="mobile-badge direction-pill inbound">Inbound</div>
+                                        <div class="mobile-badge direction-pill inbound">{{ _t("Inbound", "Entrante") }}</div>
                                     {% else %}
-                                        <div class="mobile-badge direction-pill outbound">Outbound</div>
+                                        <div class="mobile-badge direction-pill outbound">{{ _t("Outbound", "Saliente") }}</div>
                                     {% endif %}
                                 </div>
 
                                 <div class="mobile-list-grid">
                                     <div>
-                                        <span>Phone</span>
+                                        <span>{{ _t("Phone", "Teléfono") }}</span>
                                         <strong>{{ row['phone_number'] or '—' }}</strong>
                                     </div>
 
                                     <div>
-                                        <span>Status</span>
+                                        <span>{{ _t("Status", "Estado") }}</span>
                                         <strong>
                                             {% if row['status'] in ['sent', 'received', 'delivered'] %}
-                                                <span class="status-pill good">{{ row['status']|title }}</span>
+                                                <span class="status-pill good">
+                                                    {% if row['status'] == 'sent' %}{{ _t("Sent", "Enviado") }}
+                                                    {% elif row['status'] == 'received' %}{{ _t("Received", "Recibido") }}
+                                                    {% elif row['status'] == 'delivered' %}{{ _t("Delivered", "Entregado") }}
+                                                    {% else %}{{ row['status']|title }}{% endif %}
+                                                </span>
                                             {% elif row['status'] == 'failed' %}
-                                                <span class="status-pill bad">Failed</span>
+                                                <span class="status-pill bad">{{ _t("Failed", "Falló") }}</span>
                                             {% else %}
                                                 <span class="status-pill neutral">{{ row['status'] }}</span>
                                             {% endif %}
@@ -1915,12 +1963,12 @@ def messages_page():
                                     </div>
 
                                     <div>
-                                        <span>Related</span>
+                                        <span>{{ _t("Related", "Relacionado") }}</span>
                                         <strong>
                                             {% if row['job_title'] %}
-                                                Job: {{ row['job_title'] }}
+                                                {{ _t("Job:", "Trabajo:") }} {{ row['job_title'] }}
                                             {% elif row['invoice_number'] %}
-                                                Invoice: {{ row['invoice_number'] }}
+                                                {{ _t("Invoice:", "Factura:") }} {{ row['invoice_number'] }}
                                             {% else %}
                                                 —
                                             {% endif %}
@@ -1929,7 +1977,7 @@ def messages_page():
                                 </div>
 
                                 <div class="mobile-message-body">
-                                    <span>Message</span>
+                                    <span>{{ _t("Message", "Mensaje") }}</span>
                                     <div>{{ row['message_body'] or '' }}</div>
                                 </div>
                             </div>
@@ -1937,7 +1985,7 @@ def messages_page():
                     </div>
                 </div>
             {% else %}
-                <div class="muted">No messages have been logged yet.</div>
+                <div class="muted">{{ _t("No messages have been logged yet.", "Aún no se han registrado mensajes.") }}</div>
             {% endif %}
         </div>
     </div>
@@ -1963,14 +2011,14 @@ def messages_page():
         }
 
         if (!customerId) {
-            consentStatus.innerHTML = "Select a customer to verify SMS consent.";
+            consentStatus.innerHTML = {{ _t("Select a customer to verify SMS consent.", "Selecciona un cliente para verificar el consentimiento SMS.")|tojson }};
             return;
         }
 
         if (optIn === "yes") {
-            consentStatus.innerHTML = '<span class="consent-pill yes">SMS Opted In</span>';
+            consentStatus.innerHTML = '<span class="consent-pill yes">{{ _t("SMS Opted In", "SMS Autorizado") }}</span>';
         } else {
-            consentStatus.innerHTML = '<span class="consent-pill no">No SMS Consent On File</span>';
+            consentStatus.innerHTML = '<span class="consent-pill no">{{ _t("No SMS Consent On File", "No hay consentimiento SMS registrado") }}</span>';
         }
     }
 
@@ -1996,8 +2044,9 @@ def messages_page():
             threads=threads,
             customers=customers,
             from_number=from_number,
+            _t=_t,
         ),
-        "Messages",
+        _t("Messages", "Mensajes"),
     )
 
 
@@ -2010,7 +2059,7 @@ def view_thread(thread_key):
 
     company_id = session.get("company_id")
     if not company_id:
-        flash("Company session not found.")
+        flash(_t("Company session not found.", "No se encontró la sesión de la empresa."))
         return redirect(url_for("dashboard.dashboard"))
 
     if not thread_key.startswith(f"{int(company_id)}__"):
@@ -2018,7 +2067,7 @@ def view_thread(thread_key):
 
     thread = get_thread_context(company_id, thread_key)
     if not thread:
-        flash("Conversation not found.")
+        flash(_t("Conversation not found.", "Conversación no encontrada."))
         return redirect(url_for("messages.messages_page"))
 
     messages = get_thread_messages(company_id, thread_key)
@@ -2082,13 +2131,13 @@ def view_thread(thread_key):
         <div class="card">
             <div class="section-head">
                 <div>
-                    <h1 style="margin-bottom:6px;">Conversation</h1>
+                    <h1 style="margin-bottom:6px;">{{ _t("Conversation", "Conversación") }}</h1>
                     <div class="muted">
                         {{ thread['customer_name'] or thread['phone_number'] }}{% if thread['phone_number'] %} — {{ thread['phone_number'] }}{% endif %}
                     </div>
                 </div>
                 <div class="row-actions">
-                    <a class="btn secondary" href="{{ url_for('messages.messages_page') }}">Back to Messages</a>
+                    <a class="btn secondary" href="{{ url_for('messages.messages_page') }}">{{ _t("Back to Messages", "Volver a Mensajes") }}</a>
                 </div>
             </div>
         </div>
@@ -2100,7 +2149,7 @@ def view_thread(thread_key):
                         <div class="thread-message-head">
                             <div class="thread-message-title">
                                 {% if row['direction'] == 'inbound' %}
-                                    Customer
+                                    {{ _t("Customer", "Cliente") }}
                                 {% else %}
                                     TerraLedger
                                 {% endif %}
@@ -2108,7 +2157,18 @@ def view_thread(thread_key):
                             <div class="thread-message-meta">
                                 {{ row['created_at'] or '' }}
                                 {% if row['status'] and row['direction'] == 'outbound' %}
-                                    • {{ row['status'] }}
+                                    •
+                                    {% if row['status'] == 'sent' %}
+                                        {{ _t("Sent", "Enviado") }}
+                                    {% elif row['status'] == 'delivered' %}
+                                        {{ _t("Delivered", "Entregado") }}
+                                    {% elif row['status'] == 'failed' %}
+                                        {{ _t("Failed", "Falló") }}
+                                    {% elif row['status'] == 'received' %}
+                                        {{ _t("Received", "Recibido") }}
+                                    {% else %}
+                                        {{ row['status'] }}
+                                    {% endif %}
                                 {% endif %}
                             </div>
                         </div>
@@ -2120,17 +2180,17 @@ def view_thread(thread_key):
         </div>
 
         <div class="card">
-            <h3>Reply</h3>
+            <h3>{{ _t("Reply", "Responder") }}</h3>
             <form method="post" action="{{ url_for('messages.reply_to_thread', thread_key=thread['thread_key']) }}">
                 <input type="hidden" name="csrf_token" value="{{ reply_csrf }}">
                 <div style="margin-bottom:14px;">
-                    <label>Message</label>
-                    <textarea name="message_body" maxlength="{{ max_len }}" required placeholder="Type your reply..."></textarea>
+                    <label>{{ _t("Message", "Mensaje") }}</label>
+                    <textarea name="message_body" maxlength="{{ max_len }}" required placeholder="{{ _t('Type your reply...', 'Escribe tu respuesta...') }}"></textarea>
                 </div>
 
                 <div class="row-actions">
-                    <button type="submit" class="btn">Send Reply</button>
-                    <a class="btn secondary" href="{{ url_for('messages.messages_page') }}">Cancel</a>
+                    <button type="submit" class="btn">{{ _t("Send Reply", "Enviar Respuesta") }}</button>
+                    <a class="btn secondary" href="{{ url_for('messages.messages_page') }}">{{ _t("Cancel", "Cancelar") }}</a>
                 </div>
             </form>
         </div>
@@ -2144,8 +2204,12 @@ def view_thread(thread_key):
             messages=messages,
             reply_csrf=reply_csrf,
             max_len=MAX_MESSAGE_LENGTH,
+            _t=_t,
         ),
-        f"Conversation - {thread.get('customer_name') or thread.get('phone_number') or 'Messages'}",
+        _t(
+            f"Conversation - {thread.get('customer_name') or thread.get('phone_number') or 'Messages'}",
+            f"Conversación - {thread.get('customer_name') or thread.get('phone_number') or 'Mensajes'}",
+        ),
     )
 
 
@@ -2160,7 +2224,7 @@ def reply_to_thread(thread_key):
     user_id = session.get("user_id")
 
     if not company_id:
-        flash("Company session not found.")
+        flash(_t("Company session not found.", "No se encontró la sesión de la empresa."))
         return redirect(url_for("messages.messages_page"))
 
     if not thread_key.startswith(f"{int(company_id)}__"):
@@ -2168,31 +2232,36 @@ def reply_to_thread(thread_key):
 
     thread = get_thread_context(company_id, thread_key)
     if not thread:
-        flash("Conversation not found.")
+        flash(_t("Conversation not found.", "Conversación no encontrada."))
         return redirect(url_for("messages.messages_page"))
 
     message_body = _safe_text(request.form.get("message_body"))
     if not message_body:
-        flash("Message is required.")
+        flash(_t("Message is required.", "El mensaje es obligatorio."))
         return redirect(url_for("messages.view_thread", thread_key=thread_key))
 
     if len(message_body) > MAX_MESSAGE_LENGTH:
-        flash(f"Message is too long. Keep it under {MAX_MESSAGE_LENGTH} characters.")
+        flash(
+            _t(
+                f"Message is too long. Keep it under {MAX_MESSAGE_LENGTH} characters.",
+                f"El mensaje es demasiado largo. Mantenlo por debajo de {MAX_MESSAGE_LENGTH} caracteres.",
+            )
+        )
         return redirect(url_for("messages.view_thread", thread_key=thread_key))
 
     phone_number = _normalize_phone(thread.get("phone_number"))
     if not _is_reasonable_phone(phone_number):
-        flash("This thread does not have a valid phone number.")
+        flash(_t("This thread does not have a valid phone number.", "Este hilo no tiene un número de teléfono válido."))
         return redirect(url_for("messages.view_thread", thread_key=thread_key))
 
     customer = get_customer_by_id(company_id, thread.get("customer_id")) if thread.get("customer_id") else None
     if customer and not customer_has_sms_consent(customer):
-        flash("This customer has not opted in to SMS notifications.")
+        flash(_t("This customer has not opted in to SMS notifications.", "Este cliente no ha aceptado las notificaciones por SMS."))
         return redirect(url_for("messages.view_thread", thread_key=thread_key))
 
     settings = get_messaging_settings(company_id)
     if settings and not settings["messaging_enabled"]:
-        flash("Messaging is not enabled for this company.")
+        flash(_t("Messaging is not enabled for this company.", "La mensajería no está habilitada para esta empresa."))
         return redirect(url_for("messages.view_thread", thread_key=thread_key))
 
     success, provider_message_id, error_message = send_text_message(
@@ -2219,12 +2288,12 @@ def reply_to_thread(thread_key):
             company_id=company_id,
             user_id=None,
             notif_type="message",
-            title="Reply sent",
-            message=f"Reply sent to {phone_number}.",
+            title=_t("Reply sent", "Respuesta enviada"),
+            message=_t(f"Reply sent to {phone_number}.", f"Respuesta enviada a {phone_number}."),
             link=url_for("messages.view_thread", thread_key=thread_key),
         )
 
-        flash("Reply sent.")
+        flash(_t("Reply sent.", "Respuesta enviada."))
     else:
         insert_message_log(
             company_id=company_id,
@@ -2243,12 +2312,15 @@ def reply_to_thread(thread_key):
             company_id=company_id,
             user_id=None,
             notif_type="message",
-            title="Reply failed",
-            message=f"Reply to {phone_number} failed: {error_message}",
+            title=_t("Reply failed", "La respuesta falló"),
+            message=_t(
+                f"Reply to {phone_number} failed: {error_message}",
+                f"La respuesta a {phone_number} falló: {error_message}",
+            ),
             link=url_for("messages.view_thread", thread_key=thread_key),
         )
 
-        flash(f"Reply failed: {error_message}")
+        flash(_t(f"Reply failed: {error_message}", f"La respuesta falló: {error_message}"))
 
     return redirect(url_for("messages.view_thread", thread_key=thread_key))
 
@@ -2264,7 +2336,7 @@ def send_message():
     user_id = session.get("user_id")
 
     if not company_id:
-        flash("Company session not found.")
+        flash(_t("Company session not found.", "No se encontró la sesión de la empresa."))
         return redirect(url_for("messages.messages_page"))
 
     customer_id = _safe_int(request.form.get("customer_id"), None)
@@ -2272,47 +2344,52 @@ def send_message():
     message_body = _safe_text(request.form.get("message_body"))
 
     if not customer_id:
-        flash("Please select a customer so SMS consent can be verified.")
+        flash(_t("Please select a customer so SMS consent can be verified.", "Selecciona un cliente para verificar el consentimiento SMS."))
         return redirect(url_for("messages.messages_page"))
 
     customer = get_customer_by_id(company_id, customer_id)
     if not customer:
-        flash("Customer not found.")
+        flash(_t("Customer not found.", "Cliente no encontrado."))
         return redirect(url_for("messages.messages_page"))
 
     if not phone_number:
-        flash("Phone number is required.")
+        flash(_t("Phone number is required.", "El número de teléfono es obligatorio."))
         return redirect(url_for("messages.messages_page"))
 
     if not _is_reasonable_phone(phone_number):
-        flash("Please enter a valid phone number.")
+        flash(_t("Please enter a valid phone number.", "Ingresa un número de teléfono válido."))
         return redirect(url_for("messages.messages_page"))
 
     customer_phone = _normalize_phone(customer.get("phone"))
     if customer_phone != phone_number:
-        flash("The phone number must match the selected customer's saved phone number.")
+        flash(_t("The phone number must match the selected customer's saved phone number.", "El número de teléfono debe coincidir con el número guardado del cliente seleccionado."))
         return redirect(url_for("messages.messages_page"))
 
     if not customer_has_sms_consent(customer):
-        flash("This customer has not opted in to SMS notifications.")
+        flash(_t("This customer has not opted in to SMS notifications.", "Este cliente no ha aceptado las notificaciones por SMS."))
         return redirect(url_for("messages.messages_page"))
 
     if not message_body:
-        flash("Message is required.")
+        flash(_t("Message is required.", "El mensaje es obligatorio."))
         return redirect(url_for("messages.messages_page"))
 
     if len(message_body) > MAX_MESSAGE_LENGTH:
-        flash(f"Message is too long. Keep it under {MAX_MESSAGE_LENGTH} characters.")
+        flash(
+            _t(
+                f"Message is too long. Keep it under {MAX_MESSAGE_LENGTH} characters.",
+                f"El mensaje es demasiado largo. Mantenlo por debajo de {MAX_MESSAGE_LENGTH} caracteres.",
+            )
+        )
         return redirect(url_for("messages.messages_page"))
 
     settings = get_messaging_settings(company_id)
 
     if settings and not settings["messaging_enabled"]:
-        flash("Messaging is not enabled for this company.")
+        flash(_t("Messaging is not enabled for this company.", "La mensajería no está habilitada para esta empresa."))
         return redirect(url_for("messages.messages_page"))
 
     if settings and not settings["send_manual_messages"]:
-        flash("Manual messaging is disabled in messaging settings.")
+        flash(_t("Manual messaging is disabled in messaging settings.", "La mensajería manual está deshabilitada en la configuración de mensajería."))
         return redirect(url_for("messages.messages_page"))
 
     success, provider_message_id, error_message = send_text_message(
@@ -2341,12 +2418,12 @@ def send_message():
             company_id=company_id,
             user_id=None,
             notif_type="message",
-            title="Message sent",
-            message=f"Message sent to {phone_number}.",
+            title=_t("Message sent", "Mensaje enviado"),
+            message=_t(f"Message sent to {phone_number}.", f"Mensaje enviado a {phone_number}."),
             link=url_for("messages.view_thread", thread_key=thread_key),
         )
 
-        flash("Message sent successfully.")
+        flash(_t("Message sent successfully.", "Mensaje enviado correctamente."))
         return redirect(url_for("messages.view_thread", thread_key=thread_key))
 
     insert_message_log(
@@ -2366,12 +2443,15 @@ def send_message():
         company_id=company_id,
         user_id=None,
         notif_type="message",
-        title="Message failed",
-        message=f"Message to {phone_number} failed: {error_message}",
+        title=_t("Message failed", "El mensaje falló"),
+        message=_t(
+            f"Message to {phone_number} failed: {error_message}",
+            f"El mensaje a {phone_number} falló: {error_message}",
+        ),
         link=url_for("messages.messages_page"),
     )
 
-    flash(f"Message failed: {error_message}")
+    flash(_t(f"Message failed: {error_message}", f"El mensaje falló: {error_message}"))
     return redirect(url_for("messages.messages_page"))
 
 
@@ -2495,7 +2575,7 @@ def incoming_message_webhook():
             company_id=matched_company_id,
             user_id=None,
             notif_type="message",
-            title="New inbound message",
+            title=_t("New inbound message", "Nuevo mensaje entrante"),
             message=f"{customer_name or from_number}: {preview}",
             link=url_for("messages.view_thread", thread_key=conversation_key),
         )
@@ -2510,13 +2590,27 @@ def incoming_message_webhook():
             )
 
     if first_word in STOP_WORDS:
-        resp.message("You have been opted out of SMS messages from TerraLedger. Reply START to opt back in.")
+        resp.message(
+            _t(
+                "You have been opted out of SMS messages from TerraLedger. Reply START to opt back in.",
+                "Has sido dado de baja de los mensajes SMS de TerraLedger. Responde START para volver a activarlos.",
+            )
+        )
     elif first_word in HELP_WORDS:
-        resp.message("TerraLedger support: Reply STOP to opt out. Reply START to opt back in.")
+        resp.message(
+            _t(
+                "TerraLedger support: Reply STOP to opt out. Reply START to opt back in.",
+                "Soporte de TerraLedger: Responde STOP para darte de baja. Responde START para volver a activarlos.",
+            )
+        )
     elif first_word in START_WORDS:
-        resp.message("You have been opted back in to SMS messages from TerraLedger.")
+        resp.message(
+            _t(
+                "You have been opted back in to SMS messages from TerraLedger.",
+                "Has sido dado de alta nuevamente en los mensajes SMS de TerraLedger.",
+            )
+        )
     else:
-        # no auto-reply for normal inbound messages
         pass
 
     return Response(str(resp), mimetype="application/xml")
@@ -2571,7 +2665,7 @@ def messaging_configuration():
 
     company_id = session.get("company_id")
     if not company_id:
-        flash("Company session not found.")
+        flash(_t("Company session not found.", "No se encontró la sesión de la empresa."))
         return redirect(url_for("dashboard.dashboard"))
 
     conn = get_db_connection()
@@ -2686,7 +2780,7 @@ def messaging_configuration():
                 ))
 
             conn.commit()
-            flash("Messaging configuration saved.")
+            flash(_t("Messaging configuration saved.", "Configuración de mensajería guardada."))
             return redirect(url_for("messages.messaging_configuration"))
     finally:
         conn.close()
@@ -2700,11 +2794,11 @@ def messaging_configuration():
     <div class="card">
         <div class="section-head">
             <div>
-                <h1 style="margin-bottom:6px;">Messaging Configuration</h1>
-                <div class="muted">Control messaging preferences, owner relay alerts, automation, and default templates.</div>
+                <h1 style="margin-bottom:6px;">{{ _t("Messaging Configuration", "Configuración de Mensajería") }}</h1>
+                <div class="muted">{{ _t("Control messaging preferences, owner relay alerts, automation, and default templates.", "Controla preferencias de mensajería, alertas de reenvío al propietario, automatizaciones y plantillas predeterminadas.") }}</div>
             </div>
             <div class="row-actions">
-                <a class="btn secondary" href="{{ url_for('messages.messages_page') }}">Back to Messages</a>
+                <a class="btn secondary" href="{{ url_for('messages.messages_page') }}">{{ _t("Back to Messages", "Volver a Mensajes") }}</a>
             </div>
         </div>
     </div>
@@ -2714,136 +2808,135 @@ def messaging_configuration():
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
             <div class="card" style="margin-top:0; margin-bottom:18px;">
-                <h3>Platform Messaging</h3>
+                <h3>{{ _t("Platform Messaging", "Mensajería de Plataforma") }}</h3>
 
                 <div style="margin-bottom:10px;">
-                    <strong>Provider:</strong>
-                    <span class="muted">TerraLedger Messaging (Twilio)</span>
+                    <strong>{{ _t("Provider:", "Proveedor:") }}</strong>
+                    <span class="muted">{{ _t("TerraLedger Messaging (Twilio)", "Mensajería TerraLedger (Twilio)") }}</span>
                 </div>
 
                 <div style="margin-bottom:10px;">
-                    <strong>Sending Number:</strong>
-                    <span class="muted">{{ from_number if from_number else 'Platform number not configured yet' }}</span>
+                    <strong>{{ _t("Sending Number:", "Número de Envío:") }}</strong>
+                    <span class="muted">{{ from_number if from_number else _t('Platform number not configured yet', 'El número de la plataforma aún no está configurado') }}</span>
                 </div>
 
                 <div style="margin-bottom:10px;">
-                    <strong>Inbound Webhook:</strong>
+                    <strong>{{ _t("Inbound Webhook:", "Webhook Entrante:") }}</strong>
                     <span class="muted">{{ inbound_webhook_url }}</span>
                 </div>
 
                 <div style="margin-bottom:0;">
-                    <strong>Status Callback:</strong>
+                    <strong>{{ _t("Status Callback:", "Retorno de Estado:") }}</strong>
                     <span class="muted">{{ status_callback_url }}</span>
                 </div>
 
                 <div class="muted small" style="margin-top:12px;">
-                    Messaging is provided by TerraLedger. Customers do not need to connect their own Twilio account.
-                    Only customers with recorded SMS consent will receive outbound messages.
+                    {{ _t("Messaging is provided by TerraLedger. Customers do not need to connect their own Twilio account. Only customers with recorded SMS consent will receive outbound messages.", "La mensajería es proporcionada por TerraLedger. Los clientes no necesitan conectar su propia cuenta de Twilio. Solo los clientes con consentimiento SMS registrado recibirán mensajes salientes.") }}
                 </div>
             </div>
 
             <div class="card" style="margin-top:0; margin-bottom:18px;">
-                <h3>Reply Relay Settings</h3>
+                <h3>{{ _t("Reply Relay Settings", "Configuración de Reenvío de Respuestas") }}</h3>
 
                 <div style="display:grid; gap:10px;">
                     <label style="display:flex; align-items:center; gap:10px; font-weight:600;">
                         <input type="checkbox" name="forward_inbound_to_owner" {% if not settings or settings['forward_inbound_to_owner'] %}checked{% endif %}>
-                        Forward inbound customer replies to owner phone
+                        {{ _t("Forward inbound customer replies to owner phone", "Reenviar respuestas entrantes del cliente al teléfono del propietario") }}
                     </label>
 
                     <div style="margin-left:28px;">
-                        <label>Owner Forward Phone</label>
+                        <label>{{ _t("Owner Forward Phone", "Teléfono de Reenvío del Propietario") }}</label>
                         <input type="text" name="owner_forward_phone" value="{{ settings['owner_forward_phone'] if settings and settings['owner_forward_phone'] else '' }}" placeholder="+1XXXXXXXXXX">
                         <div class="muted small" style="margin-top:6px;">
-                            When a customer replies, TerraLedger sends an alert text to this phone with a link to the TerraLedger conversation thread.
+                            {{ _t("When a customer replies, TerraLedger sends an alert text to this phone with a link to the TerraLedger conversation thread.", "Cuando un cliente responde, TerraLedger envía una alerta de texto a este teléfono con un enlace al hilo de conversación de TerraLedger.") }}
                         </div>
                     </div>
                 </div>
             </div>
 
             <div class="card" style="margin-top:0; margin-bottom:18px;">
-                <h3>Messaging Options</h3>
+                <h3>{{ _t("Messaging Options", "Opciones de Mensajería") }}</h3>
 
                 <div style="display:grid; gap:10px;">
                     <label style="display:flex; align-items:center; gap:10px; font-weight:600;">
                         <input type="checkbox" name="messaging_enabled" {% if settings and settings['messaging_enabled'] %}checked{% endif %}>
-                        Enable Messaging
+                        {{ _t("Enable Messaging", "Habilitar Mensajería") }}
                     </label>
 
                     <label style="display:flex; align-items:center; gap:10px; font-weight:600;">
                         <input type="checkbox" name="send_manual_messages" {% if not settings or settings['send_manual_messages'] %}checked{% endif %}>
-                        Allow Manual Messages
+                        {{ _t("Allow Manual Messages", "Permitir Mensajes Manuales") }}
                     </label>
 
                     <label style="display:flex; align-items:center; gap:10px; font-weight:600;">
                         <input type="checkbox" name="send_job_updates" {% if not settings or settings['send_job_updates'] %}checked{% endif %}>
-                        Enable Job Update Messages
+                        {{ _t("Enable Job Update Messages", "Habilitar Mensajes de Actualización de Trabajo") }}
                     </label>
 
                     <label style="display:flex; align-items:center; gap:10px; font-weight:600;">
                         <input type="checkbox" name="enable_job_reminders" {% if not settings or settings['enable_job_reminders'] %}checked{% endif %}>
-                        Enable Automated Job Reminders
+                        {{ _t("Enable Automated Job Reminders", "Habilitar Recordatorios Automáticos de Trabajo") }}
                     </label>
 
                     <div style="margin-left:28px;">
-                        <label>Hours Before Job</label>
+                        <label>{{ _t("Hours Before Job", "Horas Antes del Trabajo") }}</label>
                         <input type="number" min="1" name="job_reminder_hours" value="{{ settings['job_reminder_hours'] if settings else 24 }}">
                     </div>
 
                     <label style="display:flex; align-items:center; gap:10px; font-weight:600;">
                         <input type="checkbox" name="send_invoice_reminders" {% if settings and settings['send_invoice_reminders'] %}checked{% endif %}>
-                        Enable Invoice Reminder Messages
+                        {{ _t("Enable Invoice Reminder Messages", "Habilitar Mensajes de Recordatorio de Factura") }}
                     </label>
 
                     <label style="display:flex; align-items:center; gap:10px; font-weight:600;">
                         <input type="checkbox" name="enable_late_invoice_reminders" {% if settings and settings['enable_late_invoice_reminders'] %}checked{% endif %}>
-                        Enable Automated Late Invoice Reminders
+                        {{ _t("Enable Automated Late Invoice Reminders", "Habilitar Recordatorios Automáticos de Facturas Vencidas") }}
                     </label>
 
                     <div style="margin-left:28px;">
-                        <label>Days Late Before Sending</label>
+                        <label>{{ _t("Days Late Before Sending", "Días de Atraso Antes de Enviar") }}</label>
                         <input type="number" min="1" name="late_invoice_days" value="{{ settings['late_invoice_days'] if settings else 30 }}">
                     </div>
                 </div>
             </div>
 
             <div class="card" style="margin-top:0;">
-                <h3>Default Templates</h3>
+                <h3>{{ _t("Default Templates", "Plantillas Predeterminadas") }}</h3>
 
                 <div style="margin-bottom:14px;">
-                    <label>On The Way Template</label>
-                    <textarea name="default_on_the_way_template">{{ settings['default_on_the_way_template'] if settings and settings['default_on_the_way_template'] else 'Hello from TerraLedger — we are on the way to your job site. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}</textarea>
+                    <label>{{ _t("On The Way Template", "Plantilla En Camino") }}</label>
+                    <textarea name="default_on_the_way_template">{{ settings['default_on_the_way_template'] if settings and settings['default_on_the_way_template'] else _t('Hello from TerraLedger — we are on the way to your job site. Reply STOP to opt out, HELP for help. Msg&data rates may apply.', 'Hola desde TerraLedger — vamos en camino a tu lugar de trabajo. Responde STOP para dejar de recibir mensajes, HELP para ayuda. Pueden aplicarse cargos por mensajes y datos.') }}</textarea>
                 </div>
 
                 <div style="margin-bottom:14px;">
-                    <label>Job Started Template</label>
-                    <textarea name="default_job_started_template">{{ settings['default_job_started_template'] if settings and settings['default_job_started_template'] else 'Hello from TerraLedger — we have started your scheduled job. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}</textarea>
+                    <label>{{ _t("Job Started Template", "Plantilla Trabajo Iniciado") }}</label>
+                    <textarea name="default_job_started_template">{{ settings['default_job_started_template'] if settings and settings['default_job_started_template'] else _t('Hello from TerraLedger — we have started your scheduled job. Reply STOP to opt out, HELP for help. Msg&data rates may apply.', 'Hola desde TerraLedger — hemos comenzado tu trabajo programado. Responde STOP para dejar de recibir mensajes, HELP para ayuda. Pueden aplicarse cargos por mensajes y datos.') }}</textarea>
                 </div>
 
                 <div style="margin-bottom:14px;">
-                    <label>Job Completed Template</label>
-                    <textarea name="default_job_completed_template">{{ settings['default_job_completed_template'] if settings and settings['default_job_completed_template'] else 'Hello from TerraLedger — your job has been completed. Thank you. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}</textarea>
+                    <label>{{ _t("Job Completed Template", "Plantilla Trabajo Completado") }}</label>
+                    <textarea name="default_job_completed_template">{{ settings['default_job_completed_template'] if settings and settings['default_job_completed_template'] else _t('Hello from TerraLedger — your job has been completed. Thank you. Reply STOP to opt out, HELP for help. Msg&data rates may apply.', 'Hola desde TerraLedger — tu trabajo ha sido completado. Gracias. Responde STOP para dejar de recibir mensajes, HELP para ayuda. Pueden aplicarse cargos por mensajes y datos.') }}</textarea>
+                </div>
+
+                                <div style="margin-bottom:14px;">
+                    <label>{{ _t("Invoice Reminder Template", "Plantilla Recordatorio de Factura") }}</label>
+                    <textarea name="default_invoice_reminder_template">{{ settings['default_invoice_reminder_template'] if settings and settings['default_invoice_reminder_template'] else _t('Hello from TerraLedger — this is a reminder that your invoice is still outstanding. Reply STOP to opt out, HELP for help. Msg&data rates may apply.', 'Hola desde TerraLedger — este es un recordatorio de que tu factura sigue pendiente. Responde STOP para dejar de recibir mensajes, HELP para ayuda. Pueden aplicarse cargos por mensajes y datos.') }}</textarea>
                 </div>
 
                 <div style="margin-bottom:14px;">
-                    <label>Invoice Reminder Template</label>
-                    <textarea name="default_invoice_reminder_template">{{ settings['default_invoice_reminder_template'] if settings and settings['default_invoice_reminder_template'] else 'Hello from TerraLedger — this is a reminder that your invoice is still outstanding. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}</textarea>
-                </div>
-
-                <div style="margin-bottom:14px;">
-                    <label>Job Reminder Template</label>
-                    <textarea name="default_job_reminder_template">{{ settings['default_job_reminder_template'] if settings and settings['default_job_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} about {{job_title}} scheduled for {{scheduled_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}</textarea>
+                    <label>{{ _t("Job Reminder Template", "Plantilla Recordatorio de Trabajo") }}</label>
+                    <textarea name="default_job_reminder_template">{{ settings['default_job_reminder_template'] if settings and settings['default_job_reminder_template'] else _t('Hello {{customer_name}} — this is a reminder from {{company_name}} about {{job_title}} scheduled for {{scheduled_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.', 'Hola {{customer_name}} — este es un recordatorio de {{company_name}} sobre {{job_title}} programado para {{scheduled_date}}. Responde STOP para dejar de recibir mensajes, HELP para ayuda. Pueden aplicarse cargos por mensajes y datos.') }}</textarea>
                 </div>
 
                 <div style="margin-bottom:0;">
-                    <label>Late Invoice Reminder Template</label>
-                    <textarea name="default_late_invoice_reminder_template">{{ settings['default_late_invoice_reminder_template'] if settings and settings['default_late_invoice_reminder_template'] else 'Hello {{customer_name}} — this is a reminder from {{company_name}} that invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. Due date: {{due_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.' }}</textarea>
+                    <label>{{ _t("Late Invoice Reminder Template", "Plantilla Recordatorio de Factura Vencida") }}</label>
+                    <textarea name="default_late_invoice_reminder_template">{{ settings['default_late_invoice_reminder_template'] if settings and settings['default_late_invoice_reminder_template'] else _t('Hello {{customer_name}} — this is a reminder from {{company_name}} that invoice {{invoice_number}} is now past due. Remaining balance: {{balance_due}}. Due date: {{due_date}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.', 'Hola {{customer_name}} — este es un recordatorio de {{company_name}} de que la factura {{invoice_number}} está vencida. Saldo restante: {{balance_due}}. Fecha de vencimiento: {{due_date}}. Responde STOP para dejar de recibir mensajes, HELP para ayuda. Pueden aplicarse cargos por mensajes y datos.') }}</textarea>
                 </div>
             </div>
 
             <div class="row-actions" style="margin-top:18px;">
-                <button type="submit" class="btn">Save Configuration</button>
-                <a class="btn secondary" href="{{ url_for('messages.messages_page') }}">Cancel</a>
+                <button type="submit" class="btn">{{ _t("Save Configuration", "Guardar Configuración") }}</button>
+                <a class="btn secondary" href="{{ url_for('messages.messages_page') }}">{{ _t("Cancel", "Cancelar") }}</a>
             </div>
         </form>
     </div>
@@ -2856,6 +2949,7 @@ def messaging_configuration():
             from_number=from_number,
             inbound_webhook_url=inbound_webhook_url,
             status_callback_url=status_callback_url,
+            _t=_t,
         ),
-        "Messaging Configuration",
+        _t("Messaging Configuration", "Configuración de Mensajería"),
     )

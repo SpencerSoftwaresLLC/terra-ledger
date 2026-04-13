@@ -24,6 +24,19 @@ from page_helpers import render_page
 payroll_bp = Blueprint("payroll", __name__)
 
 
+def _lang():
+    value = (session.get("language") or "en").strip().lower()
+    return "es" if value == "es" else "en"
+
+
+def _is_es():
+    return _lang() == "es"
+
+
+def _t(en, es):
+    return es if _is_es() else en
+
+
 def safe_float(value, default=0.0):
     try:
         return float(value or 0)
@@ -304,20 +317,20 @@ def _draw_stub_section(c, x, y_top, width, height, title, payroll_row, employee_
 
     pay_date = clean_text_input(payroll_row["pay_date"]) or date.today().isoformat()
     pay_period = f"{clean_text_input(payroll_row['pay_period_start'])} to {clean_text_input(payroll_row['pay_period_end'])}"
-    payment_method = clean_text_input(payroll_row.get("payment_method")) or "Check"
+    payment_method = clean_text_input(payroll_row.get("payment_method")) or _t("Check", "Cheque")
     check_number = payroll_row["check_number"] if "check_number" in payroll_row.keys() and payroll_row["check_number"] else "-"
 
     c.setFont("Helvetica", 8.6)
-    c.drawString(col1, info_y, f"Employee: {employee_name[:40]}")
-    c.drawString(col2, info_y, f"Check #: {check_number}")
+    c.drawString(col1, info_y, f"{_t('Employee', 'Empleado')}: {employee_name[:40]}")
+    c.drawString(col2, info_y, f"{_t('Check #', 'Cheque #')}: {check_number}")
 
     info_y -= 0.17 * inch
-    c.drawString(col1, info_y, f"Pay Date: {pay_date}")
-    c.drawString(col2, info_y, f"Method: {payment_method}")
+    c.drawString(col1, info_y, f"{_t('Pay Date', 'Fecha de pago')}: {pay_date}")
+    c.drawString(col2, info_y, f"{_t('Method', 'Método')}: {payment_method}")
 
     info_y -= 0.17 * inch
-    c.drawString(col1, info_y, f"Pay Type: {clean_text_display(payroll_row['pay_type'])}")
-    c.drawString(col2, info_y, f"Period: {pay_period[:34]}")
+    c.drawString(col1, info_y, f"{_t('Pay Type', 'Tipo de pago')}: {clean_text_display(payroll_row['pay_type'])}")
+    c.drawString(col2, info_y, f"{_t('Period', 'Período')}: {pay_period[:34]}")
 
     info_y -= 0.24 * inch
 
@@ -326,9 +339,9 @@ def _draw_stub_section(c, x, y_top, width, height, title, payroll_row, employee_
     section3_x = x + width * 0.68
 
     c.setFont("Helvetica-Bold", 8.8)
-    c.drawString(section1_x, info_y, "Earnings")
-    c.drawString(section2_x, info_y, "Deductions")
-    c.drawString(section3_x, info_y, "Totals")
+    c.drawString(section1_x, info_y, _t("Earnings", "Ingresos"))
+    c.drawString(section2_x, info_y, _t("Deductions", "Deducciones"))
+    c.drawString(section3_x, info_y, _t("Totals", "Totales"))
 
     info_y -= 0.16 * inch
     c.setLineWidth(0.3)
@@ -340,35 +353,35 @@ def _draw_stub_section(c, x, y_top, width, height, title, payroll_row, employee_
     row_gap = 0.15 * inch
     row_y = info_y - 0.02 * inch
 
-    _draw_money_row(c, section1_x, x + width * 0.31 - money_width, row_y, "Regular Hours", payroll_row["hours_regular"], width=money_width)
-    _draw_money_row(c, section2_x, x + width * 0.65 - money_width, row_y, "Federal", payroll_row["federal_withholding"], width=money_width)
-    _draw_money_row(c, section3_x, right - money_width, row_y, "Gross", payroll_row["gross_pay"], width=money_width)
+    _draw_money_row(c, section1_x, x + width * 0.31 - money_width, row_y, _t("Regular Hours", "Horas regulares"), payroll_row["hours_regular"], width=money_width)
+    _draw_money_row(c, section2_x, x + width * 0.65 - money_width, row_y, _t("Federal", "Federal"), payroll_row["federal_withholding"], width=money_width)
+    _draw_money_row(c, section3_x, right - money_width, row_y, _t("Gross", "Bruto"), payroll_row["gross_pay"], width=money_width)
 
     row_y -= row_gap
-    _draw_money_row(c, section1_x, x + width * 0.31 - money_width, row_y, "OT Hours", payroll_row["hours_overtime"], width=money_width)
-    _draw_money_row(c, section2_x, x + width * 0.65 - money_width, row_y, "State", payroll_row["state_withholding"], width=money_width)
-    _draw_money_row(c, section3_x, right - money_width, row_y, "Net", payroll_row["net_pay"], width=money_width)
+    _draw_money_row(c, section1_x, x + width * 0.31 - money_width, row_y, _t("OT Hours", "Horas extra"), payroll_row["hours_overtime"], width=money_width)
+    _draw_money_row(c, section2_x, x + width * 0.65 - money_width, row_y, _t("State", "Estatal"), payroll_row["state_withholding"], width=money_width)
+    _draw_money_row(c, section3_x, right - money_width, row_y, _t("Net", "Neto"), payroll_row["net_pay"], width=money_width)
 
     row_y -= row_gap
-    _draw_money_row(c, section1_x, x + width * 0.31 - money_width, row_y, "Reg Rate", payroll_row["rate_regular"], width=money_width)
-    _draw_money_row(c, section2_x, x + width * 0.65 - money_width, row_y, "Social Sec.", payroll_row["social_security"], width=money_width)
+    _draw_money_row(c, section1_x, x + width * 0.31 - money_width, row_y, _t("Reg Rate", "Tarifa regular"), payroll_row["rate_regular"], width=money_width)
+    _draw_money_row(c, section2_x, x + width * 0.65 - money_width, row_y, _t("Social Sec.", "Seguro Social"), payroll_row["social_security"], width=money_width)
 
     row_y -= row_gap
-    _draw_money_row(c, section1_x, x + width * 0.31 - money_width, row_y, "OT Rate", payroll_row["rate_overtime"], width=money_width)
-    _draw_money_row(c, section2_x, x + width * 0.65 - money_width, row_y, "Medicare", payroll_row["medicare"], width=money_width)
+    _draw_money_row(c, section1_x, x + width * 0.31 - money_width, row_y, _t("OT Rate", "Tarifa extra"), payroll_row["rate_overtime"], width=money_width)
+    _draw_money_row(c, section2_x, x + width * 0.65 - money_width, row_y, _t("Medicare", "Medicare"), payroll_row["medicare"], width=money_width)
 
     row_y -= row_gap
-    _draw_money_row(c, section2_x, x + width * 0.65 - money_width, row_y, "Local Tax", payroll_row["local_tax"], width=money_width)
+    _draw_money_row(c, section2_x, x + width * 0.65 - money_width, row_y, _t("Local Tax", "Impuesto local"), payroll_row["local_tax"], width=money_width)
 
     row_y -= row_gap
-    _draw_money_row(c, section2_x, x + width * 0.65 - money_width, row_y, "Other Ded.", payroll_row["other_deductions"], width=money_width)
+    _draw_money_row(c, section2_x, x + width * 0.65 - money_width, row_y, _t("Other Ded.", "Otras ded."), payroll_row["other_deductions"], width=money_width)
 
     notes = clean_text_input(payroll_row.get("notes"))
     if notes:
         notes_y = y_top - height + 0.16 * inch
         c.setFont("Helvetica", 7.9)
         notes_text = notes[:110]
-        c.drawString(left, notes_y, f"Notes: {notes_text}")
+        c.drawString(left, notes_y, f"{_t('Notes', 'Notas')}: {notes_text}")
 
 
 def build_payroll_check_pdf(company_info, payroll_row, employee_name, check_number):
@@ -379,7 +392,7 @@ def build_payroll_check_pdf(company_info, payroll_row, employee_name, check_numb
     amount = money(payroll_row["net_pay"])
     amount_written = amount_to_words(amount)
     pay_date = clean_text_input(payroll_row["pay_date"]) or date.today().isoformat()
-    memo = f"Payroll {clean_text_input(payroll_row['pay_period_start'])} to {clean_text_input(payroll_row['pay_period_end'])}"
+    memo = f"{_t('Payroll', 'Nómina')} {clean_text_input(payroll_row['pay_period_start'])} {_t('to', 'a')} {clean_text_input(payroll_row['pay_period_end'])}"
 
     # Top section: designed for pre-printed check stock.
     # Do NOT print company name/address or check number.
@@ -422,7 +435,7 @@ def build_payroll_check_pdf(company_info, payroll_row, employee_name, check_numb
 
     # Optional signature label only
     c.setFont("Helvetica", 7.5)
-    c.drawString(7.12 * inch, check_top - 2.76 * inch, "Authorized Signature")
+    c.drawString(7.12 * inch, check_top - 2.76 * inch, _t("Authorized Signature", "Firma autorizada"))
 
     # Stub areas
     stub_width = width - (0.48 * inch)
@@ -439,7 +452,7 @@ def build_payroll_check_pdf(company_info, payroll_row, employee_name, check_numb
         y_top=first_stub_top,
         width=stub_width,
         height=stub_height,
-        title="Payroll Check Stub - Employee Copy",
+        title=_t("Payroll Check Stub - Employee Copy", "Talón de cheque de nómina - Copia del empleado"),
         payroll_row=payroll_row,
         employee_name=employee_name,
     )
@@ -450,7 +463,7 @@ def build_payroll_check_pdf(company_info, payroll_row, employee_name, check_numb
         y_top=second_stub_top,
         width=stub_width,
         height=stub_height,
-        title="Payroll Payment Record - Company Copy",
+        title=_t("Payroll Payment Record - Company Copy", "Registro de pago de nómina - Copia de la empresa"),
         payroll_row=payroll_row,
         employee_name=employee_name,
     )
@@ -485,7 +498,7 @@ def create_or_get_payroll_check(conn, company_id, payroll_row, employee_name):
 
     amount = money(payroll_row["net_pay"])
     amount_written = amount_to_words(amount)
-    memo = f"Payroll {clean_text_input(payroll_row['pay_period_start'])} to {clean_text_input(payroll_row['pay_period_end'])}"
+    memo = f"{_t('Payroll', 'Nómina')} {clean_text_input(payroll_row['pay_period_start'])} {_t('to', 'a')} {clean_text_input(payroll_row['pay_period_end'])}"
     check_date = clean_text_input(payroll_row["pay_date"]) or date.today().isoformat()
 
     inserted = conn.execute(
@@ -552,7 +565,7 @@ def get_time_clock_hours_api():
     if not employee_id_raw.isdigit() or not start_date or not end_date:
         return jsonify({
             "ok": False,
-            "message": "Missing employee or pay period.",
+            "message": _t("Missing employee or pay period.", "Falta el empleado o el período de pago."),
         }), 400
 
     employee_id = int(employee_id_raw)
@@ -573,7 +586,7 @@ def get_time_clock_hours_api():
         conn.close()
         return jsonify({
             "ok": False,
-            "message": "Employee not found.",
+            "message": _t("Employee not found.", "Empleado no encontrado."),
         }), 404
 
     regular, overtime = get_employee_time_clock_hours(
@@ -611,7 +624,7 @@ def payroll_preview():
         conn.close()
         return jsonify({
             "ok": False,
-            "message": "Please select an employee.",
+            "message": _t("Please select an employee.", "Selecciona un empleado."),
         }), 400
 
     employee_id = int(employee_id_raw)
@@ -650,7 +663,7 @@ def payroll_preview():
         conn.close()
         return jsonify({
             "ok": False,
-            "message": "Employee not found.",
+            "message": _t("Employee not found.", "Empleado no encontrado."),
         }), 404
 
     employee = dict(employee)
@@ -752,7 +765,7 @@ def employee_payroll():
     if request.method == "POST":
         employee_id_raw = clean_text_input(request.form.get("employee_id", ""))
         if not employee_id_raw.isdigit():
-            flash("Please select an employee.")
+            flash(_t("Please select an employee.", "Selecciona un empleado."))
             conn.close()
             return redirect(url_for("payroll.employee_payroll"))
 
@@ -766,7 +779,7 @@ def employee_payroll():
         rate_overtime = safe_float(request.form.get("rate_overtime"), 0)
         other_deductions = safe_float(request.form.get("other_deductions"), 0)
         notes = clean_text_input(request.form.get("notes", ""))
-        payment_method = clean_text_input(request.form.get("payment_method", "")) or "Direct Deposit"
+        payment_method = clean_text_input(request.form.get("payment_method", "")) or _t("Direct Deposit", "Depósito directo")
 
         employee = conn.execute(
             """
@@ -799,7 +812,7 @@ def employee_payroll():
         ).fetchone()
 
         if not employee:
-            flash("Employee not found.")
+            flash(_t("Employee not found.", "Empleado no encontrado."))
             conn.close()
             return redirect(url_for("payroll.employee_payroll"))
 
@@ -885,10 +898,13 @@ def employee_payroll():
         conn.commit()
 
         flash(
-            f"Payroll entry saved. Gross: ${gross_pay:.2f} | Federal: ${federal_withholding:.2f} | Net: ${net_pay:.2f}"
+            _t(
+                f"Payroll entry saved. Gross: ${gross_pay:.2f} | Federal: ${federal_withholding:.2f} | Net: ${net_pay:.2f}",
+                f"Entrada de nómina guardada. Bruto: ${gross_pay:.2f} | Federal: ${federal_withholding:.2f} | Neto: ${net_pay:.2f}"
+            )
         )
 
-        if payment_method == "Check":
+        if payment_method == _t("Check", "Cheque"):
             payroll_id = int(inserted["id"])
             conn.close()
             return redirect(url_for("payroll.view_payroll_entry", payroll_id=payroll_id))
@@ -1005,16 +1021,16 @@ def employee_payroll():
         actions_html = []
 
         actions_html.append(
-            f"<a class='btn secondary small' href='{url_for('payroll.view_payroll_entry', payroll_id=r['id'])}'>View</a>"
+            f"<a class='btn secondary small' href='{url_for('payroll.view_payroll_entry', payroll_id=r['id'])}'>{_t('View', 'Ver')}</a>"
         )
 
         delete_form = f"""
         <form method='post'
               action='{url_for("payroll.delete_payroll_entry", payroll_id=r["id"])}'
-              onsubmit="return confirm('Delete this payroll entry?');"
+              onsubmit="return confirm('{_t("Delete this payroll entry?", "¿Eliminar esta entrada de nómina?")}');"
               style='margin:0;'>
             <input type="hidden" name="csrf_token" value="{row_csrf}">
-            <button class='btn danger small' type='submit'>Delete</button>
+            <button class='btn danger small' type='submit'>{_t("Delete", "Eliminar")}</button>
         </form>
         """
         actions_html.append(delete_form)
@@ -1053,12 +1069,12 @@ def employee_payroll():
             </div>
 
             <div class='mobile-pay-summary'>
-                <div><span>Net Pay</span><strong class='mobile-net-pay'>${float(r['net_pay'] or 0):.2f}</strong></div>
-                <div><span>Check #</span><strong>{html_escape(str(check_number) if check_number else '-')}</strong></div>
+                <div><span>{_t("Net Pay", "Pago neto")}</span><strong class='mobile-net-pay'>${float(r['net_pay'] or 0):.2f}</strong></div>
+                <div><span>{_t("Check #", "Cheque #")}</span><strong>{html_escape(str(check_number) if check_number else '-')}</strong></div>
             </div>
 
             <div class='mobile-list-actions'>
-                <a class='btn secondary small' href='{url_for("payroll.view_payroll_entry", payroll_id=r["id"])}'>View</a>
+                <a class='btn secondary small' href='{url_for("payroll.view_payroll_entry", payroll_id=r["id"])}'>{_t("View", "Ver")}</a>
                 {delete_form}
             </div>
         </div>
@@ -1066,14 +1082,14 @@ def employee_payroll():
 
     tax_defaults_html = f"""
     <div class='card'>
-        <h2>Current Tax Defaults</h2>
+        <h2>{_t("Current Tax Defaults", "Impuestos predeterminados actuales")}</h2>
         <div class='grid'>
-            <div><strong>Provider</strong><br>{html_escape(clean_text_display(preview_taxes.get('provider', 'internal'), 'internal'))}</div>
-            <div><strong>State</strong><br>{html_escape(clean_text_display(preview_taxes.get('state_name', '-'), '-'))}</div>
-            <div><strong>Social Security</strong><br>6.20%</div>
-            <div><strong>Medicare</strong><br>1.45%</div>
-            <div><strong>Local</strong><br>{html_escape(clean_text_display(preview_taxes.get('local_name', '-'), '-'))}</div>
-            <div><strong>Next Check #</strong><br>{next_check_number}</div>
+            <div><strong>{_t("Provider", "Proveedor")}</strong><br>{html_escape(clean_text_display(preview_taxes.get('provider', 'internal'), 'internal'))}</div>
+            <div><strong>{_t("State", "Estado")}</strong><br>{html_escape(clean_text_display(preview_taxes.get('state_name', '-'), '-'))}</div>
+            <div><strong>{_t("Social Security", "Seguro Social")}</strong><br>6.20%</div>
+            <div><strong>{_t("Medicare", "Medicare")}</strong><br>1.45%</div>
+            <div><strong>{_t("Local", "Local")}</strong><br>{html_escape(clean_text_display(preview_taxes.get('local_name', '-'), '-'))}</div>
+            <div><strong>{_t("Next Check #", "Próximo cheque #")}</strong><br>{next_check_number}</div>
         </div>
     </div>
     """
@@ -1271,13 +1287,13 @@ def employee_payroll():
     <div class='card'>
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
             <div>
-                <h1 style='margin-bottom:6px;'>Payroll</h1>
-                <p class='muted' style='margin:0;'>Track employee pay, payroll deductions, and printable payroll checks.</p>
+                <h1 style='margin-bottom:6px;'>{_t("Payroll", "Nómina")}</h1>
+                <p class='muted' style='margin:0;'>{_t("Track employee pay, payroll deductions, and printable payroll checks.", "Controla el pago de empleados, deducciones de nómina y cheques de nómina imprimibles.")}</p>
             </div>
             <div class='row-actions'>
-                <a href='{url_for("payroll.export_payroll")}' class='btn secondary'>Export CSV</a>
-                <a href='/settings/taxes' class='btn warning'>Tax Defaults</a>
-                <a href='{url_for("employees.employees")}' class='btn secondary'>Back to Employees</a>
+                <a href='{url_for("payroll.export_payroll")}' class='btn secondary'>{_t("Export CSV", "Exportar CSV")}</a>
+                <a href='/settings/taxes' class='btn warning'>{_t("Tax Defaults", "Impuestos predeterminados")}</a>
+                <a href='{url_for("employees.employees")}' class='btn secondary'>{_t("Back to Employees", "Volver a Empleados")}</a>
             </div>
         </div>
     </div>
@@ -1285,132 +1301,132 @@ def employee_payroll():
     {tax_defaults_html}
 
     <div class='card'>
-        <h2>New Payroll Entry</h2>
+        <h2>{_t("New Payroll Entry", "Nueva entrada de nómina")}</h2>
         <form method='post' id='payroll_form'>
             <input type="hidden" name="csrf_token" value="{form_csrf}">
             <div class='grid'>
                 <div>
-                    <label>Employee</label>
+                    <label>{_t("Employee", "Empleado")}</label>
                     <select name='employee_id' id='employee_id' required onchange='fillEmployeePayrollInfo(); triggerPayrollPreview();'>
-                        <option value=''>Select employee</option>
+                        <option value=''>{_t("Select employee", "Selecciona empleado")}</option>
                         {employee_options}
                     </select>
                 </div>
 
                 <div>
-                    <label>Pay Date</label>
+                    <label>{_t("Pay Date", "Fecha de pago")}</label>
                     <input type='date' name='pay_date' value='{date.today().isoformat()}' required>
                 </div>
 
                 <div>
-                    <label>Pay Period Start</label>
+                    <label>{_t("Pay Period Start", "Inicio del período de pago")}</label>
                     <input type='date' name='pay_period_start' id='pay_period_start' value='{pay_period_start_default}'>
                 </div>
 
                 <div>
-                    <label>Pay Period End</label>
+                    <label>{_t("Pay Period End", "Fin del período de pago")}</label>
                     <input type='date' name='pay_period_end' id='pay_period_end' value='{pay_period_end_default}'>
                 </div>
 
                 <div>
-                    <label>Payment Method</label>
+                    <label>{_t("Payment Method", "Método de pago")}</label>
                     <select name='payment_method' id='payment_method'>
-                        <option value='Direct Deposit'>Direct Deposit</option>
-                        <option value='Check'>Check</option>
-                        <option value='Cash'>Cash</option>
-                        <option value='Other'>Other</option>
+                        <option value='{_t("Direct Deposit", "Depósito directo")}'>{_t("Direct Deposit", "Depósito directo")}</option>
+                        <option value='{_t("Check", "Cheque")}'>{_t("Check", "Cheque")}</option>
+                        <option value='{_t("Cash", "Efectivo")}'>{_t("Cash", "Efectivo")}</option>
+                        <option value='{_t("Other", "Otro")}'>{_t("Other", "Otro")}</option>
                     </select>
                 </div>
 
                 <div>
-                    <label>Pay Type</label>
-                    <input type='text' id='pay_type_display' readonly placeholder='Auto-filled from employee'>
+                    <label>{_t("Pay Type", "Tipo de pago")}</label>
+                    <input type='text' id='pay_type_display' readonly placeholder='{_t("Auto-filled from employee", "Se completa automáticamente desde el empleado")}'>
                 </div>
 
                 <div>
-                    <label>Pay Frequency</label>
-                    <input type='text' id='pay_frequency_display' readonly placeholder='Auto-filled from employee'>
+                    <label>{_t("Pay Frequency", "Frecuencia de pago")}</label>
+                    <input type='text' id='pay_frequency_display' readonly placeholder='{_t("Auto-filled from employee", "Se completa automáticamente desde el empleado")}'>
                 </div>
 
                 <div id='hourly_rate_wrap'>
-                    <label>Regular Rate</label>
+                    <label>{_t("Regular Rate", "Tarifa regular")}</label>
                     <input type='number' step='0.01' min='0' name='rate_regular' id='rate_regular' value='0' oninput='triggerPayrollPreview()'>
                 </div>
 
                 <div id='overtime_rate_wrap'>
-                    <label>Overtime Rate</label>
+                    <label>{_t("Overtime Rate", "Tarifa de horas extra")}</label>
                     <input type='number' step='0.01' min='0' name='rate_overtime' id='rate_overtime' value='0' oninput='triggerPayrollPreview()'>
                 </div>
 
                 <div id='salary_amount_wrap' style='display:none;'>
-                    <label>Annual Salary</label>
+                    <label>{_t("Annual Salary", "Salario anual")}</label>
                     <input type='number' step='0.01' min='0' id='salary_amount_display' readonly value='0'>
                 </div>
 
                 <div id='salary_per_period_wrap' style='display:none;'>
-                    <label>Gross Pay</label>
+                    <label>{_t("Gross Pay", "Pago bruto")}</label>
                     <input type='number' step='0.01' min='0' id='salary_per_period_display' readonly value='0'>
                 </div>
 
                 <div id='regular_hours_wrap'>
-                    <label>Regular Hours</label>
+                    <label>{_t("Regular Hours", "Horas regulares")}</label>
                     <input type='number' step='0.01' min='0' name='hours_regular' id='hours_regular' value='0' oninput='triggerPayrollPreview()'>
                 </div>
 
                 <div id='overtime_hours_wrap'>
-                    <label>Overtime Hours</label>
+                    <label>{_t("Overtime Hours", "Horas extra")}</label>
                     <input type='number' step='0.01' min='0' name='hours_overtime' id='hours_overtime' value='0' oninput='triggerPayrollPreview()'>
                 </div>
 
                 <div>
-                    <label>Other Deductions</label>
+                    <label>{_t("Other Deductions", "Otras deducciones")}</label>
                     <input type='number' step='0.01' min='0' name='other_deductions' id='other_deductions' value='0' oninput='triggerPayrollPreview()'>
                 </div>
 
                 <div style='grid-column:1 / -1;'>
-                    <label>W-4 / Tax Snapshot</label>
+                    <label>{_t("W-4 / Tax Snapshot", "Resumen de W-4 / impuestos")}</label>
                     <div class='card' style='padding:12px; margin-bottom:0; background:#f8fbff; border:1px solid #d7e6ff; box-shadow:none;'>
                         <div class='grid'>
-                            <div><strong>Filing Status</strong><br><span id='w4_filing_status_display'>-</span></div>
-                            <div><strong>Step 2 Checked</strong><br><span id='w4_step2_display'>-</span></div>
-                            <div><strong>Step 3</strong><br><span id='w4_step3_display'>$0.00</span></div>
-                            <div><strong>Step 4a</strong><br><span id='w4_step4a_display'>$0.00</span></div>
-                            <div><strong>Step 4b</strong><br><span id='w4_step4b_display'>$0.00</span></div>
-                            <div><strong>Step 4c</strong><br><span id='w4_step4c_display'>$0.00</span></div>
+                            <div><strong>{_t("Filing Status", "Estado civil fiscal")}</strong><br><span id='w4_filing_status_display'>-</span></div>
+                            <div><strong>{_t("Step 2 Checked", "Paso 2 marcado")}</strong><br><span id='w4_step2_display'>-</span></div>
+                            <div><strong>{_t("Step 3", "Paso 3")}</strong><br><span id='w4_step3_display'>$0.00</span></div>
+                            <div><strong>{_t("Step 4a", "Paso 4a")}</strong><br><span id='w4_step4a_display'>$0.00</span></div>
+                            <div><strong>{_t("Step 4b", "Paso 4b")}</strong><br><span id='w4_step4b_display'>$0.00</span></div>
+                            <div><strong>{_t("Step 4c", "Paso 4c")}</strong><br><span id='w4_step4c_display'>$0.00</span></div>
                         </div>
                     </div>
                 </div>
 
                 <div style='grid-column:1 / -1;'>
-                    <label>Notes</label>
+                    <label>{_t("Notes", "Notas")}</label>
                     <textarea name='notes'></textarea>
                 </div>
             </div>
 
             <div class='row-actions' style='margin-top:20px;'>
-                <button class='btn success' type='submit'>Save Payroll Entry</button>
-                <div class='muted'>Choosing <strong>Check</strong> will save the payroll entry and open the payroll entry details page.</div>
+                <button class='btn success' type='submit'>{_t("Save Payroll Entry", "Guardar entrada de nómina")}</button>
+                <div class='muted'>{_t("Choosing ", "Elegir ")}<strong>{_t("Check", "Cheque")}</strong>{_t(" will save the payroll entry and open the payroll entry details page.", " guardará la entrada de nómina y abrirá la página de detalles de la nómina.")}</div>
             </div>
         </form>
     </div>
 
     <div class='card' id='payroll_preview_card'>
-        <h2>Payroll Preview</h2>
+        <h2>{_t("Payroll Preview", "Vista previa de nómina")}</h2>
         <div class='grid'>
-            <div><strong>Gross Pay</strong><br><span id='preview_gross'>$0.00</span></div>
-            <div><strong>Federal</strong><br><span id='preview_federal'>$0.00</span></div>
-            <div><strong>State</strong><br><span id='preview_state'>$0.00</span></div>
-            <div><strong>Social Security</strong><br><span id='preview_ss'>$0.00</span></div>
-            <div><strong>Medicare</strong><br><span id='preview_medicare'>$0.00</span></div>
-            <div><strong>Local Tax</strong><br><span id='preview_local'>$0.00</span></div>
-            <div><strong>Other Deductions</strong><br><span id='preview_other'>$0.00</span></div>
-            <div><strong>Estimated Net Pay</strong><br><span id='preview_net'>$0.00</span></div>
+            <div><strong>{_t("Gross Pay", "Pago bruto")}</strong><br><span id='preview_gross'>$0.00</span></div>
+            <div><strong>{_t("Federal", "Federal")}</strong><br><span id='preview_federal'>$0.00</span></div>
+            <div><strong>{_t("State", "Estatal")}</strong><br><span id='preview_state'>$0.00</span></div>
+            <div><strong>{_t("Social Security", "Seguro Social")}</strong><br><span id='preview_ss'>$0.00</span></div>
+            <div><strong>{_t("Medicare", "Medicare")}</strong><br><span id='preview_medicare'>$0.00</span></div>
+            <div><strong>{_t("Local Tax", "Impuesto local")}</strong><br><span id='preview_local'>$0.00</span></div>
+            <div><strong>{_t("Other Deductions", "Otras deducciones")}</strong><br><span id='preview_other'>$0.00</span></div>
+            <div><strong>{_t("Estimated Net Pay", "Pago neto estimado")}</strong><br><span id='preview_net'>$0.00</span></div>
         </div>
-        <div class='muted' id='preview_meta' style='margin-top:14px;'>Select an employee to preview payroll.</div>
+        <div class='muted' id='preview_meta' style='margin-top:14px;'>{_t("Select an employee to preview payroll.", "Selecciona un empleado para ver la vista previa de la nómina.")}</div>
     </div>
 
     <div class='card'>
-        <h2>Payroll History</h2>
+        <h2>{_t("Payroll History", "Historial de nómina")}</h2>
 
         <div class='static-table-wrap desktop-only'>
             <table class='static-table'>
@@ -1431,28 +1447,28 @@ def employee_payroll():
                     <col style='width:17%;'>
                 </colgroup>
                 <tr>
-                    <th>Date</th>
-                    <th class='wrap'>Employee</th>
-                    <th>Pay Type</th>
-                    <th>Method</th>
-                    <th class='center'>Check #</th>
-                    <th class='money'>Gross</th>
-                    <th class='money'>Federal</th>
-                    <th class='money'>State</th>
-                    <th class='money'>SS</th>
-                    <th class='money'>Medicare</th>
-                    <th class='money'>Local</th>
-                    <th class='money'>Other</th>
-                    <th class='money'>Net</th>
-                    <th class='wrap'>Actions</th>
+                    <th>{_t("Date", "Fecha")}</th>
+                    <th class='wrap'>{_t("Employee", "Empleado")}</th>
+                    <th>{_t("Pay Type", "Tipo de pago")}</th>
+                    <th>{_t("Method", "Método")}</th>
+                    <th class='center'>{_t("Check #", "Cheque #")}</th>
+                    <th class='money'>{_t("Gross", "Bruto")}</th>
+                    <th class='money'>{_t("Federal", "Federal")}</th>
+                    <th class='money'>{_t("State", "Estatal")}</th>
+                    <th class='money'>{_t("SS", "SS")}</th>
+                    <th class='money'>{_t("Medicare", "Medicare")}</th>
+                    <th class='money'>{_t("Local", "Local")}</th>
+                    <th class='money'>{_t("Other", "Otro")}</th>
+                    <th class='money'>{_t("Net", "Neto")}</th>
+                    <th class='wrap'>{_t("Actions", "Acciones")}</th>
                 </tr>
-                {payroll_rows or "<tr><td colspan='14' class='muted'>No payroll entries yet.</td></tr>"}
+                {payroll_rows or f"<tr><td colspan='14' class='muted'>{_t('No payroll entries yet.', 'Todavía no hay entradas de nómina.')}</td></tr>"}
             </table>
         </div>
 
         <div class='mobile-only'>
             <div class='mobile-list'>
-                {payroll_mobile_cards or "<div class='mobile-list-card muted'>No payroll entries yet.</div>"}
+                {payroll_mobile_cards or f"<div class='mobile-list-card muted'>{_t('No payroll entries yet.', 'Todavía no hay entradas de nómina.')}</div>"}
             </div>
         </div>
     </div>
@@ -1576,7 +1592,7 @@ function fillEmployeePayrollInfo() {{
     payFrequencyDisplay.value = payFrequency;
 
     w4FilingStatusDisplay.innerText = filingStatus;
-    w4Step2Display.innerText = step2Checked ? 'Yes' : 'No';
+    w4Step2Display.innerText = step2Checked ? '{_t("Yes", "Sí")}' : '{_t("No", "No")}';
     w4Step3Display.innerText = '$' + step3Amount.toFixed(2);
     w4Step4aDisplay.innerText = '$' + step4a.toFixed(2);
     w4Step4bDisplay.innerText = '$' + step4b.toFixed(2);
@@ -1637,7 +1653,7 @@ function resetPayrollPreview(message) {{
     document.getElementById('preview_local').innerText = '$0.00';
     document.getElementById('preview_other').innerText = '$0.00';
     document.getElementById('preview_net').innerText = '$0.00';
-    document.getElementById('preview_meta').innerText = message || 'Select an employee to preview payroll.';
+    document.getElementById('preview_meta').innerText = message || '{_t("Select an employee to preview payroll.", "Selecciona un empleado para ver la vista previa de la nómina.")}';
 }}
 
 async function runPayrollPreview() {{
@@ -1645,7 +1661,7 @@ async function runPayrollPreview() {{
     const employeeId = document.getElementById('employee_id').value;
 
     if (!employeeId) {{
-        resetPayrollPreview('Select an employee to preview payroll.');
+        resetPayrollPreview('{_t("Select an employee to preview payroll.", "Selecciona un empleado para ver la vista previa de la nómina.")}');
         return;
     }}
 
@@ -1663,7 +1679,7 @@ async function runPayrollPreview() {{
         const data = await response.json();
 
         if (!response.ok || !data.ok) {{
-            resetPayrollPreview(data.message || 'Unable to preview payroll.');
+            resetPayrollPreview(data.message || '{_t("Unable to preview payroll.", "No se pudo ver la vista previa de la nómina.")}');
             return;
         }}
 
@@ -1677,17 +1693,17 @@ async function runPayrollPreview() {{
         document.getElementById('preview_net').innerText = formatMoney(data.net_pay);
 
         document.getElementById('preview_meta').innerText =
-            'Provider: ' + (data.provider || 'internal') +
-            ' | State: ' + (data.state_name || '-') +
-            ' | Local: ' + (data.local_name || '-') +
-            ' | County Used: ' + (data.county_used || '-') +
-            ' | Source: ' + (data.county_source || '-') +
-            ' | Local Rate: ' + (((parseFloat(data.local_tax_rate || 0)) * 100).toFixed(3)) + '%' +
-            ' | Pay Type: ' + (data.pay_type || '-') +
-            ' | Frequency: ' + (data.pay_frequency || '-') +
+            '{_t("Provider", "Proveedor")}: ' + (data.provider || 'internal') +
+            ' | {_t("State", "Estado")}: ' + (data.state_name || '-') +
+            ' | {_t("Local", "Local")}: ' + (data.local_name || '-') +
+            ' | {_t("County Used", "Condado usado")}: ' + (data.county_used || '-') +
+            ' | {_t("Source", "Fuente")}: ' + (data.county_source || '-') +
+            ' | {_t("Local Rate", "Tasa local")}: ' + (((parseFloat(data.local_tax_rate || 0)) * 100).toFixed(3)) + '%' +
+            ' | {_t("Pay Type", "Tipo de pago")}: ' + (data.pay_type || '-') +
+            ' | {_t("Frequency", "Frecuencia")}: ' + (data.pay_frequency || '-') +
             ' | W-4 Step 3: ' + formatMoney(data.w4_step3_amount || 0);
     }} catch (error) {{
-        resetPayrollPreview('Unable to preview payroll.');
+        resetPayrollPreview('{_t("Unable to preview payroll.", "No se pudo ver la vista previa de la nómina.")}');
     }}
 }}
 
@@ -1722,7 +1738,8 @@ document.addEventListener('DOMContentLoaded', function() {{
 }});
 </script>
 """
-    return render_page(content, "Employee Payroll")
+    return render_page(content, _t("Employee Payroll", "Nómina de empleados"))
+
 
 
 @payroll_bp.route("/employees/payroll/<int:payroll_id>")
@@ -1755,25 +1772,25 @@ def view_payroll_entry(payroll_id):
     conn.close()
 
     if not row:
-        flash("Payroll entry not found.")
+        flash(_t("Payroll entry not found.", "Entrada de nómina no encontrada."))
         return redirect(url_for("payroll.employee_payroll"))
 
     employee_name = (
         clean_text_input(row["full_name"])
         or f"{clean_text_input(row['first_name'])} {clean_text_input(row['last_name'])}".strip()
-        or "Employee"
+        or _t("Employee", "Empleado")
     )
 
     payment_method = clean_text_input(row["payment_method"]) or "-"
     check_number = row["check_number"] if "check_number" in row.keys() else None
-    can_print_check = payment_method == "Check" or bool(check_number)
+    can_print_check = payment_method == _t("Check", "Cheque") or bool(check_number)
 
     row_csrf = generate_csrf()
 
     print_button = ""
     if can_print_check:
         print_button = f"""
-        <a class='btn warning' href='{url_for("payroll.print_payroll_check", payroll_id=payroll_id)}' target='_blank'>Print Check</a>
+        <a class='btn warning' href='{url_for("payroll.print_payroll_check", payroll_id=payroll_id)}' target='_blank'>{_t("Print Check", "Imprimir cheque")}</a>
         """
 
     content = f"""
@@ -1844,47 +1861,47 @@ def view_payroll_entry(payroll_id):
         <div class='card'>
             <div class='payroll-view-head'>
                 <div>
-                    <h1 style='margin-bottom:6px;'>Payroll Entry</h1>
+                    <h1 style='margin-bottom:6px;'>{_t("Payroll Entry", "Entrada de nómina")}</h1>
                     <p class='muted' style='margin:0;'>{html_escape(employee_name)} · {html_escape(clean_text_display(row["pay_date"]))}</p>
                 </div>
                 <div class='row-actions'>
                     {print_button}
-                    <a class='btn secondary' href='{url_for("payroll.employee_payroll")}'>Back to Payroll</a>
+                    <a class='btn secondary' href='{url_for("payroll.employee_payroll")}'>{_t("Back to Payroll", "Volver a Nómina")}</a>
                 </div>
             </div>
         </div>
 
         <div class='card'>
-            <h2>Payroll Summary</h2>
+            <h2>{_t("Payroll Summary", "Resumen de nómina")}</h2>
             <div class='payroll-summary-grid'>
-                <div class='payroll-summary-card'><span>Employee</span><strong>{html_escape(employee_name)}</strong></div>
-                <div class='payroll-summary-card'><span>Pay Date</span><strong>{html_escape(clean_text_display(row["pay_date"]))}</strong></div>
-                <div class='payroll-summary-card'><span>Pay Type</span><strong>{html_escape(clean_text_display(row["pay_type"]))}</strong></div>
-                <div class='payroll-summary-card'><span>Payment Method</span><strong>{html_escape(payment_method)}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("Employee", "Empleado")}</span><strong>{html_escape(employee_name)}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("Pay Date", "Fecha de pago")}</span><strong>{html_escape(clean_text_display(row["pay_date"]))}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("Pay Type", "Tipo de pago")}</span><strong>{html_escape(clean_text_display(row["pay_type"]))}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("Payment Method", "Método de pago")}</span><strong>{html_escape(payment_method)}</strong></div>
 
-                <div class='payroll-summary-card'><span>Check #</span><strong>{html_escape(str(check_number) if check_number else "-")}</strong></div>
-                <div class='payroll-summary-card'><span>Pay Period Start</span><strong>{html_escape(clean_text_display(row["pay_period_start"]))}</strong></div>
-                <div class='payroll-summary-card'><span>Pay Period End</span><strong>{html_escape(clean_text_display(row["pay_period_end"]))}</strong></div>
-                <div class='payroll-summary-card'><span>Regular Hours</span><strong>{float(row["hours_regular"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("Check #", "Cheque #")}</span><strong>{html_escape(str(check_number) if check_number else "-")}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("Pay Period Start", "Inicio del período de pago")}</span><strong>{html_escape(clean_text_display(row["pay_period_start"]))}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("Pay Period End", "Fin del período de pago")}</span><strong>{html_escape(clean_text_display(row["pay_period_end"]))}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("Regular Hours", "Horas regulares")}</span><strong>{float(row["hours_regular"] or 0):.2f}</strong></div>
 
-                <div class='payroll-summary-card'><span>Overtime Hours</span><strong>{float(row["hours_overtime"] or 0):.2f}</strong></div>
-                <div class='payroll-summary-card'><span>Regular Rate</span><strong>${float(row["rate_regular"] or 0):.2f}</strong></div>
-                <div class='payroll-summary-card'><span>Overtime Rate</span><strong>${float(row["rate_overtime"] or 0):.2f}</strong></div>
-                <div class='payroll-summary-card'><span>Gross Pay</span><strong>${float(row["gross_pay"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("Overtime Hours", "Horas extra")}</span><strong>{float(row["hours_overtime"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("Regular Rate", "Tarifa regular")}</span><strong>${float(row["rate_regular"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("Overtime Rate", "Tarifa de horas extra")}</span><strong>${float(row["rate_overtime"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("Gross Pay", "Pago bruto")}</span><strong>${float(row["gross_pay"] or 0):.2f}</strong></div>
 
-                <div class='payroll-summary-card'><span>Federal</span><strong>${float(row["federal_withholding"] or 0):.2f}</strong></div>
-                <div class='payroll-summary-card'><span>State</span><strong>${float(row["state_withholding"] or 0):.2f}</strong></div>
-                <div class='payroll-summary-card'><span>Social Security</span><strong>${float(row["social_security"] or 0):.2f}</strong></div>
-                <div class='payroll-summary-card'><span>Medicare</span><strong>${float(row["medicare"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("Federal", "Federal")}</span><strong>${float(row["federal_withholding"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("State", "Estatal")}</span><strong>${float(row["state_withholding"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("Social Security", "Seguro Social")}</span><strong>${float(row["social_security"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("Medicare", "Medicare")}</span><strong>${float(row["medicare"] or 0):.2f}</strong></div>
 
-                <div class='payroll-summary-card'><span>Local Tax</span><strong>${float(row["local_tax"] or 0):.2f}</strong></div>
-                <div class='payroll-summary-card'><span>Other Deductions</span><strong>${float(row["other_deductions"] or 0):.2f}</strong></div>
-                <div class='payroll-summary-card'><span>Net Pay</span><strong>${float(row["net_pay"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("Local Tax", "Impuesto local")}</span><strong>${float(row["local_tax"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("Other Deductions", "Otras deducciones")}</span><strong>${float(row["other_deductions"] or 0):.2f}</strong></div>
+                <div class='payroll-summary-card'><span>{_t("Net Pay", "Pago neto")}</span><strong>${float(row["net_pay"] or 0):.2f}</strong></div>
             </div>
         </div>
 
         <div class='card'>
-            <h2>Notes</h2>
+            <h2>{_t("Notes", "Notas")}</h2>
             <div class='payroll-notes-box'>{html_escape(clean_text_display(row["notes"], "-"))}</div>
         </div>
 
@@ -1893,16 +1910,16 @@ def view_payroll_entry(payroll_id):
                 {print_button}
                 <form method='post'
                       action='{url_for("payroll.delete_payroll_entry", payroll_id=payroll_id)}'
-                      onsubmit="return confirm('Delete this payroll entry?');"
+                      onsubmit="return confirm('{_t("Delete this payroll entry?", "¿Eliminar esta entrada de nómina?")}');"
                       style='margin:0;'>
                     <input type="hidden" name="csrf_token" value="{row_csrf}">
-                    <button class='btn danger' type='submit'>Delete</button>
+                    <button class='btn danger' type='submit'>{_t("Delete", "Eliminar")}</button>
                 </form>
             </div>
         </div>
     </div>
     """
-    return render_page(content, f"Payroll Entry #{payroll_id}")
+    return render_page(content, _t(f"Payroll Entry #{payroll_id}", f"Entrada de nómina #{payroll_id}"))
 
 
 @payroll_bp.route("/employees/payroll/<int:payroll_id>/print-check")
@@ -1934,18 +1951,21 @@ def print_payroll_check(payroll_id):
 
     if not row:
         conn.close()
-        flash("Payroll entry not found.")
+        flash(_t("Payroll entry not found.", "Entrada de nómina no encontrada."))
         return redirect(url_for("payroll.employee_payroll"))
 
     employee_name = (
         clean_text_input(row["full_name"])
         or f"{clean_text_input(row['first_name'])} {clean_text_input(row['last_name'])}".strip()
-        or "Employee"
+        or _t("Employee", "Empleado")
     )
 
     if money(row["net_pay"]) <= 0:
         conn.close()
-        flash("Cannot print a check for a payroll entry with zero or negative net pay.")
+        flash(_t(
+            "Cannot print a check for a payroll entry with zero or negative net pay.",
+            "No se puede imprimir un cheque para una entrada de nómina con pago neto cero o negativo."
+        ))
         return redirect(url_for("payroll.employee_payroll"))
 
     _, check_number = create_or_get_payroll_check(conn, cid, row, employee_name)
@@ -2014,27 +2034,27 @@ def export_payroll():
     writer = csv.writer(output)
 
     writer.writerow([
-        "Payroll ID",
-        "Pay Date",
-        "Employee",
-        "Pay Type",
-        "Payment Method",
-        "Check Number",
-        "Pay Period Start",
-        "Pay Period End",
-        "Regular Hours",
-        "Overtime Hours",
-        "Regular Rate",
-        "Overtime Rate",
-        "Gross Pay",
-        "Federal Withholding",
-        "State Withholding",
-        "Social Security",
-        "Medicare",
-        "Local Tax",
-        "Other Deductions",
-        "Net Pay",
-        "Notes",
+        _t("Payroll ID", "ID de nómina"),
+        _t("Pay Date", "Fecha de pago"),
+        _t("Employee", "Empleado"),
+        _t("Pay Type", "Tipo de pago"),
+        _t("Payment Method", "Método de pago"),
+        _t("Check Number", "Número de cheque"),
+        _t("Pay Period Start", "Inicio del período de pago"),
+        _t("Pay Period End", "Fin del período de pago"),
+        _t("Regular Hours", "Horas regulares"),
+        _t("Overtime Hours", "Horas extra"),
+        _t("Regular Rate", "Tarifa regular"),
+        _t("Overtime Rate", "Tarifa de horas extra"),
+        _t("Gross Pay", "Pago bruto"),
+        _t("Federal Withholding", "Retención federal"),
+        _t("State Withholding", "Retención estatal"),
+        _t("Social Security", "Seguro Social"),
+        _t("Medicare", "Medicare"),
+        _t("Local Tax", "Impuesto local"),
+        _t("Other Deductions", "Otras deducciones"),
+        _t("Net Pay", "Pago neto"),
+        _t("Notes", "Notas"),
     ])
 
     for r in rows:
@@ -2106,7 +2126,7 @@ def delete_payroll_entry(payroll_id):
 
     if not row:
         conn.close()
-        flash("Payroll entry not found.")
+        flash(_t("Payroll entry not found.", "Entrada de nómina no encontrada."))
         return redirect(url_for("payroll.employee_payroll"))
 
     if "ledger_entry_id" in row.keys() and row["ledger_entry_id"]:
@@ -2131,5 +2151,5 @@ def delete_payroll_entry(payroll_id):
     conn.commit()
     conn.close()
 
-    flash("Payroll entry deleted.")
+    flash(_t("Payroll entry deleted.", "Entrada de nómina eliminada."))
     return redirect(url_for("payroll.employee_payroll"))

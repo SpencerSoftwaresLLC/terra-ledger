@@ -1,13 +1,35 @@
+from flask import has_request_context, session
+
 from utils.emailing import send_company_email
 from utils.time_clock import get_previous_pay_period, weekday_label
 from db import get_db_connection, get_company_profile_row, get_company_users
 
 
-def build_time_clock_summary_email(company_name, start_day, pay_period_start, pay_period_end, rows):
+def _is_es(profile=None):
+    if profile:
+        lang = str(profile.get("language_preference") or "en").strip().lower()
+        return lang == "es"
+
+    if has_request_context():
+        return str(session.get("language") or "en").strip().lower() == "es"
+
+    return False
+
+
+def _t(en_text, es_text, profile=None):
+    return es_text if _is_es(profile) else en_text
+
+
+def build_time_clock_summary_email(company_name, start_day, pay_period_start, pay_period_end, rows, profile=None):
+    is_es = _is_es(profile)
+
     day_label = weekday_label(start_day)
     end_label = weekday_label((start_day - 1) % 7)
 
-    subject = f"{company_name} - Employee Hours Summary ({pay_period_start} to {pay_period_end})"
+    if is_es:
+        subject = f"{company_name} - Resumen de horas de empleados ({pay_period_start} a {pay_period_end})"
+    else:
+        subject = f"{company_name} - Employee Hours Summary ({pay_period_start} to {pay_period_end})"
 
     if rows:
         html_rows = "".join(
@@ -24,36 +46,49 @@ def build_time_clock_summary_email(company_name, start_day, pay_period_start, pa
 
         text_lines = []
         for row in rows:
-            text_lines.append(
-                f"{row['employee_name']}: Regular {float(row['regular_hours'] or 0):.2f}, "
-                f"Overtime {float(row['overtime_hours'] or 0):.2f}, "
-                f"Total {float(row['total_hours'] or 0):.2f}"
-            )
+            if is_es:
+                text_lines.append(
+                    f"{row['employee_name']}: Regulares {float(row['regular_hours'] or 0):.2f}, "
+                    f"Extra {float(row['overtime_hours'] or 0):.2f}, "
+                    f"Total {float(row['total_hours'] or 0):.2f}"
+                )
+            else:
+                text_lines.append(
+                    f"{row['employee_name']}: Regular {float(row['regular_hours'] or 0):.2f}, "
+                    f"Overtime {float(row['overtime_hours'] or 0):.2f}, "
+                    f"Total {float(row['total_hours'] or 0):.2f}"
+                )
         text_summary = "\n".join(text_lines)
     else:
-        html_rows = """
+        html_rows = f"""
         <tr>
-            <td colspan="4" style="padding:10px;">No employee hours were recorded for this pay period.</td>
+            <td colspan="4" style="padding:10px;">
+                {_t('No employee hours were recorded for this pay period.', 'No se registraron horas de empleados para este período de pago.', profile)}
+            </td>
         </tr>
         """
-        text_summary = "No employee hours were recorded for this pay period."
+        text_summary = _t(
+            "No employee hours were recorded for this pay period.",
+            "No se registraron horas de empleados para este período de pago.",
+            profile,
+        )
 
     html_body = f"""
     <div style="font-family: Arial, sans-serif; color:#1f2933; line-height:1.5;">
-        <h2 style="margin-bottom:8px;">Employee Hours Summary</h2>
+        <h2 style="margin-bottom:8px;">{_t("Employee Hours Summary", "Resumen de Horas de Empleados", profile)}</h2>
         <p style="margin-top:0;">
-            <strong>Company:</strong> {company_name}<br>
-            <strong>Pay Period:</strong> {pay_period_start} to {pay_period_end}<br>
-            <strong>Cycle:</strong> {day_label} through {end_label}
+            <strong>{_t("Company", "Empresa", profile)}:</strong> {company_name}<br>
+            <strong>{_t("Pay Period", "Período de pago", profile)}:</strong> {pay_period_start} {_t("to", "a", profile)} {pay_period_end}<br>
+            <strong>{_t("Cycle", "Ciclo", profile)}:</strong> {day_label} {_t("through", "a", profile)} {end_label}
         </p>
 
         <table style="width:100%; border-collapse:collapse; margin-top:16px;">
             <thead>
                 <tr>
-                    <th style="text-align:left; padding:8px; border-bottom:2px solid #d1d5db;">Employee</th>
-                    <th style="text-align:right; padding:8px; border-bottom:2px solid #d1d5db;">Regular</th>
-                    <th style="text-align:right; padding:8px; border-bottom:2px solid #d1d5db;">Overtime</th>
-                    <th style="text-align:right; padding:8px; border-bottom:2px solid #d1d5db;">Total</th>
+                    <th style="text-align:left; padding:8px; border-bottom:2px solid #d1d5db;">{_t("Employee", "Empleado", profile)}</th>
+                    <th style="text-align:right; padding:8px; border-bottom:2px solid #d1d5db;">{_t("Regular", "Regular", profile)}</th>
+                    <th style="text-align:right; padding:8px; border-bottom:2px solid #d1d5db;">{_t("Overtime", "Extra", profile)}</th>
+                    <th style="text-align:right; padding:8px; border-bottom:2px solid #d1d5db;">{_t("Total", "Total", profile)}</th>
                 </tr>
             </thead>
             <tbody>
@@ -64,10 +99,10 @@ def build_time_clock_summary_email(company_name, start_day, pay_period_start, pa
     """
 
     text_body = (
-        f"Employee Hours Summary\n\n"
-        f"Company: {company_name}\n"
-        f"Pay Period: {pay_period_start} to {pay_period_end}\n"
-        f"Cycle: {day_label} through {end_label}\n\n"
+        f"{_t('Employee Hours Summary', 'Resumen de Horas de Empleados', profile)}\n\n"
+        f"{_t('Company', 'Empresa', profile)}: {company_name}\n"
+        f"{_t('Pay Period', 'Período de pago', profile)}: {pay_period_start} {_t('to', 'a', profile)} {pay_period_end}\n"
+        f"{_t('Cycle', 'Ciclo', profile)}: {day_label} {_t('through', 'a', profile)} {end_label}\n\n"
         f"{text_summary}"
     )
 
@@ -143,6 +178,7 @@ def send_pay_period_summary_emails_for_company(company_id):
         pay_period_start=pay_period_start.isoformat(),
         pay_period_end=pay_period_end.isoformat(),
         rows=rows,
+        profile=profile,
     )
 
     sent_count = 0
@@ -163,6 +199,7 @@ def send_pay_period_summary_emails_for_company(company_id):
         sent_count += 1
 
     return {"sent": sent_count, "skipped": 0, "reason": None}
+
 
 def run_time_clock_summary_emails():
     conn = get_db_connection()

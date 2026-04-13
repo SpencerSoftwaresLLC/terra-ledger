@@ -1,10 +1,10 @@
 <!-- templates/public/terms.html -->
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ 'es' if _lang == 'es' else 'en' }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Terms of Service | TerraLedger</title>
+    <title>{{ "Términos de Servicio | TerraLedger" if _lang == "es" else "Terms of Service | TerraLedger" }}</title>
     <style>
         body {
             font-family: Arial, Helvetica, sans-serif;
@@ -26,26 +26,44 @@
 </head>
 <body>
     <div class="card">
-        <h1>Terms of Service</h1>
+        <h1>{{ "Términos de Servicio" if _lang == "es" else "Terms of Service" }}</h1>
 
         <p>
+            {% if _lang == "es" %}
+            TerraLedger proporciona herramientas de comunicación y gestión empresarial para empresas de servicios.
+            {% else %}
             TerraLedger provides business communication and management tools for service-based companies.
+            {% endif %}
         </p>
 
-        <h2>SMS communications</h2>
+        <h2>{{ "Comunicaciones SMS" if _lang == "es" else "SMS communications" }}</h2>
         <p>
+            {% if _lang == "es" %}
+            Al aceptar, usted acepta recibir comunicaciones SMS relacionadas con actualizaciones de programación, notificaciones de trabajo,
+            alertas de servicio, recordatorios de facturas y mensajes relacionados con la cuenta. La frecuencia de los mensajes puede variar.
+            Pueden aplicarse tarifas de mensajes y datos.
+            {% else %}
             By opting in, you agree to receive SMS communications related to scheduling updates, job notifications,
             service alerts, invoice reminders, and account-related messages. Message frequency may vary. Message and
             data rates may apply.
+            {% endif %}
         </p>
 
         <p>
+            {% if _lang == "es" %}
+            Puede cancelar en cualquier momento respondiendo STOP. Para ayuda, responda HELP.
+            {% else %}
             You can opt out at any time by replying STOP. For help, reply HELP.
+            {% endif %}
         </p>
 
-        <h2>Consent</h2>
+        <h2>{{ "Consentimiento" if _lang == "es" else "Consent" }}</h2>
         <p>
+            {% if _lang == "es" %}
+            El consentimiento para recibir mensajes SMS es opcional y no es una condición de compra.
+            {% else %}
             Consent to receive SMS messages is optional and is not a condition of purchase.
+            {% endif %}
         </p>
     </div>
 </body>

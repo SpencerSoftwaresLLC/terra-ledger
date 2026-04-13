@@ -17,6 +17,10 @@ MAX_MESSAGE_LENGTH = 4000
 MAX_HISTORY_MESSAGES = 10
 
 
+def _t(lang, en, es):
+    return es if lang == "es" else en
+
+
 def _safe_text(value, default=""):
     if value is None:
         return default
@@ -109,7 +113,7 @@ def _format_list(lines):
     return "\n".join(f"- {line}" for line in lines)
 
 
-def _knowledge_summary_block():
+def _knowledge_summary_block(lang="en"):
     knowledge = get_help_knowledge()
 
     modules = knowledge.get("modules", {})
@@ -142,6 +146,9 @@ Response Rules:
 
 Supported Help Topics:
 {_format_list(knowledge.get("supported_help_topics", []))}
+
+Language Rule:
+- Respond in {"Spanish" if lang == "es" else "English"} unless the user clearly asks for another language.
 
 Known Modules:
 {chr(10).join(module_lines) if module_lines else "- None listed"}
@@ -196,6 +203,18 @@ def _is_outlook_question(user_question, page_title="", route=""):
         "where am i at",
         "profit this year",
         "revenue this year",
+        "panorama anual",
+        "fin de año",
+        "pronóstico",
+        "proyeccion",
+        "proyección",
+        "este año",
+        "como voy",
+        "cómo voy",
+        "como va",
+        "cómo va",
+        "ganancia este año",
+        "ingresos este año",
     ]
     return any(k in text for k in keywords)
 
@@ -210,6 +229,10 @@ def _is_bookkeeping_page(page_title="", route=""):
         "loss",
         "/ledger",
         "/bookkeeping",
+        "contabilidad",
+        "ganancias",
+        "perdidas",
+        "pérdidas",
     ])
 
 
@@ -258,8 +281,7 @@ def _get_open_invoices_snapshot(conn, company_id):
             COALESCE(SUM({amount_expr}), 0) AS open_total
         FROM invoices
         WHERE {where_sql}
-        """
-        ,
+        """,
         tuple(params),
     ).fetchone()
 
@@ -338,7 +360,7 @@ def _get_scheduled_jobs_snapshot(conn, company_id):
     }
 
 
-def _get_bookkeeping_outlook_block(company_id, user_question, page_title="", route=""):
+def _get_bookkeeping_outlook_block(company_id, user_question, page_title="", route="", lang="en"):
     if not company_id:
         return ""
 
@@ -442,7 +464,6 @@ def _get_bookkeeping_outlook_block(company_id, user_question, page_title="", rou
                     if is_expense:
                         total_expenses += amount
                     else:
-                        # only include non-payment income if it truly looks like income
                         if entry_type in {"income", "payment"} or category == "income":
                             total_income += amount
 
@@ -507,6 +528,7 @@ If the user asks for a yearly outlook, YTD summary, forecast, or how the busines
 Instead, directly summarize the numbers above in plain English.
 Lead with the actual YTD totals first, then give the estimated year-end outlook, then mention open invoices and scheduled jobs as additional context.
 Always describe the year-end figures as estimates based on current pace, not guarantees.
+Respond in {"Spanish" if lang == "es" else "English"}.
 """.strip()
 
     except Exception as e:
@@ -515,12 +537,13 @@ Bookkeeping outlook context could not be loaded cleanly.
 Error: {e}
 
 If the user asked for a yearly outlook, explain that the bookkeeping forecast data could not be calculated right now.
+Respond in {"Spanish" if lang == "es" else "English"}.
 """.strip()
     finally:
         conn.close()
 
 
-def _build_business_insight_block(company_id, user_question):
+def _build_business_insight_block(company_id, user_question, lang="en"):
     if not company_id:
         return ""
 
@@ -536,6 +559,7 @@ Business insight context for this company:
 
 Use this context only when the user is asking about sales, revenue, trends, growth, forecasts, YTD progress, or year-end projections.
 Describe forecasts as estimates based on historical paid invoice revenue and current pace, not guarantees.
+Respond in {"Spanish" if lang == "es" else "English"}.
 """.strip()
     except Exception as e:
         return f"""
@@ -543,10 +567,11 @@ Business insight context could not be loaded cleanly for this request.
 Error: {e}
 
 If the user is asking for sales trends or forecasts, explain that the insight layer could not be loaded right now.
+Respond in {"Spanish" if lang == "es" else "English"}.
 """.strip()
 
 
-def _build_material_block(user_question):
+def _build_material_block(user_question, lang="en"):
     calc_result = calculate_material(user_question)
     if not calc_result:
         return "", None
@@ -558,19 +583,22 @@ The user's message appears to request a material estimate.
 Use the following result directly if it answers the question:
 
 {calc_result}
+
+Respond in {"Spanish" if lang == "es" else "English"}.
 """.strip(), calc_result
 
 
-def _build_augmented_question(user_question, company_id=None, page_title="", route=""):
-    knowledge_block = _knowledge_summary_block()
-    business_block = _build_business_insight_block(company_id, user_question)
+def _build_augmented_question(user_question, company_id=None, page_title="", route="", lang="en"):
+    knowledge_block = _knowledge_summary_block(lang=lang)
+    business_block = _build_business_insight_block(company_id, user_question, lang=lang)
     bookkeeping_outlook_block = _get_bookkeeping_outlook_block(
         company_id=company_id,
         user_question=user_question,
         page_title=page_title,
         route=route,
+        lang=lang,
     )
-    material_block, _ = _build_material_block(user_question)
+    material_block, _ = _build_material_block(user_question, lang=lang)
 
     context_parts = [
         "You are the built-in TerraLedger help assistant.",
@@ -582,6 +610,7 @@ def _build_augmented_question(user_question, company_id=None, page_title="", rou
         "If the user is asking about sales, bookkeeping, forecasting, yearly outlook, YTD results, revenue trends, or year-end projections, use any available sales/bookkeeping insight context and give the answer directly using the actual numbers provided.",
         "Never answer a yearly outlook question with only generic advice like 'check invoices' or 'review reports' when actual numeric context is available.",
         "When on the ledger, bookkeeping, or P&L pages, prefer bookkeeping-specific context over generic product help.",
+        f"Respond in {'Spanish' if lang == 'es' else 'English'} unless the user clearly asks for a different language.",
         knowledge_block,
         _recent_terraledger_context(),
     ]
@@ -615,20 +644,23 @@ def help_assistant_api():
         user_question = _truncate_text(data.get("message", ""))
         page_title = _truncate_text(data.get("page_title", ""), 300)
         route = _truncate_text(data.get("route", ""), 300)
+        lang = _safe_text(session.get("language_preference", "en"), "en").lower()
+        if lang not in {"en", "es"}:
+            lang = "en"
 
         if not user_question:
             return jsonify({
                 "ok": False,
-                "error": "Please enter a question."
+                "error": _t(lang, "Please enter a question.", "Por favor ingresa una pregunta.")
             }), 400
 
         history = _get_chat_history()
         company_id = session.get("company_id")
 
-        material_block, calc_result = _build_material_block(user_question)
+        material_block, calc_result = _build_material_block(user_question, lang=lang)
 
         if calc_result:
-            answer = _safe_text(calc_result, "I could not calculate that.")
+            answer = _safe_text(calc_result, _t(lang, "I could not calculate that.", "No pude calcular eso."))
             used_business_insights = False
             used_bookkeeping_outlook = False
         else:
@@ -637,6 +669,7 @@ def help_assistant_api():
                 company_id=company_id,
                 page_title=page_title,
                 route=route,
+                lang=lang,
             )
 
             used_business_insights = bool(company_id and should_include_business_insights(user_question))
@@ -653,7 +686,7 @@ def help_assistant_api():
                 user_name=_safe_text(session.get("user_name", "")),
                 prior_messages=history,
             )
-            answer = _safe_text(answer, "I could not generate an answer right now.")
+            answer = _safe_text(answer, _t(lang, "I could not generate an answer right now.", "No pude generar una respuesta en este momento."))
 
         history.append({"role": "user", "content": user_question})
         history.append({"role": "assistant", "content": answer})
@@ -668,11 +701,15 @@ def help_assistant_api():
 
     except Exception as e:
         print("HELP ASSISTANT ERROR:", repr(e))
+        lang = _safe_text(session.get("language_preference", "en"), "en").lower()
+        if lang not in {"en", "es"}:
+            lang = "en"
         return jsonify({
             "ok": False,
-            "error": "Something went wrong while generating help."
+            "error": _t(lang, "Something went wrong while generating help.", "Algo salió mal al generar la ayuda.")
         }), 500
-    
+
+
 @help_assistant_bp.route("/api/help-assistant/clear", methods=["POST"])
 @csrf.exempt
 @login_required

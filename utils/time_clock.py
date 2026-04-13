@@ -1,8 +1,10 @@
 from datetime import date, timedelta
 
 
-def weekday_label(day_number):
-    labels = {
+def weekday_label(day_number, is_es=False):
+    day_number = int(day_number)
+
+    labels_en = {
         0: "Monday",
         1: "Tuesday",
         2: "Wednesday",
@@ -11,7 +13,20 @@ def weekday_label(day_number):
         5: "Saturday",
         6: "Sunday",
     }
-    return labels.get(int(day_number), "Wednesday")
+
+    labels_es = {
+        0: "Lunes",
+        1: "Martes",
+        2: "Miércoles",
+        3: "Jueves",
+        4: "Viernes",
+        5: "Sábado",
+        6: "Domingo",
+    }
+
+    if is_es:
+        return labels_es.get(day_number, "Miércoles")
+    return labels_en.get(day_number, "Wednesday")
 
 
 def get_current_pay_period(start_day):

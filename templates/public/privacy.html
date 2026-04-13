@@ -1,10 +1,10 @@
 <!-- templates/public/privacy.html -->
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ 'es' if _lang == 'es' else 'en' }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Privacy Policy | TerraLedger</title>
+    <title>{{ "Política de Privacidad | TerraLedger" if _lang == "es" else "Privacy Policy | TerraLedger" }}</title>
     <style>
         body {
             font-family: Arial, Helvetica, sans-serif;
@@ -26,34 +26,58 @@
 </head>
 <body>
     <div class="card">
-        <h1>Privacy Policy</h1>
+        <h1>{{ "Política de Privacidad" if _lang == "es" else "Privacy Policy" }}</h1>
 
         <p>
-            TerraLedger respects your privacy. We collect customer contact information only as needed to provide
-            scheduling updates, service notifications, invoice reminders, and related account communications.
+            {% if _lang == "es" %}
+                TerraLedger respeta su privacidad. Recopilamos información de contacto del cliente solo cuando es necesaria para proporcionar
+                actualizaciones de programación, notificaciones de servicio, recordatorios de facturas y otras comunicaciones relacionadas con la cuenta.
+            {% else %}
+                TerraLedger respects your privacy. We collect customer contact information only as needed to provide
+                scheduling updates, service notifications, invoice reminders, and related account communications.
+            {% endif %}
         </p>
 
-        <h2>SMS consent</h2>
+        <h2>{{ "Consentimiento SMS" if _lang == "es" else "SMS consent" }}</h2>
         <p>
-            SMS consent is collected separately and is optional. SMS consent is not shared with third parties or
-            affiliates for their own marketing purposes.
+            {% if _lang == "es" %}
+                El consentimiento para SMS se recopila por separado y es opcional. El consentimiento para SMS no se comparte con terceros ni
+                afiliados para sus propios fines de marketing.
+            {% else %}
+                SMS consent is collected separately and is optional. SMS consent is not shared with third parties or
+                affiliates for their own marketing purposes.
+            {% endif %}
         </p>
 
-        <h2>Information we collect</h2>
+        <h2>{{ "Información que recopilamos" if _lang == "es" else "Information we collect" }}</h2>
         <p>
-            We may collect your name, business name, phone number, email address, service address, and account activity
-            necessary to provide service-related communications.
+            {% if _lang == "es" %}
+                Podemos recopilar su nombre, nombre del negocio, número de teléfono, correo electrónico, dirección de servicio y actividad de la cuenta
+                necesarios para proporcionar comunicaciones relacionadas con el servicio.
+            {% else %}
+                We may collect your name, business name, phone number, email address, service address, and account activity
+                necessary to provide service-related communications.
+            {% endif %}
         </p>
 
-        <h2>How information is used</h2>
+        <h2>{{ "Cómo se usa la información" if _lang == "es" else "How information is used" }}</h2>
         <p>
-            Information is used to manage services, send requested notifications, process invoices, and maintain account
-            records.
+            {% if _lang == "es" %}
+                La información se utiliza para administrar servicios, enviar notificaciones solicitadas, procesar facturas y mantener
+                registros de la cuenta.
+            {% else %}
+                Information is used to manage services, send requested notifications, process invoices, and maintain account
+                records.
+            {% endif %}
         </p>
 
-        <h2>Opt-out</h2>
+        <h2>{{ "Cancelar suscripción" if _lang == "es" else "Opt-out" }}</h2>
         <p>
-            You may opt out of SMS communications at any time by replying STOP.
+            {% if _lang == "es" %}
+                Puede cancelar las comunicaciones por SMS en cualquier momento respondiendo STOP.
+            {% else %}
+                You may opt out of SMS communications at any time by replying STOP.
+            {% endif %}
         </p>
     </div>
 </body>

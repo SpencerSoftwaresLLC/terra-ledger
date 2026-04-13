@@ -100,6 +100,10 @@ SERVICE_TYPE_LABELS = {
 }
 
 
+def _t(lang, en, es):
+    return es if lang == "es" else en
+
+
 def _safe_float(value, default=0.0):
     try:
         if value is None or value == "":
@@ -1342,16 +1346,33 @@ def _build_combined_rows(conn, cid, start_date, end_date, service_filter=""):
     return rows
 
 
-def _service_filter_options(selected_value=""):
+def _service_filter_options(selected_value="", lang="en"):
     selected_value = _normalize_service_type(selected_value)
-    options = [f"<option value='' {'selected' if not selected_value else ''}>All Services</option>"]
+    options = [
+        f"<option value='' {'selected' if not selected_value else ''}>{escape(_t(lang, 'All Services', 'Todos los Servicios'))}</option>"
+    ]
     for key, label in SERVICE_TYPE_LABELS.items():
         selected_attr = " selected" if key == selected_value else ""
-        options.append(f"<option value='{key}'{selected_attr}>{escape(label)}</option>")
+        translated_label = label
+        if lang == "es":
+            translated_map = {
+                "Mowing": "Corte de Césped",
+                "Mulch": "Mantillo",
+                "Cleanup": "Limpieza",
+                "Installation": "Instalación",
+                "Hardscape": "Paisajismo Duro",
+                "Snow Removal": "Remoción de Nieve",
+                "Fertilizing": "Fertilización",
+                "Other": "Otro",
+            }
+            translated_label = translated_map.get(label, label)
+        options.append(f"<option value='{key}'{selected_attr}>{escape(translated_label)}</option>")
     return "".join(options)
 
 
 def _render_bookkeeping_page(conn, cid):
+    lang = session.get("language_preference", "en")
+
     if request.method == "POST":
         entry_date = (request.form.get("entry_date") or "").strip() or date.today().isoformat()
         entry_type = (request.form.get("entry_type") or "expense").strip().lower()
@@ -1362,11 +1383,11 @@ def _render_bookkeeping_page(conn, cid):
         payee_name = (request.form.get("payee_name") or "").strip()
 
         if amount <= 0:
-            flash("Amount must be greater than 0.")
+            flash(_t(lang, "Amount must be greater than 0.", "El monto debe ser mayor que 0."))
             return redirect(url_for("bookkeeping.bookkeeping"))
 
         if not description:
-            flash("Description is required.")
+            flash(_t(lang, "Description is required.", "La descripción es obligatoria."))
             return redirect(url_for("bookkeeping.bookkeeping"))
 
         if not category:
@@ -1385,7 +1406,7 @@ def _render_bookkeeping_page(conn, cid):
         )
 
         conn.commit()
-        flash("Manual bookkeeping entry added.")
+        flash(_t(lang, "Manual bookkeeping entry added.", "Se agregó la entrada manual de contabilidad."))
         return redirect(url_for("bookkeeping.bookkeeping"))
 
     view_type = request.args.get("view", "monthly")
@@ -1429,7 +1450,7 @@ def _render_bookkeeping_page(conn, cid):
 
         yoy_html = f"""
         <div class='card'>
-            <h2>Year over Year Comparison</h2>
+            <h2>{_t(lang, 'Year over Year Comparison', 'Comparación Año contra Año')}</h2>
             <div class='static-table-wrap desktop-only'>
                 <table class='static-table summary-table'>
                     <colgroup>
@@ -1439,10 +1460,10 @@ def _render_bookkeeping_page(conn, cid):
                         <col style='width:25%;'>
                     </colgroup>
                     <tr>
-                        <th>Year</th>
-                        <th class='money'>Income</th>
-                        <th class='money'>Expenses</th>
-                        <th class='money'>Net</th>
+                        <th>{_t(lang, 'Year', 'Año')}</th>
+                        <th class='money'>{_t(lang, 'Income', 'Ingresos')}</th>
+                        <th class='money'>{_t(lang, 'Expenses', 'Gastos')}</th>
+                        <th class='money'>{_t(lang, 'Net', 'Neto')}</th>
                     </tr>
                     <tr>
                         <td>{prior_year}</td>
@@ -1470,9 +1491,9 @@ def _render_bookkeeping_page(conn, cid):
                             <div class='mobile-list-title'>{prior_year}</div>
                         </div>
                         <div class='mobile-list-grid'>
-                            <div><span>Income</span><strong class='positive'>+${prior_income:.2f}</strong></div>
-                            <div><span>Expenses</span><strong class='negative'>-${prior_expense:.2f}</strong></div>
-                            <div><span>Net</span><strong class='{"positive" if prior_net >= 0 else "negative"}'>{'+' if prior_net >= 0 else '-'}${abs(prior_net):.2f}</strong></div>
+                            <div><span>{_t(lang, 'Income', 'Ingresos')}</span><strong class='positive'>+${prior_income:.2f}</strong></div>
+                            <div><span>{_t(lang, 'Expenses', 'Gastos')}</span><strong class='negative'>-${prior_expense:.2f}</strong></div>
+                            <div><span>{_t(lang, 'Net', 'Neto')}</span><strong class='{"positive" if prior_net >= 0 else "negative"}'>{'+' if prior_net >= 0 else '-'}${abs(prior_net):.2f}</strong></div>
                         </div>
                     </div>
 
@@ -1481,9 +1502,9 @@ def _render_bookkeeping_page(conn, cid):
                             <div class='mobile-list-title'>{current_year}</div>
                         </div>
                         <div class='mobile-list-grid'>
-                            <div><span>Income</span><strong class='positive'>+${current_income:.2f}</strong></div>
-                            <div><span>Expenses</span><strong class='negative'>-${current_expense:.2f}</strong></div>
-                            <div><span>Net</span><strong class='{"positive" if current_net >= 0 else "negative"}'>{'+' if current_net >= 0 else '-'}${abs(current_net):.2f}</strong></div>
+                            <div><span>{_t(lang, 'Income', 'Ingresos')}</span><strong class='positive'>+${current_income:.2f}</strong></div>
+                            <div><span>{_t(lang, 'Expenses', 'Gastos')}</span><strong class='negative'>-${current_expense:.2f}</strong></div>
+                            <div><span>{_t(lang, 'Net', 'Neto')}</span><strong class='{"positive" if current_net >= 0 else "negative"}'>{'+' if current_net >= 0 else '-'}${abs(current_net):.2f}</strong></div>
                         </div>
                     </div>
                 </div>
@@ -1498,6 +1519,8 @@ def _render_bookkeeping_page(conn, cid):
         expense = sum(r["amount"] for r in rows if r["entry_type"] == "Expense")
         net = income - expense
         period_label = f"{start_date} to {end_date}"
+        if lang == "es":
+            period_label = f"{start_date} a {end_date}"
         if service_filter:
             period_label += f" • {_display_service_type(service_filter)}"
 
@@ -1533,9 +1556,9 @@ def _render_bookkeeping_page(conn, cid):
                 <div class='mobile-list-title'>{escape(cat)}</div>
             </div>
             <div class='mobile-list-grid'>
-                <div><span>Income</span><strong class='positive'>+${vals['Income']:.2f}</strong></div>
-                <div><span>Expenses</span><strong class='negative'>-${vals['Expense']:.2f}</strong></div>
-                <div><span>Net</span><strong class='{"positive" if (vals["Income"] - vals["Expense"]) >= 0 else "negative"}'>{'+' if (vals['Income'] - vals['Expense']) >= 0 else '-'}${abs(vals['Income'] - vals['Expense']):.2f}</strong></div>
+                <div><span>{_t(lang, 'Income', 'Ingresos')}</span><strong class='positive'>+${vals['Income']:.2f}</strong></div>
+                <div><span>{_t(lang, 'Expenses', 'Gastos')}</span><strong class='negative'>-${vals['Expense']:.2f}</strong></div>
+                <div><span>{_t(lang, 'Net', 'Neto')}</span><strong class='{"positive" if (vals["Income"] - vals["Expense"]) >= 0 else "negative"}'>{'+' if (vals['Income'] - vals['Expense']) >= 0 else '-'}${abs(vals['Income'] - vals['Expense']):.2f}</strong></div>
             </div>
         </div>
         """
@@ -1544,7 +1567,7 @@ def _render_bookkeeping_page(conn, cid):
 
     category_html = f"""
     <div class='card'>
-        <h2>P&amp;L by Category</h2>
+        <h2>{_t(lang, 'P&L by Category', 'P&L por Categoría')}</h2>
 
         <div class='static-table-wrap desktop-only'>
             <table class='static-table summary-table'>
@@ -1555,18 +1578,18 @@ def _render_bookkeeping_page(conn, cid):
                     <col style='width:20%;'>
                 </colgroup>
                 <tr>
-                    <th class='wrap'>Category</th>
-                    <th class='money'>Income</th>
-                    <th class='money'>Expenses</th>
-                    <th class='money'>Net</th>
+                    <th class='wrap'>{_t(lang, 'Category', 'Categoría')}</th>
+                    <th class='money'>{_t(lang, 'Income', 'Ingresos')}</th>
+                    <th class='money'>{_t(lang, 'Expenses', 'Gastos')}</th>
+                    <th class='money'>{_t(lang, 'Net', 'Neto')}</th>
                 </tr>
-                {category_rows or '<tr><td colspan="4" class="muted">No category data for this period.</td></tr>'}
+                {category_rows or f'<tr><td colspan="4" class="muted">{_t(lang, "No category data for this period.", "No hay datos de categoría para este período.")}</td></tr>'}
             </table>
         </div>
 
         <div class='mobile-only'>
             <div class='mobile-list'>
-                {mobile_category_cards or "<div class='mobile-list-card muted'>No category data for this period.</div>"}
+                {mobile_category_cards or f"<div class='mobile-list-card muted'>{_t(lang, 'No category data for this period.', 'No hay datos de categoría para este período.')}</div>"}
             </div>
         </div>
     </div>
@@ -1580,22 +1603,22 @@ def _render_bookkeeping_page(conn, cid):
         source_text = escape(str(r.get("source_type") or "-"))
 
         if r.get("invoice_id"):
-            source_html = f"<a class='btn secondary small' href='{url_for('invoices.view_invoice', invoice_id=r.get('invoice_id'))}'>Open Invoice</a>"
-            source_text = "Invoice"
+            source_html = f"<a class='btn secondary small' href='{url_for('invoices.view_invoice', invoice_id=r.get('invoice_id'))}'>{_t(lang, 'Open Invoice', 'Abrir Factura')}</a>"
+            source_text = _t(lang, "Invoice", "Factura")
         elif r.get("job_id"):
-            source_html = f"<a class='btn secondary small' href='{url_for('jobs.view_job', job_id=r.get('job_id'))}'>Open Job</a>"
-            source_text = "Job"
+            source_html = f"<a class='btn secondary small' href='{url_for('jobs.view_job', job_id=r.get('job_id'))}'>{_t(lang, 'Open Job', 'Abrir Trabajo')}</a>"
+            source_text = _t(lang, "Job", "Trabajo")
         elif r.get("source_type") == "payroll" and r.get("employee_id"):
             try:
-                source_html = f"<a class='btn secondary small' href='{url_for('employees.view_employee', employee_id=r.get('employee_id'))}'>Open Employee</a>"
-                source_text = "Payroll"
+                source_html = f"<a class='btn secondary small' href='{url_for('employees.view_employee', employee_id=r.get('employee_id'))}'>{_t(lang, 'Open Employee', 'Abrir Empleado')}</a>"
+                source_text = _t(lang, "Payroll", "Nómina")
             except Exception:
-                source_html = "Payroll"
-                source_text = "Payroll"
+                source_html = _t(lang, "Payroll", "Nómina")
+                source_text = _t(lang, "Payroll", "Nómina")
 
         actions = [
-            f"<a class='btn secondary small' href='{url_for('bookkeeping.view_bookkeeping_entry', entry_id=r.get('id'))}'>View</a>"
-            if isinstance(r.get("id"), int) else "<span class='muted small'>Auto</span>"
+            f"<a class='btn secondary small' href='{url_for('bookkeeping.view_bookkeeping_entry', entry_id=r.get('id'))}'>{_t(lang, 'View', 'Ver')}</a>"
+            if isinstance(r.get("id"), int) else f"<span class='muted small'>{_t(lang, 'Auto', 'Auto')}</span>"
         ]
 
         if r.get("can_delete") and isinstance(r.get("id"), int):
@@ -1603,10 +1626,10 @@ def _render_bookkeeping_page(conn, cid):
                 f"""
                 <form method='post'
                       action='{url_for("bookkeeping.delete_bookkeeping_entry", entry_id=r.get("id"))}'
-                      onsubmit="return confirm('Delete this bookkeeping entry?');"
+                      onsubmit="return confirm('{_t(lang, "Delete this bookkeeping entry?", "¿Eliminar esta entrada contable?")}');"
                       style='margin:0;'>
                     <input type="hidden" name="csrf_token" value="{generate_csrf()}">
-                    <button class='btn danger small' type='submit'>Delete</button>
+                    <button class='btn danger small' type='submit'>{_t(lang, 'Delete', 'Eliminar')}</button>
                 </form>
                 """
             )
@@ -1618,7 +1641,7 @@ def _render_bookkeeping_page(conn, cid):
         service_type = _normalize_service_type(r.get("service_type"))
         service_chip = (
             f"<span class='service-chip {_service_chip_class(service_type)}'>{escape(_display_service_type(service_type))}</span>"
-            if service_type else "<span class='muted small'>-</span>"
+            if service_type else f"<span class='muted small'>-</span>"
         )
         service_text = _display_service_type(service_type)
 
@@ -1656,19 +1679,19 @@ def _render_bookkeeping_page(conn, cid):
 
                 <div class='mobile-list-grid'>
                     <div>
-                        <span>Category</span>
+                        <span>{_t(lang, 'Category', 'Categoría')}</span>
                         <strong>{escape(str(r.get('category') or '-'))}</strong>
                     </div>
                     <div>
-                        <span>Amount</span>
+                        <span>{_t(lang, 'Amount', 'Monto')}</span>
                         <strong class='{amount_class}'>{amount_text}</strong>
                     </div>
                     <div>
-                        <span>Service</span>
+                        <span>{_t(lang, 'Service', 'Servicio')}</span>
                         <strong>{escape(service_text)}</strong>
                     </div>
                     <div>
-                        <span>Source</span>
+                        <span>{_t(lang, 'Source', 'Origen')}</span>
                         <strong>{source_text}</strong>
                     </div>
                 </div>
@@ -1687,111 +1710,111 @@ def _render_bookkeeping_page(conn, cid):
     filter_bar = f"""
     <div class='card'>
         <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
-            <h1 style='margin:0;'>Bookkeeping / P&amp;L</h1>
+            <h1 style='margin:0;'>{_t(lang, 'Bookkeeping / P&L', 'Contabilidad / P&L')}</h1>
             <div class='row-actions'>
-                <a href="{url_for('bookkeeping.bookkeeping_pnl')}" class="btn success">P&amp;L Page</a>
+                <a href="{url_for('bookkeeping.bookkeeping_pnl')}" class="btn success">{_t(lang, 'P&L Page', 'Página de P&L')}</a>
             </div>
         </div>
 
         <form method='get' style='margin-top:18px;'>
             <div class='grid'>
                 <div>
-                    <label>View</label>
+                    <label>{_t(lang, 'View', 'Vista')}</label>
                     <select name='view'>
-                        <option value='daily' {'selected' if view_type == 'daily' else ''}>Daily</option>
-                        <option value='weekly' {'selected' if view_type == 'weekly' else ''}>Weekly</option>
-                        <option value='monthly' {'selected' if view_type == 'monthly' else ''}>Monthly</option>
-                        <option value='quarterly' {'selected' if view_type == 'quarterly' else ''}>Quarterly</option>
-                        <option value='yearly' {'selected' if view_type == 'yearly' else ''}>Yearly</option>
-                        <option value='yoy' {'selected' if view_type == 'yoy' else ''}>YoY</option>
+                        <option value='daily' {'selected' if view_type == 'daily' else ''}>{_t(lang, 'Daily', 'Diario')}</option>
+                        <option value='weekly' {'selected' if view_type == 'weekly' else ''}>{_t(lang, 'Weekly', 'Semanal')}</option>
+                        <option value='monthly' {'selected' if view_type == 'monthly' else ''}>{_t(lang, 'Monthly', 'Mensual')}</option>
+                        <option value='quarterly' {'selected' if view_type == 'quarterly' else ''}>{_t(lang, 'Quarterly', 'Trimestral')}</option>
+                        <option value='yearly' {'selected' if view_type == 'yearly' else ''}>{_t(lang, 'Yearly', 'Anual')}</option>
+                        <option value='yoy' {'selected' if view_type == 'yoy' else ''}>{_t(lang, 'YoY', 'Año contra Año')}</option>
                     </select>
                 </div>
                 <div>
-                    <label>Anchor Date</label>
+                    <label>{_t(lang, 'Anchor Date', 'Fecha de Referencia')}</label>
                     <input type='date' name='anchor_date' value='{anchor_date}'>
                 </div>
                 <div>
-                    <label>Service Filter</label>
+                    <label>{_t(lang, 'Service Filter', 'Filtro de Servicio')}</label>
                     <select name='service_type'>
-                        {_service_filter_options(service_filter)}
+                        {_service_filter_options(service_filter, lang=lang)}
                     </select>
                 </div>
             </div>
             <br>
-            <button class='btn' type='submit'>Apply</button>
-            <a class='btn secondary' href='{url_for("bookkeeping.export_bookkeeping_csv", view=view_type, anchor_date=anchor_date, service_type=service_filter)}'>Export CSV</a>
+            <button class='btn' type='submit'>{_t(lang, 'Apply', 'Aplicar')}</button>
+            <a class='btn secondary' href='{url_for("bookkeeping.export_bookkeeping_csv", view=view_type, anchor_date=anchor_date, service_type=service_filter)}'>{_t(lang, 'Export CSV', 'Exportar CSV')}</a>
         </form>
 
-        <div class='muted' style='margin-top:14px;'><strong>Viewing:</strong> {period_label}</div>
+        <div class='muted' style='margin-top:14px;'><strong>{_t(lang, 'Viewing:', 'Viendo:')}</strong> {period_label}</div>
     </div>
     """
 
     manual_entry_form = f"""
     <div class='card'>
-        <h2>Add Manual Bookkeeping Entry</h2>
+        <h2>{_t(lang, 'Add Manual Bookkeeping Entry', 'Agregar Entrada Manual de Contabilidad')}</h2>
         <form method='post'>
             <input type="hidden" name="csrf_token" value="{generate_csrf()}">
             <div class='grid'>
                 <div>
-                    <label>Date</label>
+                    <label>{_t(lang, 'Date', 'Fecha')}</label>
                     <input type='date' name='entry_date' value='{date.today().isoformat()}' required>
                 </div>
                 <div>
-                    <label>Type</label>
+                    <label>{_t(lang, 'Type', 'Tipo')}</label>
                     <select name='entry_type' id='manual_entry_type' onchange='toggleManualCategories()' required>
-                        <option value='expense'>Expense</option>
-                        <option value='income'>Income</option>
+                        <option value='expense'>{_t(lang, 'Expense', 'Gasto')}</option>
+                        <option value='income'>{_t(lang, 'Income', 'Ingreso')}</option>
                     </select>
                 </div>
                 <div>
-                    <label>Category</label>
+                    <label>{_t(lang, 'Category', 'Categoría')}</label>
                     <select name='category' id='manual_category'>
-                        <option value='Mulch'>Mulch</option>
-                        <option value='Stone'>Stone</option>
-                        <option value='Dump Fee'>Dump Fee</option>
-                        <option value='Plants'>Plants</option>
-                        <option value='Trees'>Trees</option>
-                        <option value='Soil'>Soil</option>
-                        <option value='Fertilizer'>Fertilizer</option>
-                        <option value='Hardscape Material'>Hardscape Material</option>
-                        <option value='Labor'>Labor</option>
-                        <option value='Fuel'>Fuel</option>
-                        <option value='Equipment'>Equipment</option>
-                        <option value='Delivery'>Delivery</option>
-                        <option value='Misc'>Misc</option>
-                        <option value='Payroll'>Payroll</option>
-                        <option value='Hand Tools'>Hand Tools</option>
-                        <option value='Office Supplies'>Office Supplies</option>
-                        <option value='Maintenance'>Maintenance</option>
-                        <option value='Power Equipment'>Power Equipment</option>
-                        <option value='Vehicles'>Vehicles</option>
-                        <option value='Insurance'>Insurance</option>
-                        <option value='Marketing'>Marketing</option>
-                        <option value='Office and Admin'>Office and Admin</option>
-                        <option value='Safety Gear'>Safety Gear</option>
-                        <option value='Licensing &amp; Certifications'>Licensing &amp; Certifications</option>
+                        <option value='Mulch'>{_t(lang, 'Mulch', 'Mantillo')}</option>
+                        <option value='Stone'>{_t(lang, 'Stone', 'Piedra')}</option>
+                        <option value='Dump Fee'>{_t(lang, 'Dump Fee', 'Tarifa de Vertedero')}</option>
+                        <option value='Plants'>{_t(lang, 'Plants', 'Plantas')}</option>
+                        <option value='Trees'>{_t(lang, 'Trees', 'Árboles')}</option>
+                        <option value='Soil'>{_t(lang, 'Soil', 'Tierra')}</option>
+                        <option value='Fertilizer'>{_t(lang, 'Fertilizer', 'Fertilizante')}</option>
+                        <option value='Hardscape Material'>{_t(lang, 'Hardscape Material', 'Material de Hardscape')}</option>
+                        <option value='Labor'>{_t(lang, 'Labor', 'Mano de Obra')}</option>
+                        <option value='Fuel'>{_t(lang, 'Fuel', 'Combustible')}</option>
+                        <option value='Equipment'>{_t(lang, 'Equipment', 'Equipo')}</option>
+                        <option value='Delivery'>{_t(lang, 'Delivery', 'Entrega')}</option>
+                        <option value='Misc'>{_t(lang, 'Misc', 'Varios')}</option>
+                        <option value='Payroll'>{_t(lang, 'Payroll', 'Nómina')}</option>
+                        <option value='Hand Tools'>{_t(lang, 'Hand Tools', 'Herramientas Manuales')}</option>
+                        <option value='Office Supplies'>{_t(lang, 'Office Supplies', 'Suministros de Oficina')}</option>
+                        <option value='Maintenance'>{_t(lang, 'Maintenance', 'Mantenimiento')}</option>
+                        <option value='Power Equipment'>{_t(lang, 'Power Equipment', 'Equipo Motorizado')}</option>
+                        <option value='Vehicles'>{_t(lang, 'Vehicles', 'Vehículos')}</option>
+                        <option value='Insurance'>{_t(lang, 'Insurance', 'Seguro')}</option>
+                        <option value='Marketing'>{_t(lang, 'Marketing', 'Marketing')}</option>
+                        <option value='Office and Admin'>{_t(lang, 'Office and Admin', 'Oficina y Administración')}</option>
+                        <option value='Safety Gear'>{_t(lang, 'Safety Gear', 'Equipo de Seguridad')}</option>
+                        <option value='Licensing &amp; Certifications'>{_t(lang, 'Licensing & Certifications', 'Licencias y Certificaciones')}</option>
                     </select>
                 </div>
                 <div>
-                    <label>Amount</label>
+                    <label>{_t(lang, 'Amount', 'Monto')}</label>
                     <input type='number' step='0.01' min='0.01' name='amount' placeholder='0.00' required>
                 </div>
                 <div>
-                    <label>Payee Name</label>
-                    <input type='text' name='payee_name' placeholder='Who the check would be payable to'>
+                    <label>{_t(lang, 'Payee Name', 'Nombre del Beneficiario')}</label>
+                    <input type='text' name='payee_name' placeholder='{_t(lang, "Who the check would be payable to", "A nombre de quién sería el cheque")}'>
                 </div>
                 <div style='grid-column:1 / -1;'>
-                    <label>Description</label>
-                    <input type='text' name='description' placeholder='Enter description.' required>
+                    <label>{_t(lang, 'Description', 'Descripción')}</label>
+                    <input type='text' name='description' placeholder='{_t(lang, "Enter description.", "Ingresa una descripción.")}' required>
                 </div>
                 <div style='grid-column:1 / -1;'>
-                    <label>Notes</label>
-                    <textarea name='notes' placeholder='Optional notes.'></textarea>
+                    <label>{_t(lang, 'Notes', 'Notas')}</label>
+                    <textarea name='notes' placeholder='{_t(lang, "Optional notes.", "Notas opcionales.")}'></textarea>
                 </div>
             </div>
 
             <div class='row-actions' style='margin-top:14px;'>
-                <button class='btn success' type='submit'>Add Entry</button>
+                <button class='btn success' type='submit'>{_t(lang, 'Add Entry', 'Agregar Entrada')}</button>
             </div>
         </form>
     </div>
@@ -2060,15 +2083,15 @@ def _render_bookkeeping_page(conn, cid):
 
     <div class="summary-cards" style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:16px; margin-bottom:20px;">
         <div class='card'>
-            <h3>Total Income</h3>
+            <h3>{_t(lang, 'Total Income', 'Ingresos Totales')}</h3>
             <div style="color:#16a34a; font-weight:700; font-size:1.4rem;">+${income:.2f}</div>
         </div>
         <div class='card'>
-            <h3>Total Expenses</h3>
+            <h3>{_t(lang, 'Total Expenses', 'Gastos Totales')}</h3>
             <div style="color:#dc2626; font-weight:700; font-size:1.4rem;">-${expense:.2f}</div>
         </div>
         <div class='card'>
-            <h3>Net</h3>
+            <h3>{_t(lang, 'Net', 'Neto')}</h3>
             <div style="color:{'#16a34a' if net >= 0 else '#dc2626'}; font-weight:700; font-size:1.4rem;">
                 {'+' if net >= 0 else '-'}${abs(net):.2f}
             </div>
@@ -2080,7 +2103,7 @@ def _render_bookkeeping_page(conn, cid):
     {manual_entry_form}
 
     <div class='card'>
-        <h2>Ledger Entries</h2>
+        <h2>{_t(lang, 'Ledger Entries', 'Registros Contables')}</h2>
 
         <div class='static-table-wrap desktop-only'>
             <div class='static-table-scroll'>
@@ -2097,18 +2120,18 @@ def _render_bookkeeping_page(conn, cid):
                     </colgroup>
                     <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Type</th>
-                            <th class='center'>Service</th>
-                            <th class='wrap'>Category</th>
-                            <th class='wrap'>Description</th>
-                            <th class='money'>Amount</th>
-                            <th class='center'>Source</th>
-                            <th class='wrap'>Actions</th>
+                            <th>{_t(lang, 'Date', 'Fecha')}</th>
+                            <th>{_t(lang, 'Type', 'Tipo')}</th>
+                            <th class='center'>{_t(lang, 'Service', 'Servicio')}</th>
+                            <th class='wrap'>{_t(lang, 'Category', 'Categoría')}</th>
+                            <th class='wrap'>{_t(lang, 'Description', 'Descripción')}</th>
+                            <th class='money'>{_t(lang, 'Amount', 'Monto')}</th>
+                            <th class='center'>{_t(lang, 'Source', 'Origen')}</th>
+                            <th class='wrap'>{_t(lang, 'Actions', 'Acciones')}</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {ledger_rows or '<tr><td colspan="8" class="muted">No bookkeeping entries for this period.</td></tr>'}
+                        {ledger_rows or f'<tr><td colspan="8" class="muted">{_t(lang, "No bookkeeping entries for this period.", "No hay registros contables para este período.")}</td></tr>'}
                     </tbody>
                 </table>
             </div>
@@ -2116,7 +2139,7 @@ def _render_bookkeeping_page(conn, cid):
 
         <div class='mobile-only'>
             <div class='mobile-list'>
-                {mobile_ledger_html or "<div class='mobile-list-card muted'>No bookkeeping entries for this period.</div>"}
+                {mobile_ledger_html or f"<div class='mobile-list-card muted'>{_t(lang, 'No bookkeeping entries for this period.', 'No hay registros contables para este período.')}</div>"}
             </div>
         </div>
     </div>
@@ -2127,46 +2150,81 @@ def _render_bookkeeping_page(conn, cid):
         var categoryEl = document.getElementById("manual_category");
         if (!typeEl || !categoryEl) return;
 
-        var expenseOptions = [
-            "Mulch",
-            "Stone",
-            "Dump Fee",
-            "Plants",
-            "Trees",
-            "Soil",
-            "Fertilizer",
-            "Hardscape Material",
-            "Labor",
-            "Fuel",
-            "Equipment",
-            "Delivery",
-            "Misc",
-            "Payroll",
-            "Hand Tools",
-            "Office Supplies",
-            "Maintenance",
-            "Power Equipment",
-            "Vehicles",
-            "Insurance",
-            "Marketing",
-            "Office and Admin",
-            "Safety Gear",
-            "Licensing & Certifications"
-        ];
+        var lang = {("es" if lang == "es" else "en") | repr};
 
-        var incomeOptions = [
-            "Income",
-            "Invoice Payments",
-            "Bank Deposits"
-        ];
+        var expenseOptions = lang === "es"
+            ? [
+                ["Mulch", "Mantillo"],
+                ["Stone", "Piedra"],
+                ["Dump Fee", "Tarifa de Vertedero"],
+                ["Plants", "Plantas"],
+                ["Trees", "Árboles"],
+                ["Soil", "Tierra"],
+                ["Fertilizer", "Fertilizante"],
+                ["Hardscape Material", "Material de Hardscape"],
+                ["Labor", "Mano de Obra"],
+                ["Fuel", "Combustible"],
+                ["Equipment", "Equipo"],
+                ["Delivery", "Entrega"],
+                ["Misc", "Varios"],
+                ["Payroll", "Nómina"],
+                ["Hand Tools", "Herramientas Manuales"],
+                ["Office Supplies", "Suministros de Oficina"],
+                ["Maintenance", "Mantenimiento"],
+                ["Power Equipment", "Equipo Motorizado"],
+                ["Vehicles", "Vehículos"],
+                ["Insurance", "Seguro"],
+                ["Marketing", "Marketing"],
+                ["Office and Admin", "Oficina y Administración"],
+                ["Safety Gear", "Equipo de Seguridad"],
+                ["Licensing & Certifications", "Licencias y Certificaciones"]
+            ]
+            : [
+                ["Mulch", "Mulch"],
+                ["Stone", "Stone"],
+                ["Dump Fee", "Dump Fee"],
+                ["Plants", "Plants"],
+                ["Trees", "Trees"],
+                ["Soil", "Soil"],
+                ["Fertilizer", "Fertilizer"],
+                ["Hardscape Material", "Hardscape Material"],
+                ["Labor", "Labor"],
+                ["Fuel", "Fuel"],
+                ["Equipment", "Equipment"],
+                ["Delivery", "Delivery"],
+                ["Misc", "Misc"],
+                ["Payroll", "Payroll"],
+                ["Hand Tools", "Hand Tools"],
+                ["Office Supplies", "Office Supplies"],
+                ["Maintenance", "Maintenance"],
+                ["Power Equipment", "Power Equipment"],
+                ["Vehicles", "Vehicles"],
+                ["Insurance", "Insurance"],
+                ["Marketing", "Marketing"],
+                ["Office and Admin", "Office and Admin"],
+                ["Safety Gear", "Safety Gear"],
+                ["Licensing & Certifications", "Licensing & Certifications"]
+            ];
+
+        var incomeOptions = lang === "es"
+            ? [
+                ["Income", "Ingreso"],
+                ["Invoice Payments", "Pagos de Facturas"],
+                ["Bank Deposits", "Depósitos Bancarios"]
+            ]
+            : [
+                ["Income", "Income"],
+                ["Invoice Payments", "Invoice Payments"],
+                ["Bank Deposits", "Bank Deposits"]
+            ];
 
         var selected = typeEl.value === "income" ? incomeOptions : expenseOptions;
         categoryEl.innerHTML = "";
 
         selected.forEach(function(opt) {{
             var el = document.createElement("option");
-            el.value = opt;
-            el.textContent = opt;
+            el.value = opt[0];
+            el.textContent = opt[1];
             categoryEl.appendChild(el);
         }});
     }}
@@ -2177,7 +2235,8 @@ def _render_bookkeeping_page(conn, cid):
     </script>
     """
 
-    return render_page(content, "Bookkeeping / P&L")
+    return render_page(content, _t(lang, "Bookkeeping / P&L", "Contabilidad / P&L"))
+
 
 @bookkeeping_bp.route("/bookkeeping", methods=["GET", "POST"])
 @bookkeeping_bp.route("/ledger", methods=["GET", "POST"])
@@ -2203,11 +2262,12 @@ def view_bookkeeping_entry(entry_id):
     _ensure_bookkeeping_check_structure()
     conn = get_db_connection()
     cid = session["company_id"]
+    lang = session.get("language_preference", "en")
 
     try:
         row = _fetch_ledger_entry_by_id(conn, cid, entry_id)
         if not row:
-            flash("Bookkeeping entry not found.")
+            flash(_t(lang, "Bookkeeping entry not found.", "No se encontró la entrada contable."))
             return redirect(url_for("bookkeeping.bookkeeping"))
 
         entry_type = _normalize_ledger_type(
@@ -2228,21 +2288,21 @@ def view_bookkeeping_entry(entry_id):
             if _safe_get(row, "check_number"):
                 check_action_html = f"""
                 <a class='btn success' href='{url_for("bookkeeping.print_bookkeeping_check", entry_id=entry_id)}' target='_blank'>
-                    View Check PDF
+                    {_t(lang, 'View Check PDF', 'Ver PDF del Cheque')}
                 </a>
                 """
             else:
                 check_action_html = f"""
                 <a class='btn success' href='{url_for("bookkeeping.print_bookkeeping_check", entry_id=entry_id)}' target='_blank'>
-                    Print Check
+                    {_t(lang, 'Print Check', 'Imprimir Cheque')}
                 </a>
                 """
 
         source_html = escape(_clean_text(_safe_get(row, "source_type", "")) or "-")
         if _safe_get(row, "invoice_id"):
-            source_html = f"<a class='btn secondary' href='{url_for('invoices.view_invoice', invoice_id=_safe_get(row, 'invoice_id'))}'>Open Invoice</a>"
+            source_html = f"<a class='btn secondary' href='{url_for('invoices.view_invoice', invoice_id=_safe_get(row, 'invoice_id'))}'>{_t(lang, 'Open Invoice', 'Abrir Factura')}</a>"
         elif _safe_get(row, "job_id"):
-            source_html = f"<a class='btn secondary' href='{url_for('jobs.view_job', job_id=_safe_get(row, 'job_id'))}'>Open Job</a>"
+            source_html = f"<a class='btn secondary' href='{url_for('jobs.view_job', job_id=_safe_get(row, 'job_id'))}'>{_t(lang, 'Open Job', 'Abrir Trabajo')}</a>"
 
         service_type = _normalize_service_type(_safe_get(row, "service_type", "")) or ""
         service_html = (
@@ -2295,11 +2355,11 @@ def view_bookkeeping_entry(entry_id):
         <div class='card'>
             <div style='display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;'>
                 <div>
-                    <h1 style='margin-bottom:6px;'>Ledger Entry Detail</h1>
-                    <p class='muted' style='margin:0;'>Review this entry before printing a check.</p>
+                    <h1 style='margin-bottom:6px;'>{_t(lang, 'Ledger Entry Detail', 'Detalle de Registro Contable')}</h1>
+                    <p class='muted' style='margin:0;'>{_t(lang, 'Review this entry before printing a check.', 'Revisa esta entrada antes de imprimir un cheque.')}</p>
                 </div>
                 <div class='row-actions'>
-                    <a class='btn secondary' href='{url_for("bookkeeping.bookkeeping")}'>Back to Bookkeeping</a>
+                    <a class='btn secondary' href='{url_for("bookkeeping.bookkeeping")}'>{_t(lang, 'Back to Bookkeeping', 'Volver a Contabilidad')}</a>
                     {check_action_html}
                 </div>
             </div>
@@ -2307,21 +2367,21 @@ def view_bookkeeping_entry(entry_id):
 
         <div class='card'>
             <div class='grid'>
-                <div><strong>Date</strong><br>{escape(str(_safe_get(row, "entry_date", "") or "-"))}</div>
-                <div><strong>Type</strong><br>{escape(entry_type)}</div>
-                <div><strong>Service</strong><br>{service_html}</div>
-                <div><strong>Category</strong><br>{escape(_clean_text(_safe_get(row, "category", "")) or "-")}</div>
-                <div><strong>Amount</strong><br>{escape(_fmt_money(amount))}</div>
-                <div><strong>Payee</strong><br>{escape(payee_name or "-")}</div>
-                <div><strong>Payment Method</strong><br>{escape(_clean_text(_safe_get(row, "payment_method", "")) or "-")}</div>
-                <div><strong>Check #</strong><br>{escape(str(_safe_get(row, "check_number", "") or "-"))}</div>
-                <div><strong>Source</strong><br>{source_html}</div>
-                <div style='grid-column:1 / -1;'><strong>Description</strong><br>{escape(_clean_text(_safe_get(row, "description", "")) or "-")}</div>
-                <div style='grid-column:1 / -1;'><strong>Notes</strong><br>{escape(_clean_text(_safe_get(row, "notes", "")) or "-")}</div>
+                <div><strong>{_t(lang, 'Date', 'Fecha')}</strong><br>{escape(str(_safe_get(row, "entry_date", "") or "-"))}</div>
+                <div><strong>{_t(lang, 'Type', 'Tipo')}</strong><br>{escape(entry_type)}</div>
+                <div><strong>{_t(lang, 'Service', 'Servicio')}</strong><br>{service_html}</div>
+                <div><strong>{_t(lang, 'Category', 'Categoría')}</strong><br>{escape(_clean_text(_safe_get(row, "category", "")) or "-")}</div>
+                <div><strong>{_t(lang, 'Amount', 'Monto')}</strong><br>{escape(_fmt_money(amount))}</div>
+                <div><strong>{_t(lang, 'Payee', 'Beneficiario')}</strong><br>{escape(payee_name or "-")}</div>
+                <div><strong>{_t(lang, 'Payment Method', 'Método de Pago')}</strong><br>{escape(_clean_text(_safe_get(row, "payment_method", "")) or "-")}</div>
+                <div><strong>{_t(lang, 'Check #', 'Cheque #')}</strong><br>{escape(str(_safe_get(row, "check_number", "") or "-"))}</div>
+                <div><strong>{_t(lang, 'Source', 'Origen')}</strong><br>{source_html}</div>
+                <div style='grid-column:1 / -1;'><strong>{_t(lang, 'Description', 'Descripción')}</strong><br>{escape(_clean_text(_safe_get(row, "description", "")) or "-")}</div>
+                <div style='grid-column:1 / -1;'><strong>{_t(lang, 'Notes', 'Notas')}</strong><br>{escape(_clean_text(_safe_get(row, "notes", "")) or "-")}</div>
             </div>
         </div>
         """
-        return render_page(content, "Ledger Entry Detail")
+        return render_page(content, _t(lang, "Ledger Entry Detail", "Detalle de Registro Contable"))
     finally:
         conn.close()
 
@@ -2335,11 +2395,12 @@ def print_bookkeeping_check(entry_id):
     _ensure_bookkeeping_check_structure()
     conn = get_db_connection()
     cid = session["company_id"]
+    lang = session.get("language_preference", "en")
 
     try:
         row = _fetch_ledger_entry_by_id(conn, cid, entry_id)
         if not row:
-            flash("Bookkeeping entry not found.")
+            flash(_t(lang, "Bookkeeping entry not found.", "No se encontró la entrada contable."))
             return redirect(url_for("bookkeeping.bookkeeping"))
 
         entry_type = _normalize_ledger_type(
@@ -2350,15 +2411,15 @@ def print_bookkeeping_check(entry_id):
         amount = abs(_safe_float(_safe_get(row, "amount", 0)))
 
         if entry_type != "Expense":
-            flash("Only expense-type entries can be printed as checks.")
+            flash(_t(lang, "Only expense-type entries can be printed as checks.", "Solo las entradas de gasto se pueden imprimir como cheques."))
             return redirect(url_for("bookkeeping.view_bookkeeping_entry", entry_id=entry_id))
 
         if amount <= 0:
-            flash("Cannot print a check for a zero or negative amount.")
+            flash(_t(lang, "Cannot print a check for a zero or negative amount.", "No se puede imprimir un cheque por un monto cero o negativo."))
             return redirect(url_for("bookkeeping.view_bookkeeping_entry", entry_id=entry_id))
 
         if _normalize_text(_safe_get(row, "source_type", "")) == "payroll":
-            flash("Payroll checks should be printed from the payroll screen.")
+            flash(_t(lang, "Payroll checks should be printed from the payroll screen.", "Los cheques de nómina deben imprimirse desde la pantalla de nómina."))
             return redirect(url_for("bookkeeping.view_bookkeeping_entry", entry_id=entry_id))
 
         _, check_number = _create_or_get_ledger_check(conn, cid, row)
@@ -2458,6 +2519,7 @@ def export_bookkeeping_csv():
 def delete_bookkeeping_entry(entry_id):
     conn = get_db_connection()
     cid = session["company_id"]
+    lang = session.get("language_preference", "en")
 
     try:
         ledger_cols = table_columns(conn, "ledger_entries")
@@ -2511,7 +2573,7 @@ def delete_bookkeeping_entry(entry_id):
         ).fetchone()
 
         if not row:
-            flash("Bookkeeping entry not found.")
+            flash(_t(lang, "Bookkeeping entry not found.", "No se encontró la entrada contable."))
             return redirect(url_for("bookkeeping.bookkeeping"))
 
         is_manual = (
@@ -2520,7 +2582,7 @@ def delete_bookkeeping_entry(entry_id):
         )
 
         if not is_manual:
-            flash("Only manual bookkeeping entries can be deleted here.")
+            flash(_t(lang, "Only manual bookkeeping entries can be deleted here.", "Solo las entradas manuales se pueden eliminar aquí."))
             return redirect(url_for("bookkeeping.bookkeeping"))
 
         if _safe_get(row, "check_id"):
@@ -2535,7 +2597,7 @@ def delete_bookkeeping_entry(entry_id):
         )
         conn.commit()
 
-        flash("Bookkeeping entry deleted.")
+        flash(_t(lang, "Bookkeeping entry deleted.", "Entrada contable eliminada."))
         return redirect(url_for("bookkeeping.bookkeeping"))
     finally:
         conn.close()
@@ -2548,6 +2610,7 @@ def delete_bookkeeping_entry(entry_id):
 def bookkeeping_pnl():
     conn = get_db_connection()
     cid = session["company_id"]
+    lang = session.get("language_preference", "en")
 
     date_from = (request.args.get("date_from") or "").strip()
     date_to = (request.args.get("date_to") or "").strip()
@@ -2618,6 +2681,8 @@ def bookkeeping_pnl():
     net_color = "#16a34a" if net_profit >= 0 else "#dc2626"
 
     range_text = f"{escape(date_from)} to {escape(date_to)}"
+    if lang == "es":
+        range_text = f"{escape(date_from)} a {escape(date_to)}"
     if service_filter:
         range_text += f" • {escape(_display_service_type(service_filter))}"
 
@@ -2663,59 +2728,59 @@ def bookkeeping_pnl():
 
     <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-            <h1 style="margin:0;">Profit &amp; Loss</h1>
+            <h1 style="margin:0;">{_t(lang, 'Profit & Loss', 'Ganancias y Pérdidas')}</h1>
             <div class="row-actions">
-                <a href="{url_for('bookkeeping.bookkeeping')}" class="btn secondary">Back</a>
+                <a href="{url_for('bookkeeping.bookkeeping')}" class="btn secondary">{_t(lang, 'Back', 'Volver')}</a>
             </div>
         </div>
 
         <form method="get" style="margin-top:18px;">
             <div class="grid">
                 <div>
-                    <label>From Date</label>
+                    <label>{_t(lang, 'From Date', 'Desde')}</label>
                     <input type="date" name="date_from" value="{escape(date_from)}">
                 </div>
                 <div>
-                    <label>To Date</label>
+                    <label>{_t(lang, 'To Date', 'Hasta')}</label>
                     <input type="date" name="date_to" value="{escape(date_to)}">
                 </div>
                 <div>
-                    <label>Service Filter</label>
+                    <label>{_t(lang, 'Service Filter', 'Filtro de Servicio')}</label>
                     <select name="service_type">
-                        {_service_filter_options(service_filter)}
+                        {_service_filter_options(service_filter, lang=lang)}
                     </select>
                 </div>
             </div>
 
             <div class="row-actions" style="margin-top:14px;">
-                <button class="btn success" type="submit">Apply Date Filter</button>
-                <a href="{url_for('bookkeeping.bookkeeping_pnl')}" class="btn secondary">Clear</a>
+                <button class="btn success" type="submit">{_t(lang, 'Apply Date Filter', 'Aplicar Filtro de Fecha')}</button>
+                <a href="{url_for('bookkeeping.bookkeeping_pnl')}" class="btn secondary">{_t(lang, 'Clear', 'Limpiar')}</a>
             </div>
         </form>
 
         <div class="muted" style="margin-top:14px;">
-            <strong>Date Range:</strong> {range_text}
+            <strong>{_t(lang, 'Date Range:', 'Rango de Fechas:')}</strong> {range_text}
         </div>
 
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:20px;">
             <div class="card stat-card" style="flex:1;min-width:220px;">
-                <div class="stat-label">Total Income</div>
+                <div class="stat-label">{_t(lang, 'Total Income', 'Ingresos Totales')}</div>
                 <div class="stat-value" style="color:#16a34a;">{_fmt_money(total_income)}</div>
             </div>
 
             <div class="card stat-card" style="flex:1;min-width:220px;">
-                <div class="stat-label">Total Expenses</div>
+                <div class="stat-label">{_t(lang, 'Total Expenses', 'Gastos Totales')}</div>
                 <div class="stat-value" style="color:#dc2626;">-{abs(total_expenses):,.2f}</div>
             </div>
 
             <div class="card stat-card" style="flex:1;min-width:220px;">
-                <div class="stat-label">Net Profit</div>
+                <div class="stat-label">{_t(lang, 'Net Profit', 'Ganancia Neta')}</div>
                 <div class="stat-value" style="color:{net_color};">{_fmt_money(net_profit, show_plus=True)}</div>
             </div>
         </div>
 
         <div class="card" style="margin-top:20px;">
-            <h2>Breakdown</h2>
+            <h2>{_t(lang, 'Breakdown', 'Desglose')}</h2>
             <div class="static-table-wrap">
                 <table class="static-table">
                     <colgroup>
@@ -2724,12 +2789,12 @@ def bookkeeping_pnl():
                     </colgroup>
                     <thead>
                         <tr>
-                            <th class='wrap'>Category</th>
-                            <th class='money'>Amount</th>
+                            <th class='wrap'>{_t(lang, 'Category', 'Categoría')}</th>
+                            <th class='money'>{_t(lang, 'Amount', 'Monto')}</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {rows_html or '<tr><td colspan="2" class="muted">No P&amp;L data for this date range.</td></tr>'}
+                        {rows_html or f'<tr><td colspan="2" class="muted">{_t(lang, "No P&L data for this date range.", "No hay datos de P&L para este rango de fechas.")}</td></tr>'}
                     </tbody>
                 </table>
             </div>
@@ -2737,4 +2802,4 @@ def bookkeeping_pnl():
     </div>
     """
 
-    return render_page(content, "Profit & Loss")
+    return render_page(content, _t(lang, "Profit & Loss", "Ganancias y Pérdidas"))

@@ -23,6 +23,18 @@ SERVICE_TYPE_LABELS = {
 }
 
 
+def _lang():
+    return str(session.get("language") or "en").strip().lower()
+
+
+def _is_es():
+    return _lang() == "es"
+
+
+def _t(en, es):
+    return es if _is_es() else en
+
+
 def _dict_row(row):
     if row is None:
         return {}
@@ -53,7 +65,22 @@ def _display_service_type(value):
     key = _normalize_service_type(value)
     if not key:
         return ""
-    return SERVICE_TYPE_LABELS.get(key, "")
+    label = SERVICE_TYPE_LABELS.get(key, "")
+    if not label:
+        return ""
+    return _t(
+        label,
+        {
+            "Mowing": "Corte de césped",
+            "Mulch": "Mantillo",
+            "Cleanup": "Limpieza",
+            "Installation": "Instalación",
+            "Hardscape": "Paisajismo duro",
+            "Snow Removal": "Remoción de nieve",
+            "Fertilizing": "Fertilización",
+            "Other": "Otro",
+        }.get(label, label)
+    )
 
 
 def _service_class(value):
@@ -138,6 +165,13 @@ def _parse_view_mode():
 
 
 def _parse_focus_date():
+    jump_raw = _safe_text(request.args.get("jump_date"))
+    if jump_raw:
+        try:
+            return datetime.strptime(jump_raw, "%Y-%m-%d").date()
+        except Exception:
+            pass
+
     raw = _safe_text(request.args.get("date"))
     if raw:
         try:
@@ -367,7 +401,7 @@ def _build_time_range(start_value, end_value):
         return f"{start_text} - {end_text}"
     if start_text:
         return start_text
-    return "All Day"
+    return _t("All Day", "Todo el día")
 
 
 def _status_class(status):
@@ -383,6 +417,26 @@ def _status_class(status):
         return "status-invoiced"
 
     return "status-default"
+
+
+def _display_status(status):
+    value = _safe_text(status)
+    lowered = value.lower()
+
+    if lowered == "scheduled":
+        return _t("Scheduled", "Programado")
+    if lowered == "in progress":
+        return _t("In Progress", "En progreso")
+    if lowered == "completed":
+        return _t("Completed", "Completado")
+    if lowered == "finished":
+        return _t("Finished", "Finalizado")
+    if lowered == "invoiced":
+        return _t("Invoiced", "Facturado")
+    if not value:
+        return _t("No Status", "Sin estado")
+
+    return value
 
 
 def _time_to_minutes(value):
@@ -424,10 +478,13 @@ def _job_payload(row):
     if end_minutes is None or end_minutes <= start_minutes:
         end_minutes = start_minutes + 60
 
+    fallback_job_label = _t(f"Job #{job_id}", f"Trabajo #{job_id}")
+
     return {
         "id": job_id,
-        "title": row.get("title") or f"Job #{job_id}",
+        "title": row.get("title") or fallback_job_label,
         "status": status,
+        "status_display": _display_status(status),
         "status_class": _status_class(status),
         "service_type": service_type,
         "service_label": service_label,
@@ -443,7 +500,7 @@ def _job_payload(row):
             row.get("scheduled_end_time"),
         ),
         "assigned_to": row.get("assigned_to") or "",
-        "label": row.get("title") or f"Job #{job_id}",
+        "label": row.get("title") or fallback_job_label,
         "search_text": " ".join([
             _safe_text(row.get("title")),
             _safe_text(row.get("status")),
@@ -560,7 +617,7 @@ def calendar_page():
 
     company_id = session.get("company_id")
     if not company_id:
-        flash("Missing company session.")
+        flash(_t("Missing company session.", "Falta la sesión de la empresa."))
         return redirect(url_for("dashboard.dashboard"))
 
     today = date.today()
@@ -661,7 +718,7 @@ def calendar_page():
     <!doctype html>
     <html>
     <head>
-        <title>Calendar - TerraLedger</title>
+        <title>{{ _t('Calendar', 'Calendario') }} - TerraLedger</title>
         <style>
             :root {
                 --bg: #0f172a;
@@ -1498,7 +1555,6 @@ def calendar_page():
                     grid-template-columns: repeat(2, minmax(0, 1fr));
                 }
 
-                /* Month grid compact mode for tablets / larger phones */
                 .day-cell {
                     height: 170px;
                     min-height: 170px;
@@ -1605,26 +1661,26 @@ def calendar_page():
         <div class="wrap">
             <div class="topbar">
                 <div class="title-block">
-                    <h1>Calendar</h1>
-                    <p>View scheduled jobs by month or week.</p>
+                    <h1>{{ _t("Calendar", "Calendario") }}</h1>
+                    <p>{{ _t("View scheduled jobs by month or week.", "Ver trabajos programados por mes o semana.") }}</p>
                 </div>
 
                 <div class="view-actions" style="flex-direction: column; align-items: flex-end;">
                     <div style="display:flex; gap:10px; flex-wrap:wrap;">
                         <a class="btn {% if view_mode == 'month' %}active{% endif %}"
                            href="{{ url_for('calendar.calendar_page', view='month', year=year, month=month, date=focus_date.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">
-                            Month View
+                            {{ _t("Month View", "Vista mensual") }}
                         </a>
 
                         <a class="btn {% if view_mode == 'week' %}active{% endif %}"
                            href="{{ url_for('calendar.calendar_page', view='week', date=focus_date.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">
-                            Week View
+                            {{ _t("Week View", "Vista semanal") }}
                         </a>
                     </div>
 
                     <a class="btn secondary" style="margin-top:8px;"
                        href="{{ url_for('dashboard.dashboard') }}">
-                        ← Back to Dashboard
+                        {{ _t("← Back to Dashboard", "← Volver al panel") }}
                     </a>
                 </div>
             </div>
@@ -1640,36 +1696,36 @@ def calendar_page():
 
                     <div class="filter-grid">
                         <div>
-                            <label>Status</label>
+                            <label>{{ _t("Status", "Estado") }}</label>
                             <select name="status">
-                                <option value="" {% if not status_filter %}selected{% endif %}>All Statuses</option>
-                                <option value="scheduled" {% if status_filter == 'scheduled' %}selected{% endif %}>Scheduled</option>
-                                <option value="in progress" {% if status_filter == 'in progress' %}selected{% endif %}>In Progress</option>
-                                <option value="completed" {% if status_filter == 'completed' %}selected{% endif %}>Completed</option>
-                                <option value="finished" {% if status_filter == 'finished' %}selected{% endif %}>Finished</option>
-                                <option value="invoiced" {% if status_filter == 'invoiced' %}selected{% endif %}>Invoiced</option>
+                                <option value="" {% if not status_filter %}selected{% endif %}>{{ _t("All Statuses", "Todos los estados") }}</option>
+                                <option value="scheduled" {% if status_filter == 'scheduled' %}selected{% endif %}>{{ _t("Scheduled", "Programado") }}</option>
+                                <option value="in progress" {% if status_filter == 'in progress' %}selected{% endif %}>{{ _t("In Progress", "En progreso") }}</option>
+                                <option value="completed" {% if status_filter == 'completed' %}selected{% endif %}>{{ _t("Completed", "Completado") }}</option>
+                                <option value="finished" {% if status_filter == 'finished' %}selected{% endif %}>{{ _t("Finished", "Finalizado") }}</option>
+                                <option value="invoiced" {% if status_filter == 'invoiced' %}selected{% endif %}>{{ _t("Invoiced", "Facturado") }}</option>
                             </select>
                         </div>
 
                         <div>
-                            <label>Service Type</label>
+                            <label>{{ _t("Service Type", "Tipo de servicio") }}</label>
                             <select name="service_type" id="serviceTypeFilter">
-                                <option value="" {% if not service_filter %}selected{% endif %}>All Services</option>
-                                <option value="mowing" {% if service_filter == 'mowing' %}selected{% endif %}>Mowing</option>
-                                <option value="mulch" {% if service_filter == 'mulch' %}selected{% endif %}>Mulch</option>
-                                <option value="cleanup" {% if service_filter == 'cleanup' %}selected{% endif %}>Cleanup</option>
-                                <option value="installation" {% if service_filter == 'installation' %}selected{% endif %}>Installation</option>
-                                <option value="hardscape" {% if service_filter == 'hardscape' %}selected{% endif %}>Hardscape</option>
-                                <option value="snow_removal" {% if service_filter == 'snow_removal' %}selected{% endif %}>Snow Removal</option>
-                                <option value="fertilizing" {% if service_filter == 'fertilizing' %}selected{% endif %}>Fertilizing</option>
-                                <option value="other" {% if service_filter == 'other' %}selected{% endif %}>Other</option>
+                                <option value="" {% if not service_filter %}selected{% endif %}>{{ _t("All Services", "Todos los servicios") }}</option>
+                                <option value="mowing" {% if service_filter == 'mowing' %}selected{% endif %}>{{ _t("Mowing", "Corte de césped") }}</option>
+                                <option value="mulch" {% if service_filter == 'mulch' %}selected{% endif %}>{{ _t("Mulch", "Mantillo") }}</option>
+                                <option value="cleanup" {% if service_filter == 'cleanup' %}selected{% endif %}>{{ _t("Cleanup", "Limpieza") }}</option>
+                                <option value="installation" {% if service_filter == 'installation' %}selected{% endif %}>{{ _t("Installation", "Instalación") }}</option>
+                                <option value="hardscape" {% if service_filter == 'hardscape' %}selected{% endif %}>{{ _t("Hardscape", "Paisajismo duro") }}</option>
+                                <option value="snow_removal" {% if service_filter == 'snow_removal' %}selected{% endif %}>{{ _t("Snow Removal", "Remoción de nieve") }}</option>
+                                <option value="fertilizing" {% if service_filter == 'fertilizing' %}selected{% endif %}>{{ _t("Fertilizing", "Fertilización") }}</option>
+                                <option value="other" {% if service_filter == 'other' %}selected{% endif %}>{{ _t("Other", "Otro") }}</option>
                             </select>
                         </div>
 
                         <div>
-                            <label>Assigned To</label>
+                            <label>{{ _t("Assigned To", "Asignado a") }}</label>
                             <select name="crew">
-                                <option value="" {% if not crew_filter %}selected{% endif %}>All Crews / Employees</option>
+                                <option value="" {% if not crew_filter %}selected{% endif %}>{{ _t("All Crews / Employees", "Todos los equipos / empleados") }}</option>
                                 {% for crew in crews %}
                                     <option value="{{ crew }}" {% if crew_filter == crew.lower() %}selected{% endif %}>{{ crew }}</option>
                                 {% endfor %}
@@ -1677,17 +1733,17 @@ def calendar_page():
                         </div>
 
                         <div>
-                            <label>Quick Jump</label>
+                            <label>{{ _t("Quick Jump", "Salto rápido") }}</label>
                             <input type="date" name="jump_date" id="jumpDate" value="{{ focus_date.isoformat() }}">
                         </div>
                     </div>
 
                     <div class="quick-tools">
-                        <button class="btn" type="submit">Apply Filters</button>
-                        <a class="btn" href="{{ url_for('calendar.calendar_page', view=view_mode, date=focus_date.isoformat(), year=year, month=month) }}">Clear Filters</a>
-                        <button class="chip-btn" type="button" onclick="setMowingOnly()">Mowing Only</button>
-                        <button class="chip-btn" type="button" onclick="goToToday()">Today</button>
-                        <button class="chip-btn" type="button" onclick="jumpToDate()">Jump to Date</button>
+                        <button class="btn" type="submit">{{ _t("Apply Filters", "Aplicar filtros") }}</button>
+                        <a class="btn" href="{{ url_for('calendar.calendar_page', view=view_mode, date=focus_date.isoformat(), year=year, month=month) }}">{{ _t("Clear Filters", "Limpiar filtros") }}</a>
+                        <button class="chip-btn" type="button" onclick="setMowingOnly()">{{ _t("Mowing Only", "Solo corte de césped") }}</button>
+                        <button class="chip-btn" type="button" onclick="goToToday()">{{ _t("Today", "Hoy") }}</button>
+                        <button class="chip-btn" type="button" onclick="jumpToDate()">{{ _t("Jump to Date", "Ir a fecha") }}</button>
                     </div>
                 </form>
             </div>
@@ -1695,22 +1751,22 @@ def calendar_page():
             <div class="controls-row">
                 {% if view_mode == 'month' %}
                     <div class="nav-actions">
-                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='month', year=prev_year, month=prev_month, date=focus_date.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">← Previous Month</a>
-                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='month', year=today.year, month=today.month, date=today.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">This Month</a>
-                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='month', year=next_year, month=next_month, date=focus_date.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">Next Month →</a>
+                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='month', year=prev_year, month=prev_month, date=focus_date.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">{{ _t("← Previous Month", "← Mes anterior") }}</a>
+                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='month', year=today.year, month=today.month, date=today.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">{{ _t("This Month", "Este mes") }}</a>
+                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='month', year=next_year, month=next_month, date=focus_date.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">{{ _t("Next Month →", "Mes siguiente →") }}</a>
                     </div>
                 {% else %}
                     <div class="nav-actions">
-                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='week', date=prev_week.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">← Previous Week</a>
-                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='week', date=today.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">This Week</a>
-                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='week', date=next_week.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">Next Week →</a>
+                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='week', date=prev_week.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">{{ _t("← Previous Week", "← Semana anterior") }}</a>
+                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='week', date=today.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">{{ _t("This Week", "Esta semana") }}</a>
+                        <a class="btn" href="{{ url_for('calendar.calendar_page', view='week', date=next_week.isoformat(), status=status_filter, service_type=service_filter, crew=crew_filter) }}">{{ _t("Next Week →", "Semana siguiente →") }}</a>
                     </div>
                 {% endif %}
             </div>
 
             <div class="today-shell">
                 <div class="today-header">
-                    <h2>Today's Schedule</h2>
+                    <h2>{{ _t("Today's Schedule", "Horario de hoy") }}</h2>
                     <div class="today-date">{{ today_label }}</div>
                 </div>
 
@@ -1726,21 +1782,21 @@ def calendar_page():
                                             {% if job.service_label %}
                                                 <span class="service-pill {{ job.service_class }}">{{ job.service_label }}</span>
                                             {% endif %}
-                                            <span class="status-pill">{{ job.status or "No Status" }}</span>
+                                            <span class="status-pill">{{ job.status_display }}</span>
                                         </div>
                                         {% if job.assigned_to %}
-                                            <div class="today-meta">Assigned: {{ job.assigned_to }}</div>
+                                            <div class="today-meta">{{ _t("Assigned:", "Asignado:") }} {{ job.assigned_to }}</div>
                                         {% endif %}
                                     </div>
                                     <div>
-                                        <span class="mini-link">Open</span>
+                                        <span class="mini-link">{{ _t("Open", "Abrir") }}</span>
                                     </div>
                                 </div>
                             </a>
                         {% endfor %}
                     </div>
                 {% else %}
-                    <div class="today-empty">No jobs scheduled for today.</div>
+                    <div class="today-empty">{{ _t("No jobs scheduled for today.", "No hay trabajos programados para hoy.") }}</div>
                 {% endif %}
             </div>
 
@@ -1751,24 +1807,24 @@ def calendar_page():
 
                         <div class="month-tools">
                             <div class="month-tools-left">
-                                <span class="service-pill service-mowing">Mowing</span>
-                                <span class="service-pill service-material">Material / Install</span>
-                                <span class="service-pill service-seasonal">Seasonal</span>
-                                <span class="service-pill service-default">Other</span>
+                                <span class="service-pill service-mowing">{{ _t("Mowing", "Corte de césped") }}</span>
+                                <span class="service-pill service-material">{{ _t("Material / Install", "Material / Instalación") }}</span>
+                                <span class="service-pill service-seasonal">{{ _t("Seasonal", "De temporada") }}</span>
+                                <span class="service-pill service-default">{{ _t("Other", "Otro") }}</span>
                             </div>
                             <div class="month-tools-right">
-                                Click any job to open it.
+                                {{ _t("Click any job to open it.", "Haz clic en cualquier trabajo para abrirlo.") }}
                             </div>
                         </div>
 
                         <div class="dow-row">
-                            <div class="dow">Sunday</div>
-                            <div class="dow">Monday</div>
-                            <div class="dow">Tuesday</div>
-                            <div class="dow">Wednesday</div>
-                            <div class="dow">Thursday</div>
-                            <div class="dow">Friday</div>
-                            <div class="dow">Saturday</div>
+                            <div class="dow">{{ _t("Sunday", "Domingo") }}</div>
+                            <div class="dow">{{ _t("Monday", "Lunes") }}</div>
+                            <div class="dow">{{ _t("Tuesday", "Martes") }}</div>
+                            <div class="dow">{{ _t("Wednesday", "Miércoles") }}</div>
+                            <div class="dow">{{ _t("Thursday", "Jueves") }}</div>
+                            <div class="dow">{{ _t("Friday", "Viernes") }}</div>
+                            <div class="dow">{{ _t("Saturday", "Sábado") }}</div>
                         </div>
 
                         {% for week in weeks %}
@@ -1778,7 +1834,7 @@ def calendar_page():
                                         <div class="day-top">
                                             <div class="day-number">{{ cell.day_num }}</div>
                                             {% if cell.is_today %}
-                                                <div class="today-badge">Today</div>
+                                                <div class="today-badge">{{ _t("Today", "Hoy") }}</div>
                                             {% endif %}
                                         </div>
 
@@ -1795,20 +1851,20 @@ def calendar_page():
                                                             </div>
                                                             <div class="job-label">{{ job.label }}</div>
                                                             {% if job.assigned_to %}
-                                                                <div class="job-meta">Assigned: {{ job.assigned_to }}</div>
+                                                                <div class="job-meta">{{ _t("Assigned:", "Asignado:") }} {{ job.assigned_to }}</div>
                                                             {% endif %}
-                                                            <div class="job-meta">{{ job.status or "No Status" }}</div>
+                                                            <div class="job-meta">{{ job.status_display }}</div>
 
                                                             <div class="job-tools">
-                                                                <span class="mini-link">View</span>
-                                                                <span class="mini-link">Edit</span>
+                                                                <span class="mini-link">{{ _t("View", "Ver") }}</span>
+                                                                <span class="mini-link">{{ _t("Edit", "Editar") }}</span>
                                                             </div>
                                                         </div>
                                                     </a>
                                                 {% endfor %}
                                             </div>
                                         {% else %}
-                                            <div class="empty-note">No scheduled jobs</div>
+                                            <div class="empty-note">{{ _t("No scheduled jobs", "No hay trabajos programados") }}</div>
                                         {% endif %}
                                     </div>
                                 {% endfor %}
@@ -1827,7 +1883,7 @@ def calendar_page():
                                     <div>
                                         <div class="mobile-day-title">{{ cell.date.strftime("%A, %B") }} {{ cell.day_num }}</div>
                                         <div class="mobile-day-sub">
-                                            {% if cell.is_today %}Today{% else %}{{ cell.date.strftime("%Y-%m-%d") }}{% endif %}
+                                            {% if cell.is_today %}{{ _t("Today", "Hoy") }}{% else %}{{ cell.date.strftime("%Y-%m-%d") }}{% endif %}
                                         </div>
                                     </div>
                                 </div>
@@ -1845,19 +1901,19 @@ def calendar_page():
                                                     </div>
                                                     <div class="mobile-job-title">{{ job.label }}</div>
                                                     {% if job.assigned_to %}
-                                                        <div class="mobile-job-meta">Assigned: {{ job.assigned_to }}</div>
+                                                        <div class="mobile-job-meta">{{ _t("Assigned:", "Asignado:") }} {{ job.assigned_to }}</div>
                                                     {% endif %}
-                                                    <div class="mobile-job-meta">{{ job.status or "No Status" }}</div>
+                                                    <div class="mobile-job-meta">{{ job.status_display }}</div>
 
                                                     <div class="mobile-job-tools">
-                                                        <span class="mini-link">Open</span>
+                                                        <span class="mini-link">{{ _t("Open", "Abrir") }}</span>
                                                     </div>
                                                 </div>
                                             </a>
                                         {% endfor %}
                                     </div>
                                 {% else %}
-                                    <div class="empty-note">No scheduled jobs</div>
+                                    <div class="empty-note">{{ _t("No scheduled jobs", "No hay trabajos programados") }}</div>
                                 {% endif %}
                             </div>
                         {% endfor %}
@@ -1871,7 +1927,7 @@ def calendar_page():
                         <div class="week-grid">
                             <div class="week-grid-inner">
                                 <div class="week-grid-header">
-                                    <div class="week-time-head">Time</div>
+                                    <div class="week-time-head">{{ _t("Time", "Hora") }}</div>
                                     {% for day in week_days %}
                                         <div class="week-day-head {% if day.is_today %}today{% endif %}">
                                             <div class="week-day-name">{{ day.label }}</div>
@@ -1922,11 +1978,11 @@ def calendar_page():
                                                         {% if job.assigned_to %}
                                                             <div class="week-job-meta">{{ job.assigned_to }}</div>
                                                         {% endif %}
-                                                        <div class="week-job-meta">{{ job.status or "No Status" }}</div>
+                                                        <div class="week-job-meta">{{ job.status_display }}</div>
 
                                                         {% if height_px >= 68 %}
                                                             <div class="week-job-tools">
-                                                                <span class="week-mini-link">Open</span>
+                                                                <span class="week-mini-link">{{ _t("Open", "Abrir") }}</span>
                                                             </div>
                                                         {% endif %}
                                                     </div>
@@ -1949,7 +2005,7 @@ def calendar_page():
                                 <div class="mobile-day-head">
                                     <div>
                                         <div class="mobile-day-title">{{ day.label }}, {{ day.month_label }} {{ day.day_num }}</div>
-                                        <div class="mobile-day-sub">{% if day.is_today %}Today{% else %}{{ day.iso }}{% endif %}</div>
+                                        <div class="mobile-day-sub">{% if day.is_today %}{{ _t("Today", "Hoy") }}{% else %}{{ day.iso }}{% endif %}</div>
                                     </div>
                                 </div>
 
@@ -1966,19 +2022,19 @@ def calendar_page():
                                                     </div>
                                                     <div class="mobile-job-title">{{ job.label }}</div>
                                                     {% if job.assigned_to %}
-                                                        <div class="mobile-job-meta">Assigned: {{ job.assigned_to }}</div>
+                                                        <div class="mobile-job-meta">{{ _t("Assigned:", "Asignado:") }} {{ job.assigned_to }}</div>
                                                     {% endif %}
-                                                    <div class="mobile-job-meta">{{ job.status or "No Status" }}</div>
+                                                    <div class="mobile-job-meta">{{ job.status_display }}</div>
 
                                                     <div class="mobile-job-tools">
-                                                        <span class="mini-link">Open</span>
+                                                        <span class="mini-link">{{ _t("Open", "Abrir") }}</span>
                                                     </div>
                                                 </div>
                                             </a>
                                         {% endfor %}
                                     </div>
                                 {% else %}
-                                    <div class="empty-note">No scheduled jobs</div>
+                                    <div class="empty-note">{{ _t("No scheduled jobs", "No hay trabajos programados") }}</div>
                                 {% endif %}
                             </div>
                         {% endfor %}
@@ -1987,8 +2043,8 @@ def calendar_page():
             {% endif %}
 
             <div class="legend">
-                Blue = Scheduled, Orange = In Progress, Green = Completed/Finished, Purple = Invoiced.<br>
-                Mowing jobs are marked with a green service badge and green edge so they stand out immediately.
+                {{ _t("Blue = Scheduled, Orange = In Progress, Green = Completed/Finished, Purple = Invoiced.", "Azul = Programado, Naranja = En progreso, Verde = Completado/Finalizado, Morado = Facturado.") }}<br>
+                {{ _t("Mowing jobs are marked with a green service badge and green edge so they stand out immediately.", "Los trabajos de corte de césped están marcados con una insignia verde de servicio y un borde verde para que destaquen de inmediato.") }}
             </div>
         </div>
 
@@ -2032,6 +2088,7 @@ def calendar_page():
 
     return render_template_string(
         html,
+        _t=_t,
         view_mode=view_mode,
         year=year,
         month=month,

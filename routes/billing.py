@@ -25,6 +25,19 @@ except Exception:
     STRIPE_IMPORT_OK = False
 
 
+def _lang():
+    value = str(session.get("language") or "en").strip().lower()
+    return "es" if value == "es" else "en"
+
+
+def _is_es():
+    return _lang() == "es"
+
+
+def _t(en, es):
+    return es if _is_es() else en
+
+
 def get_stripe_config():
     stripe_secret_key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
     stripe_publishable_key = os.environ.get("STRIPE_PUBLISHABLE_KEY", "").strip()
@@ -75,27 +88,61 @@ def _normalize_status(status):
     value = (status or "").strip().lower()
 
     if value in ("active", "trialing"):
-        return "Active"
+        return _t("Active", "Activa")
     if value == "past_due":
-        return "Past Due"
+        return _t("Past Due", "Vencida")
     if value in ("canceled", "cancelled"):
-        return "Canceled"
+        return _t("Canceled", "Cancelada")
     if value == "unpaid":
-        return "Unpaid"
+        return _t("Unpaid", "No pagada")
     if value == "incomplete":
-        return "Incomplete"
+        return _t("Incomplete", "Incompleta")
     if value == "incomplete_expired":
-        return "Incomplete Expired"
+        return _t("Incomplete Expired", "Incompleta vencida")
     if value == "paused":
-        return "Paused"
+        return _t("Paused", "Pausada")
     if value == "expired":
-        return "Expired"
+        return _t("Expired", "Expirada")
     if value == "trial":
-        return "Trial"
+        return _t("Trial", "Prueba")
     if not value:
-        return "Inactive"
+        return _t("Inactive", "Inactiva")
 
     return value.replace("_", " ").title()
+
+
+def _display_interval(interval):
+    value = (interval or "").strip().lower()
+    if value == "month":
+        return _t("Month", "Mes")
+    if value == "year":
+        return _t("Year", "Año")
+    if not value:
+        return "-"
+    return value.title()
+
+
+def _display_access_text(sub):
+    return _t("Unlocked", "Desbloqueado") if _has_active_access(sub) else _t("Locked", "Bloqueado")
+
+
+def _display_auto_renew(value):
+    return _t("Enabled", "Activada") if value else _t("Disabled", "Desactivada")
+
+
+def _display_billing_event_type(event_type):
+    value = (event_type or "").strip().lower()
+
+    mapping = {
+        "invoice.paid": _t("Invoice Paid", "Factura pagada"),
+        "invoice.payment_succeeded": _t("Payment Succeeded", "Pago exitoso"),
+        "invoice.payment_failed": _t("Payment Failed", "Pago fallido"),
+        "customer.subscription.created": _t("Subscription Created", "Suscripción creada"),
+        "customer.subscription.updated": _t("Subscription Updated", "Suscripción actualizada"),
+        "customer.subscription.deleted": _t("Subscription Deleted", "Suscripción eliminada"),
+        "checkout.session.completed": _t("Checkout Completed", "Compra completada"),
+    }
+    return mapping.get(value, event_type or "-")
 
 
 def _has_active_access(sub):
@@ -178,12 +225,15 @@ def _sync_subscription_from_stripe(company_id, stripe_subscription_id):
 
         if pm_type == "card" and pm.get("card"):
             pm_last4 = pm["card"].get("last4")
-            pm_label = f"Card ending in {pm_last4}"
+            pm_label = _t(f"Card ending in {pm_last4}", f"Tarjeta terminada en {pm_last4}")
 
         elif pm_type == "us_bank_account" and pm.get("us_bank_account"):
             pm_last4 = pm["us_bank_account"].get("last4")
-            bank_name = pm["us_bank_account"].get("bank_name") or "Bank account"
-            pm_label = f"{bank_name} ending in {pm_last4}"
+            bank_name = pm["us_bank_account"].get("bank_name") or _t("Bank account", "Cuenta bancaria")
+            pm_label = _t(
+                f"{bank_name} ending in {pm_last4}",
+                f"{bank_name} terminada en {pm_last4}"
+            )
 
     current_period_start = None
     current_period_end = None
@@ -220,12 +270,12 @@ def _sync_subscription_from_stripe(company_id, stripe_subscription_id):
 def _refresh_company_subscription_from_stripe(company_id):
     cfg = get_stripe_config()
     if not cfg["enabled"]:
-        return False, "Stripe is not configured."
+        return False, _t("Stripe is not configured.", "Stripe no está configurado.")
 
     sub = get_company_subscription(company_id)
 
     if not sub:
-        return False, "No subscription record found yet."
+        return False, _t("No subscription record found yet.", "Todavía no se encontró un registro de suscripción.")
 
     stripe_subscription_id = sub["stripe_subscription_id"] if "stripe_subscription_id" in sub.keys() else None
     stripe_customer_id = sub["stripe_customer_id"] if "stripe_customer_id" in sub.keys() else None
@@ -233,17 +283,23 @@ def _refresh_company_subscription_from_stripe(company_id):
     try:
         if stripe_subscription_id:
             _sync_subscription_from_stripe(company_id, stripe_subscription_id)
-            return True, "Subscription status refreshed."
+            return True, _t("Subscription status refreshed.", "El estado de la suscripción fue actualizado.")
 
         if stripe_customer_id:
             best = _find_best_subscription_for_customer(stripe_customer_id)
             if best and best.get("id"):
                 _sync_subscription_from_stripe(company_id, best["id"])
-                return True, "Subscription status refreshed."
+                return True, _t("Subscription status refreshed.", "El estado de la suscripción fue actualizado.")
 
-        return False, "No Stripe subscription was found for this account."
+        return False, _t(
+            "No Stripe subscription was found for this account.",
+            "No se encontró una suscripción de Stripe para esta cuenta."
+        )
     except Exception as e:
-        return False, f"Could not refresh billing status: {e}"
+        return False, _t(
+            f"Could not refresh billing status: {e}",
+            f"No se pudo actualizar el estado de facturación: {e}"
+        )
 
 
 @billing_bp.route("/subscription-required")
@@ -252,8 +308,8 @@ def subscription_required_page():
     cid = session["company_id"]
     sub = get_company_subscription(cid)
 
-    status_text = _normalize_status(sub["status"]) if sub else "Inactive"
-    plan_name = sub["plan_name"] if sub and sub["plan_name"] else "No active plan"
+    status_text = _normalize_status(sub["status"]) if sub else _t("Inactive", "Inactiva")
+    plan_name = sub["plan_name"] if sub and sub["plan_name"] else _t("No active plan", "Sin plan activo")
     renewal = sub["current_period_end"] if sub and sub["current_period_end"] else "-"
 
     content = render_template_string(
@@ -261,36 +317,36 @@ def subscription_required_page():
         <div class="card" style="max-width:900px;margin:0 auto;">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
                 <div>
-                    <h1 style="margin-bottom:6px;">Subscription Required</h1>
+                    <h1 style="margin-bottom:6px;">{{ t_subscription_required }}</h1>
                     <p class="muted" style="margin:0;">
-                        TerraLedger access is currently locked for this account.
+                        {{ t_locked_message }}
                     </p>
                 </div>
                 <div class="row-actions">
-                    <a class="btn secondary" href="{{ settings_url }}">Back to Settings</a>
+                    <a class="btn secondary" href="{{ settings_url }}">{{ t_back_to_settings }}</a>
                 </div>
             </div>
 
             <div style="margin-top:20px;">
                 <div class="card" style="margin:0;">
-                    <h2>Current Status</h2>
-                    <p><strong>Plan:</strong> {{ plan_name }}</p>
-                    <p><strong>Status:</strong> {{ status_text }}</p>
-                    <p><strong>Renewal Date:</strong> {{ renewal }}</p>
+                    <h2>{{ t_current_status }}</h2>
+                    <p><strong>{{ t_plan }}:</strong> {{ plan_name }}</p>
+                    <p><strong>{{ t_status }}:</strong> {{ status_text }}</p>
+                    <p><strong>{{ t_renewal_date }}:</strong> {{ renewal }}</p>
                 </div>
 
                 <div class="card" style="margin-top:20px;">
-                    <h2>What To Do</h2>
+                    <h2>{{ t_what_to_do }}</h2>
                     <p>
-                        Your account needs an active subscription to continue using TerraLedger.
+                        {{ t_what_to_do_text }}
                     </p>
 
                     <div style="display:flex;gap:10px;flex-wrap:wrap;">
                         <form method="post" action="{{ refresh_url }}" style="display:inline;">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <button class="btn secondary" type="submit">Refresh Access</button>
+                            <button class="btn secondary" type="submit">{{ t_refresh_access }}</button>
                         </form>
-                        <a class="btn" href="{{ billing_url }}">View Billing Page</a>
+                        <a class="btn" href="{{ billing_url }}">{{ t_view_billing_page }}</a>
                     </div>
                 </div>
             </div>
@@ -302,9 +358,26 @@ def subscription_required_page():
         refresh_url=url_for("billing.refresh_billing_status"),
         billing_url=url_for("billing.billing_page"),
         settings_url=url_for("settings.settings"),
+        t_subscription_required=_t("Subscription Required", "Suscripción requerida"),
+        t_locked_message=_t(
+            "TerraLedger access is currently locked for this account.",
+            "El acceso a TerraLedger está bloqueado actualmente para esta cuenta."
+        ),
+        t_back_to_settings=_t("Back to Settings", "Volver a Configuración"),
+        t_current_status=_t("Current Status", "Estado actual"),
+        t_plan=_t("Plan", "Plan"),
+        t_status=_t("Status", "Estado"),
+        t_renewal_date=_t("Renewal Date", "Fecha de renovación"),
+        t_what_to_do=_t("What To Do", "Qué hacer"),
+        t_what_to_do_text=_t(
+            "Your account needs an active subscription to continue using TerraLedger.",
+            "Tu cuenta necesita una suscripción activa para seguir usando TerraLedger."
+        ),
+        t_refresh_access=_t("Refresh Access", "Actualizar acceso"),
+        t_view_billing_page=_t("View Billing Page", "Ver página de facturación"),
     )
 
-    return render_page(content, title="Subscription Required")
+    return render_page(content, title=_t("Subscription Required", "Suscripción requerida"))
 
 
 @billing_bp.route("/settings/billing")
@@ -317,19 +390,22 @@ def billing_page():
 
     billing_notice = ""
     if not STRIPE_IMPORT_OK:
-        billing_notice = "Stripe is not installed yet."
+        billing_notice = _t("Stripe is not installed yet.", "Stripe todavía no está instalado.")
     elif not cfg["secret_key"]:
-        billing_notice = "Stripe secret key is missing."
+        billing_notice = _t("Stripe secret key is missing.", "Falta la clave secreta de Stripe.")
 
     checkout_status = (request.args.get("checkout") or "").strip().lower()
     if checkout_status == "success":
-        flash("Checkout completed. Billing status may take a moment to update. Use Refresh Status if needed.")
+        flash(_t(
+            "Checkout completed. Billing status may take a moment to update. Use Refresh Status if needed.",
+            "La compra se completó. El estado de facturación puede tardar un momento en actualizarse. Usa Actualizar estado si es necesario."
+        ))
     elif checkout_status == "cancelled":
-        flash("Checkout was cancelled.")
+        flash(_t("Checkout was cancelled.", "La compra fue cancelada."))
 
-    status_text = _normalize_status(sub["status"]) if sub else "Inactive"
+    status_text = _normalize_status(sub["status"]) if sub else _t("Inactive", "Inactiva")
     status_css = _get_subscription_css_class(sub["status"] if sub else "inactive")
-    access_text = "Unlocked" if _has_active_access(sub) else "Locked"
+    access_text = _display_access_text(sub)
 
     content = render_template_string("""
     <style>
@@ -358,98 +434,99 @@ def billing_page():
     <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
             <div>
-                <h1 style="margin-bottom:6px;">Billing</h1>
+                <h1 style="margin-bottom:6px;">{{ t_billing }}</h1>
                 <p class="muted" style="margin:0;">
-                    Manage your subscription status, account access, and billing history here.
+                    {{ t_manage_billing }}
                 </p>
             </div>
             <div class="row-actions">
-                <a class="btn secondary" href="{{ url_for('settings.settings') }}">Back to Settings</a>
+                <a class="btn secondary" href="{{ url_for('settings.settings') }}">{{ t_back_to_settings }}</a>
             </div>
         </div>
     </div>
 
     {% if billing_notice %}
     <div class="card" style="margin-top:20px; border:1px solid #f0c36d; background:#fff8e8;">
-        <h2>Billing Setup Notice</h2>
+        <h2>{{ t_billing_setup_notice }}</h2>
         <p style="margin:0;">{{ billing_notice }}</p>
     </div>
     {% endif %}
 
     <div class="billing-grid">
         <div class="card">
-            <h2>Current Subscription</h2>
+            <h2>{{ t_current_subscription }}</h2>
 
             {% if sub %}
-                <p><strong>Plan:</strong> {{ sub['plan_name'] or 'Not set' }}</p>
+                <p><strong>{{ t_plan }}:</strong> {{ sub['plan_name'] or t_not_set }}</p>
                 <p>
-                    <strong>Status:</strong>
+                    <strong>{{ t_status }}:</strong>
                     <span class="billing-pill {{ status_css }}">{{ status_text }}</span>
                 </p>
-                <p><strong>Access:</strong> {{ access_text }}</p>
-                <p><strong>Billing Interval:</strong> {{ (sub['billing_interval'] or '-')|title }}</p>
-                <p><strong>Auto Renew:</strong> {{ 'Enabled' if sub['auto_renew'] else 'Disabled' }}</p>
-                <p><strong>Current Period Start:</strong> {{ sub['current_period_start'] or '-' }}</p>
-                <p><strong>Renewal Date:</strong> {{ sub['current_period_end'] or '-' }}</p>
-                <p><strong>Payment Method:</strong> {{ sub['payment_method_label'] or 'Not added yet' }}</p>
+                <p><strong>{{ t_access }}:</strong> {{ access_text }}</p>
+                <p><strong>{{ t_billing_interval }}:</strong> {{ billing_interval }}</p>
+                <p><strong>{{ t_auto_renew }}:</strong> {{ auto_renew_text }}</p>
+                <p><strong>{{ t_current_period_start }}:</strong> {{ sub['current_period_start'] or '-' }}</p>
+                <p><strong>{{ t_renewal_date }}:</strong> {{ sub['current_period_end'] or '-' }}</p>
+                <p><strong>{{ t_payment_method }}:</strong> {{ sub['payment_method_label'] or t_not_added_yet }}</p>
             {% else %}
-                <p><strong>Status:</strong> <span class="billing-pill status-bad">Inactive</span></p>
-                <p><strong>Access:</strong> Locked</p>
-                <p class="muted">No subscription has been linked to this company yet.</p>
+                <p><strong>{{ t_status }}:</strong> <span class="billing-pill status-bad">{{ t_inactive }}</span></p>
+                <p><strong>{{ t_access }}:</strong> {{ t_locked }}</p>
+                <p class="muted">{{ t_no_subscription_linked }}</p>
             {% endif %}
 
             <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
                 {% if stripe_enabled %}
-                    <a class="btn" href="{{ url_for('billing.create_checkout_session', plan='monthly') }}">Start Monthly</a>
-                    <a class="btn secondary" href="{{ url_for('billing.create_checkout_session', plan='yearly') }}">Start Yearly</a>
+                    <a class="btn" href="{{ url_for('billing.create_checkout_session', plan='monthly') }}">{{ t_start_monthly }}</a>
+                    <a class="btn secondary" href="{{ url_for('billing.create_checkout_session', plan='yearly') }}">{{ t_start_yearly }}</a>
 
                     <form method="post" action="{{ url_for('billing.refresh_billing_status') }}" style="display:inline;">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button class="btn secondary" type="submit">Refresh Status</button>
+                        <button class="btn secondary" type="submit">{{ t_refresh_status }}</button>
                     </form>
                 {% endif %}
                 {% if stripe_enabled and sub and sub['stripe_customer_id'] %}
-                    <a class="btn secondary" href="{{ url_for('billing.customer_portal') }}">Customer Portal</a>
+                    <a class="btn secondary" href="{{ url_for('billing.customer_portal') }}">{{ t_customer_portal }}</a>
                 {% endif %}
             </div>
         </div>
 
         <div class="card">
-            <h2>Access Rules</h2>
+            <h2>{{ t_access_rules }}</h2>
 
             <div style="border:1px solid #d9e1ea;border-radius:14px;padding:16px;margin-bottom:12px;">
-                <div style="font-weight:700;">App Access</div>
+                <div style="font-weight:700;">{{ t_app_access }}</div>
                 <div class="muted" style="margin-top:6px;">
-                    TerraLedger access should only be available when the subscription status is
-                    <strong>Active</strong> or <strong>Trialing</strong>.
+                    {{ t_app_access_text_1 }}
+                    <strong>{{ t_active }}</strong>
+                    {{ t_or }}
+                    <strong>{{ t_trialing }}</strong>.
                 </div>
             </div>
 
             <div style="border:1px solid #d9e1ea;border-radius:14px;padding:16px;">
-                <div style="font-weight:700;">Billing Visibility</div>
+                <div style="font-weight:700;">{{ t_billing_visibility }}</div>
                 <div class="muted" style="margin-top:6px;">
-                    This page is for subscription status, billing history, refresh actions,
-                    and customer billing visibility.
+                    {{ t_billing_visibility_text }}
                 </div>
             </div>
         </div>
     </div>
 
     <div class="card" style="margin-top:20px;">
-        <h2>Billing History</h2>
+        <h2>{{ t_billing_history }}</h2>
         <div class="table-wrap">
             <table>
                 <tr>
-                    <th>Date</th>
-                    <th>Event</th>
-                    <th>Amount</th>
-                    <th>Status</th>
-                    <th>Invoice</th>
+                    <th>{{ t_date }}</th>
+                    <th>{{ t_event }}</th>
+                    <th>{{ t_amount }}</th>
+                    <th>{{ t_status }}</th>
+                    <th>{{ t_invoice }}</th>
                 </tr>
                 {% for row in history %}
                 <tr>
                     <td>{{ row['event_date'] or row['created_at'] or '-' }}</td>
-                    <td>{{ row['event_type'] or '-' }}</td>
+                    <td>{{ display_billing_event_type(row['event_type']) }}</td>
                     <td>
                         {% if row['amount_cents'] is not none %}
                             ${{ '%.2f'|format((row['amount_cents'] or 0) / 100) }}
@@ -457,10 +534,10 @@ def billing_page():
                             -
                         {% endif %}
                     </td>
-                    <td>{{ row['status'] or '-' }}</td>
+                    <td>{{ normalize_status(row['status']) if row['status'] else '-' }}</td>
                     <td>
                         {% if row['hosted_invoice_url'] %}
-                            <a href="{{ row['hosted_invoice_url'] }}" target="_blank" rel="noopener noreferrer">View</a>
+                            <a href="{{ row['hosted_invoice_url'] }}" target="_blank" rel="noopener noreferrer">{{ t_view }}</a>
                         {% else %}
                             -
                         {% endif %}
@@ -468,7 +545,7 @@ def billing_page():
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="5" class="muted">No billing history yet.</td>
+                    <td colspan="5" class="muted">{{ t_no_billing_history }}</td>
                 </tr>
                 {% endfor %}
             </table>
@@ -481,9 +558,62 @@ def billing_page():
     billing_notice=billing_notice,
     status_text=status_text,
     status_css=status_css,
-    access_text=access_text)
+    access_text=access_text,
+    billing_interval=_display_interval(sub["billing_interval"]) if sub and "billing_interval" in sub.keys() else "-",
+    auto_renew_text=_display_auto_renew(sub["auto_renew"]) if sub and "auto_renew" in sub.keys() else _t("Disabled", "Desactivada"),
+    normalize_status=_normalize_status,
+    display_billing_event_type=_display_billing_event_type,
+    t_billing=_t("Billing", "Facturación"),
+    t_manage_billing=_t(
+        "Manage your subscription status, account access, and billing history here.",
+        "Administra aquí el estado de tu suscripción, el acceso de la cuenta y el historial de facturación."
+    ),
+    t_back_to_settings=_t("Back to Settings", "Volver a Configuración"),
+    t_billing_setup_notice=_t("Billing Setup Notice", "Aviso de configuración de facturación"),
+    t_current_subscription=_t("Current Subscription", "Suscripción actual"),
+    t_plan=_t("Plan", "Plan"),
+    t_not_set=_t("Not set", "No establecido"),
+    t_status=_t("Status", "Estado"),
+    t_access=_t("Access", "Acceso"),
+    t_billing_interval=_t("Billing Interval", "Intervalo de facturación"),
+    t_auto_renew=_t("Auto Renew", "Renovación automática"),
+    t_current_period_start=_t("Current Period Start", "Inicio del período actual"),
+    t_renewal_date=_t("Renewal Date", "Fecha de renovación"),
+    t_payment_method=_t("Payment Method", "Método de pago"),
+    t_not_added_yet=_t("Not added yet", "Todavía no agregado"),
+    t_inactive=_t("Inactive", "Inactiva"),
+    t_locked=_t("Locked", "Bloqueado"),
+    t_no_subscription_linked=_t(
+        "No subscription has been linked to this company yet.",
+        "Todavía no se ha vinculado una suscripción a esta empresa."
+    ),
+    t_start_monthly=_t("Start Monthly", "Iniciar mensual"),
+    t_start_yearly=_t("Start Yearly", "Iniciar anual"),
+    t_refresh_status=_t("Refresh Status", "Actualizar estado"),
+    t_customer_portal=_t("Customer Portal", "Portal del cliente"),
+    t_access_rules=_t("Access Rules", "Reglas de acceso"),
+    t_app_access=_t("App Access", "Acceso a la app"),
+    t_app_access_text_1=_t(
+        "TerraLedger access should only be available when the subscription status is",
+        "El acceso a TerraLedger solo debe estar disponible cuando el estado de la suscripción sea"
+    ),
+    t_active=_t("Active", "Activa"),
+    t_or=_t("or", "o"),
+    t_trialing=_t("Trialing", "En prueba"),
+    t_billing_visibility=_t("Billing Visibility", "Visibilidad de facturación"),
+    t_billing_visibility_text=_t(
+        "This page is for subscription status, billing history, refresh actions, and customer billing visibility.",
+        "Esta página es para el estado de la suscripción, historial de facturación, acciones de actualización y visibilidad de facturación del cliente."
+    ),
+    t_billing_history=_t("Billing History", "Historial de facturación"),
+    t_date=_t("Date", "Fecha"),
+    t_event=_t("Event", "Evento"),
+    t_amount=_t("Amount", "Cantidad"),
+    t_invoice=_t("Invoice", "Factura"),
+    t_view=_t("View", "Ver"),
+    t_no_billing_history=_t("No billing history yet.", "Todavía no hay historial de facturación."))
 
-    return render_page(content, title="Billing")
+    return render_page(content, title=_t("Billing", "Facturación"))
 
 
 @billing_bp.route("/settings/billing/refresh", methods=["POST"])
@@ -501,14 +631,17 @@ def customer_portal():
     cfg = get_stripe_config()
 
     if not cfg["enabled"]:
-        flash("Billing is not configured yet.")
+        flash(_t("Billing is not configured yet.", "La facturación todavía no está configurada."))
         return redirect(url_for("billing.billing_page"))
 
     cid = session["company_id"]
     sub = get_company_subscription(cid)
 
     if not sub or not sub["stripe_customer_id"]:
-        flash("No Stripe customer is linked to this account yet.")
+        flash(_t(
+            "No Stripe customer is linked to this account yet.",
+            "Todavía no hay un cliente de Stripe vinculado a esta cuenta."
+        ))
         return redirect(url_for("billing.billing_page"))
 
     try:
@@ -518,7 +651,10 @@ def customer_portal():
         )
         return redirect(portal_session.url)
     except Exception as e:
-        flash(f"Could not open customer portal: {e}")
+        flash(_t(
+            f"Could not open customer portal: {e}",
+            f"No se pudo abrir el portal del cliente: {e}"
+        ))
         return redirect(url_for("billing.billing_page"))
 
 
@@ -528,7 +664,7 @@ def create_checkout_session():
     cfg = get_stripe_config()
 
     if not cfg["enabled"]:
-        flash("Stripe billing is not configured yet.")
+        flash(_t("Stripe billing is not configured yet.", "La facturación de Stripe todavía no está configurada."))
         return redirect(url_for("billing.billing_page"))
 
     plan = (request.args.get("plan") or "monthly").strip().lower()
@@ -540,7 +676,7 @@ def create_checkout_session():
         price_id = cfg["price_monthly"]
 
     if not price_id:
-        flash("The selected billing plan is not configured yet.")
+        flash(_t("The selected billing plan is not configured yet.", "El plan de facturación seleccionado todavía no está configurado."))
         return redirect(url_for("billing.billing_page"))
 
     cid = session["company_id"]
@@ -611,7 +747,10 @@ def create_checkout_session():
 
         return redirect(checkout_session.url)
     except Exception as e:
-        flash(f"Could not start checkout: {e}")
+        flash(_t(
+            f"Could not start checkout: {e}",
+            f"No se pudo iniciar el pago: {e}"
+        ))
         print("CHECKOUT SESSION CREATE FAILED:", e)
         return redirect(url_for("billing.billing_page"))
 

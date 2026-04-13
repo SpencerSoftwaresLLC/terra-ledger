@@ -31,6 +31,14 @@ ITEM_TYPE_LABELS = {
 }
 
 
+def _is_es():
+    return str(session.get("language") or "en").strip().lower() == "es"
+
+
+def _t(en_text, es_text):
+    return es_text if _is_es() else en_text
+
+
 def clean_text_input(value):
     if value is None:
         return ""
@@ -53,7 +61,7 @@ def display_item_type(value):
     key = clean_text_input(value).lower()
     if key in ITEM_TYPE_LABELS:
         return ITEM_TYPE_LABELS[key]
-    return key.replace("_", " ").title() if key else "Uncategorized"
+    return key.replace("_", " ").title() if key else _t("Uncategorized", "Sin categoría")
 
 
 def format_money(value):
@@ -176,7 +184,7 @@ def canonicalize_description(description, item_type):
     item_type = clean_text_input(item_type).lower()
 
     if not text:
-        return "Unnamed Item"
+        return _t("Unnamed Item", "Artículo sin nombre")
 
     text = text.replace('"', " in ")
     text = text.replace("'", "")
@@ -320,7 +328,7 @@ def fetch_payroll_rows_for_range(company_id, start_date, end_date):
         return [
             {
                 "item_type": "payroll",
-                "description": "Payroll",
+                "description": _t("Payroll", "Nómina"),
                 "unit": "",
                 "quantity": 0.0,
                 "cost_amount": payroll_total,
@@ -529,14 +537,21 @@ def annual_reports():
     <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
             <div>
-                <h1 style="margin:0;">Annual Reports</h1>
+                <h1 style="margin:0;">{{ _t("Annual Reports", "Reportes Anuales") }}</h1>
                 <p class="muted" style="margin:6px 0 0 0;">
-                    Compare current period totals against the same date range from the previous year.
+                    {{ _t(
+                        "Compare current period totals against the same date range from the previous year.",
+                        "Compara los totales del período actual contra el mismo rango de fechas del año anterior."
+                    ) }}
                 </p>
             </div>
             <div class="row-actions">
-                <a class="btn secondary" href="{{ url_for('material_usage.export_annual_reports_csv', period=period, start_date=current_start_str, end_date=current_end_str) }}">Download CSV</a>
-                <a class="btn secondary" href="{{ url_for('settings.settings') }}">Back to Settings</a>
+                <a class="btn secondary" href="{{ url_for('material_usage.export_annual_reports_csv', period=period, start_date=current_start_str, end_date=current_end_str) }}">
+                    {{ _t("Download CSV", "Descargar CSV") }}
+                </a>
+                <a class="btn secondary" href="{{ url_for('settings.settings') }}">
+                    {{ _t("Back to Settings", "Volver a Configuración") }}
+                </a>
             </div>
         </div>
     </div>
@@ -545,27 +560,27 @@ def annual_reports():
         <form method="get">
             <div class="grid">
                 <div>
-                    <label>Report Type</label>
+                    <label>{{ _t("Report Type", "Tipo de reporte") }}</label>
                     <select name="period" id="period" onchange="toggleDateInputs()">
-                        <option value="month" {% if period == 'month' %}selected{% endif %}>Monthly</option>
-                        <option value="quarter" {% if period == 'quarter' %}selected{% endif %}>Quarterly</option>
-                        <option value="year" {% if period == 'year' %}selected{% endif %}>Yearly</option>
-                        <option value="custom" {% if period == 'custom' %}selected{% endif %}>Custom Range</option>
+                        <option value="month" {% if period == 'month' %}selected{% endif %}>{{ _t("Monthly", "Mensual") }}</option>
+                        <option value="quarter" {% if period == 'quarter' %}selected{% endif %}>{{ _t("Quarterly", "Trimestral") }}</option>
+                        <option value="year" {% if period == 'year' %}selected{% endif %}>{{ _t("Yearly", "Anual") }}</option>
+                        <option value="custom" {% if period == 'custom' %}selected{% endif %}>{{ _t("Custom Range", "Rango personalizado") }}</option>
                     </select>
                 </div>
 
                 <div id="start_date_wrap" style="{% if period != 'custom' %}display:none;{% endif %}">
-                    <label>Start Date</label>
+                    <label>{{ _t("Start Date", "Fecha de inicio") }}</label>
                     <input type="date" name="start_date" value="{{ current_start_str }}">
                 </div>
 
                 <div id="end_date_wrap" style="{% if period != 'custom' %}display:none;{% endif %}">
-                    <label>End Date</label>
+                    <label>{{ _t("End Date", "Fecha de fin") }}</label>
                     <input type="date" name="end_date" value="{{ current_end_str }}">
                 </div>
 
                 <div style="display:flex; align-items:flex-end;">
-                    <button class="btn" type="submit">Run Report</button>
+                    <button class="btn" type="submit">{{ _t("Run Report", "Generar reporte") }}</button>
                 </div>
             </div>
         </form>
@@ -573,48 +588,48 @@ def annual_reports():
 
     <div class="grid">
         <div class="card">
-            <div class="muted small">Current Period</div>
+            <div class="muted small">{{ _t("Current Period", "Período actual") }}</div>
             <div style="font-size:20px; font-weight:700;">{{ current_start_str }} to {{ current_end_str }}</div>
         </div>
         <div class="card">
-            <div class="muted small">Previous Year Comparison</div>
+            <div class="muted small">{{ _t("Previous Year Comparison", "Comparación con año anterior") }}</div>
             <div style="font-size:20px; font-weight:700;">{{ previous_start_str }} to {{ previous_end_str }}</div>
         </div>
     </div>
 
     <div class="grid">
         <div class="card">
-            <div class="muted small">Current Gross Income</div>
+            <div class="muted small">{{ _t("Current Gross Income", "Ingreso bruto actual") }}</div>
             <div style="font-size:28px; font-weight:700;">{{ format_money(current_summary["grand"]["gross_income"]) }}</div>
             <div class="muted small" style="margin-top:8px;">
-                Prev: {{ format_money(previous_summary["grand"]["gross_income"]) }}
+                {{ _t("Prev", "Anterior") }}: {{ format_money(previous_summary["grand"]["gross_income"]) }}
                 |
                 {{ format_percent_change(current_summary["grand"]["gross_income"], previous_summary["grand"]["gross_income"]) }}
             </div>
         </div>
         <div class="card">
-            <div class="muted small">Current Expense</div>
+            <div class="muted small">{{ _t("Current Expense", "Gasto actual") }}</div>
             <div style="font-size:28px; font-weight:700;">{{ format_money(current_summary["grand"]["expense"]) }}</div>
             <div class="muted small" style="margin-top:8px;">
-                Prev: {{ format_money(previous_summary["grand"]["expense"]) }}
+                {{ _t("Prev", "Anterior") }}: {{ format_money(previous_summary["grand"]["expense"]) }}
                 |
                 {{ format_percent_change(current_summary["grand"]["expense"], previous_summary["grand"]["expense"]) }}
             </div>
         </div>
         <div class="card">
-            <div class="muted small">Current Gross Profit</div>
+            <div class="muted small">{{ _t("Current Gross Profit", "Ganancia bruta actual") }}</div>
             <div style="font-size:28px; font-weight:700;">{{ format_money(current_summary["grand"]["gross_profit"]) }}</div>
             <div class="muted small" style="margin-top:8px;">
-                Prev: {{ format_money(previous_summary["grand"]["gross_profit"]) }}
+                {{ _t("Prev", "Anterior") }}: {{ format_money(previous_summary["grand"]["gross_profit"]) }}
                 |
                 {{ format_percent_change(current_summary["grand"]["gross_profit"], previous_summary["grand"]["gross_profit"]) }}
             </div>
         </div>
         <div class="card">
-            <div class="muted small">Current Net Profit</div>
+            <div class="muted small">{{ _t("Current Net Profit", "Ganancia neta actual") }}</div>
             <div style="font-size:28px; font-weight:700;">{{ format_money(current_summary["grand"]["net_profit"]) }}</div>
             <div class="muted small" style="margin-top:8px;">
-                Prev: {{ format_money(previous_summary["grand"]["net_profit"]) }}
+                {{ _t("Prev", "Anterior") }}: {{ format_money(previous_summary["grand"]["net_profit"]) }}
                 |
                 {{ format_percent_change(current_summary["grand"]["net_profit"], previous_summary["grand"]["net_profit"]) }}
             </div>
@@ -629,24 +644,24 @@ def annual_reports():
                 <div class="table-wrap">
                     <table>
                         <tr>
-                            <th>Description</th>
-                            <th>Unit</th>
-                            <th class="text-right">Current Qty</th>
-                            <th class="text-right">Prev Qty</th>
-                            <th class="text-right">% Qty</th>
-                            <th class="text-right">Current Expense</th>
-                            <th class="text-right">Prev Expense</th>
-                            <th class="text-right">% Expense</th>
-                            <th class="text-right">Current Gross</th>
-                            <th class="text-right">Prev Gross</th>
-                            <th class="text-right">% Gross</th>
-                            <th class="text-right">Current Net</th>
-                            <th class="text-right">Prev Net</th>
-                            <th class="text-right">% Net</th>
+                            <th>{{ _t("Description", "Descripción") }}</th>
+                            <th>{{ _t("Unit", "Unidad") }}</th>
+                            <th class="text-right">{{ _t("Current Qty", "Cant. actual") }}</th>
+                            <th class="text-right">{{ _t("Prev Qty", "Cant. anterior") }}</th>
+                            <th class="text-right">{{ _t("% Qty", "% Cant.") }}</th>
+                            <th class="text-right">{{ _t("Current Expense", "Gasto actual") }}</th>
+                            <th class="text-right">{{ _t("Prev Expense", "Gasto anterior") }}</th>
+                            <th class="text-right">{{ _t("% Expense", "% Gasto") }}</th>
+                            <th class="text-right">{{ _t("Current Gross", "Bruto actual") }}</th>
+                            <th class="text-right">{{ _t("Prev Gross", "Bruto anterior") }}</th>
+                            <th class="text-right">{{ _t("% Gross", "% Bruto") }}</th>
+                            <th class="text-right">{{ _t("Current Net", "Neto actual") }}</th>
+                            <th class="text-right">{{ _t("Prev Net", "Neto anterior") }}</th>
+                            <th class="text-right">{{ _t("% Net", "% Neto") }}</th>
                         </tr>
 
                         <tr style="background:#f7f7f5; font-weight:700;">
-                            <td>{{ category["category_label"] }} Total</td>
+                            <td>{{ category["category_label"] }} {{ _t("Total", "Total") }}</td>
                             <td>-</td>
                             <td class="text-right">{{ format_qty(category["quantity"]) }}</td>
                             <td class="text-right">{{ format_qty(category["previous"]["quantity"]) }}</td>
@@ -686,41 +701,41 @@ def annual_reports():
         {% endfor %}
 
         <div class="card">
-            <h2>Grand Totals</h2>
+            <h2>{{ _t("Grand Totals", "Totales generales") }}</h2>
             <div class="table-wrap">
                 <table>
                     <tr>
                         <th></th>
-                        <th class="text-right">Current</th>
-                        <th class="text-right">Previous</th>
-                        <th class="text-right">% Change</th>
+                        <th class="text-right">{{ _t("Current", "Actual") }}</th>
+                        <th class="text-right">{{ _t("Previous", "Anterior") }}</th>
+                        <th class="text-right">{{ _t("% Change", "% Cambio") }}</th>
                     </tr>
                     <tr>
-                        <td>Total Quantity</td>
+                        <td>{{ _t("Total Quantity", "Cantidad total") }}</td>
                         <td class="text-right">{{ format_qty(current_summary["grand"]["quantity"]) }}</td>
                         <td class="text-right">{{ format_qty(previous_summary["grand"]["quantity"]) }}</td>
                         <td class="text-right">{{ format_percent_change(current_summary["grand"]["quantity"], previous_summary["grand"]["quantity"]) }}</td>
                     </tr>
                     <tr>
-                        <td>Total Expense</td>
+                        <td>{{ _t("Total Expense", "Gasto total") }}</td>
                         <td class="text-right">{{ format_money(current_summary["grand"]["expense"]) }}</td>
                         <td class="text-right">{{ format_money(previous_summary["grand"]["expense"]) }}</td>
                         <td class="text-right">{{ format_percent_change(current_summary["grand"]["expense"], previous_summary["grand"]["expense"]) }}</td>
                     </tr>
                     <tr>
-                        <td>Total Gross Income</td>
+                        <td>{{ _t("Total Gross Income", "Ingreso bruto total") }}</td>
                         <td class="text-right">{{ format_money(current_summary["grand"]["gross_income"]) }}</td>
                         <td class="text-right">{{ format_money(previous_summary["grand"]["gross_income"]) }}</td>
                         <td class="text-right">{{ format_percent_change(current_summary["grand"]["gross_income"], previous_summary["grand"]["gross_income"]) }}</td>
                     </tr>
                     <tr>
-                        <td>Total Gross Profit</td>
+                        <td>{{ _t("Total Gross Profit", "Ganancia bruta total") }}</td>
                         <td class="text-right">{{ format_money(current_summary["grand"]["gross_profit"]) }}</td>
                         <td class="text-right">{{ format_money(previous_summary["grand"]["gross_profit"]) }}</td>
                         <td class="text-right">{{ format_percent_change(current_summary["grand"]["gross_profit"], previous_summary["grand"]["gross_profit"]) }}</td>
                     </tr>
                     <tr>
-                        <td>Total Net Profit</td>
+                        <td>{{ _t("Total Net Profit", "Ganancia neta total") }}</td>
                         <td class="text-right">{{ format_money(current_summary["grand"]["net_profit"]) }}</td>
                         <td class="text-right">{{ format_money(previous_summary["grand"]["net_profit"]) }}</td>
                         <td class="text-right">{{ format_percent_change(current_summary["grand"]["net_profit"], previous_summary["grand"]["net_profit"]) }}</td>
@@ -728,12 +743,15 @@ def annual_reports():
                 </table>
             </div>
             <p class="muted small" style="margin-top:12px;">
-                Payroll is included as an expense category in annual reports. Net profit currently matches gross profit because item-level overhead is not stored separately yet.
+                {{ _t(
+                    "Payroll is included as an expense category in annual reports. Net profit currently matches gross profit because item-level overhead is not stored separately yet.",
+                    "La nómina está incluida como una categoría de gasto en los reportes anuales. La ganancia neta actualmente coincide con la ganancia bruta porque los costos indirectos por artículo todavía no se almacenan por separado."
+                ) }}
             </p>
         </div>
     {% else %}
         <div class="card">
-            <p class="muted" style="margin:0;">No report data found for the selected date range.</p>
+            <p class="muted" style="margin:0;">{{ _t("No report data found for the selected date range.", "No se encontraron datos para el rango de fechas seleccionado.") }}</p>
         </div>
     {% endif %}
 
@@ -754,6 +772,7 @@ def annual_reports():
     return render_page(
         render_template_string(
             html,
+            _t=_t,
             period=range_info["period"],
             current_start_str=format_date(range_info["current_start"]),
             current_end_str=format_date(range_info["current_end"]),
@@ -765,7 +784,7 @@ def annual_reports():
             format_qty=format_qty,
             format_percent_change=format_percent_change,
         ),
-        "Annual Reports",
+        _t("Annual Reports", "Reportes Anuales"),
     )
 
 
@@ -792,29 +811,29 @@ def export_annual_reports_csv():
     writer = csv.writer(output)
 
     writer.writerow([
-        "Current Start",
-        "Current End",
-        "Previous Start",
-        "Previous End",
-        "Category",
-        "Description",
-        "Unit",
-        "Current Quantity",
-        "Previous Quantity",
-        "Quantity % Change",
-        "Current Expense",
-        "Previous Expense",
-        "Expense % Change",
-        "Current Gross Income",
-        "Previous Gross Income",
-        "Gross Income % Change",
-        "Current Gross Profit",
-        "Previous Gross Profit",
-        "Gross Profit % Change",
-        "Current Net Profit",
-        "Previous Net Profit",
-        "Net Profit % Change",
-        "Row Type",
+        _t("Current Start", "Inicio actual"),
+        _t("Current End", "Fin actual"),
+        _t("Previous Start", "Inicio anterior"),
+        _t("Previous End", "Fin anterior"),
+        _t("Category", "Categoría"),
+        _t("Description", "Descripción"),
+        _t("Unit", "Unidad"),
+        _t("Current Quantity", "Cantidad actual"),
+        _t("Previous Quantity", "Cantidad anterior"),
+        _t("Quantity % Change", "% cambio cantidad"),
+        _t("Current Expense", "Gasto actual"),
+        _t("Previous Expense", "Gasto anterior"),
+        _t("Expense % Change", "% cambio gasto"),
+        _t("Current Gross Income", "Ingreso bruto actual"),
+        _t("Previous Gross Income", "Ingreso bruto anterior"),
+        _t("Gross Income % Change", "% cambio ingreso bruto"),
+        _t("Current Gross Profit", "Ganancia bruta actual"),
+        _t("Previous Gross Profit", "Ganancia bruta anterior"),
+        _t("Gross Profit % Change", "% cambio ganancia bruta"),
+        _t("Current Net Profit", "Ganancia neta actual"),
+        _t("Previous Net Profit", "Ganancia neta anterior"),
+        _t("Net Profit % Change", "% cambio ganancia neta"),
+        _t("Row Type", "Tipo de fila"),
     ])
 
     for category in current_summary["categories"]:
@@ -824,7 +843,7 @@ def export_annual_reports_csv():
             format_date(range_info["previous_start"]),
             format_date(range_info["previous_end"]),
             category["category_label"],
-            f"{category['category_label']} Total",
+            f"{category['category_label']} {_t('Total', 'Total')}",
             "",
             f"{category['quantity']:.2f}",
             f"{category['previous']['quantity']:.2f}",
@@ -841,7 +860,7 @@ def export_annual_reports_csv():
             f"{category['net_profit']:.2f}",
             f"{category['previous']['net_profit']:.2f}",
             format_percent_change(category["net_profit"], category["previous"]["net_profit"]),
-            "Category Total",
+            _t("Category Total", "Total de categoría"),
         ])
 
         for item in category["items"]:
@@ -868,7 +887,7 @@ def export_annual_reports_csv():
                 f"{item['net_profit']:.2f}",
                 f"{item['previous']['net_profit']:.2f}",
                 format_percent_change(item["net_profit"], item["previous"]["net_profit"]),
-                "Item Detail",
+                _t("Item Detail", "Detalle de artículo"),
             ])
 
     writer.writerow([])
@@ -877,7 +896,7 @@ def export_annual_reports_csv():
         format_date(range_info["current_end"]),
         format_date(range_info["previous_start"]),
         format_date(range_info["previous_end"]),
-        "Grand Total",
+        _t("Grand Total", "Total general"),
         "",
         "",
         f"{current_summary['grand']['quantity']:.2f}",
@@ -895,7 +914,7 @@ def export_annual_reports_csv():
         f"{current_summary['grand']['net_profit']:.2f}",
         f"{previous_summary['grand']['net_profit']:.2f}",
         format_percent_change(current_summary["grand"]["net_profit"], previous_summary["grand"]["net_profit"]),
-        "Grand Total",
+        _t("Grand Total", "Total general"),
     ])
 
     csv_data = output.getvalue()
