@@ -2144,13 +2144,13 @@ def _render_bookkeeping_page(conn, cid):
         </div>
     </div>
 
-    <script>
-    function toggleManualCategories() {{
+       <script>
+        function toggleManualCategories() {{
         var typeEl = document.getElementById("manual_entry_type");
         var categoryEl = document.getElementById("manual_category");
         if (!typeEl || !categoryEl) return;
 
-        var lang = {("es" if lang == "es" else "en") | repr};
+        var lang = {repr("es" if lang == "es" else "en")};
 
         var expenseOptions = lang === "es"
             ? [

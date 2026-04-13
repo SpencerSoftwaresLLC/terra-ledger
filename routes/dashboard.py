@@ -25,6 +25,12 @@ EXPENSE_TYPES = {
 }
 
 
+def _get_lang():
+    # Prefer the newer session key first, then fall back to the older one.
+    lang = str(session.get("language") or session.get("language_preference") or "en").strip().lower()
+    return "es" if lang == "es" else "en"
+
+
 def _t(lang, en, es):
     return es if lang == "es" else en
 
@@ -203,7 +209,7 @@ def _ledger_has_payroll_source_entries(conn, company_id):
 @login_required
 @subscription_required
 def dashboard():
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
     cid = session.get("company_id")
 
     if not cid:
@@ -306,7 +312,7 @@ def dashboard():
             FROM invoices i
             JOIN customers c ON i.customer_id = c.id
             WHERE i.company_id = %s
-              AND COALESCE(i.status, '') != 'Paid'
+              AND LOWER(COALESCE(i.status, '')) NOT IN ('paid', 'pagada')
             ORDER BY i.id DESC
             LIMIT 8
             """,
@@ -422,7 +428,7 @@ def dashboard():
             <td>{r['aging_bucket']}</td>
             <td>${_safe_float(r['balance_due']):,.2f}</td>
             <td>
-                <a class='btn secondary small dashboard-btn' href='{url_for("invoices.view_invoice", invoice_id=r["id"])}'>{_t(lang, "View", "Ver")}</a>
+                <a class='btn secondary small dashboard-btn' href='{url_for("invoices.view_invoice", invoice_id=r["id"])}'>{_t(lang, "View Invoice", "Ver Factura")}</a>
             </td>
         </tr>
         """
@@ -770,10 +776,10 @@ def dashboard():
         <div class='card' style='padding:20px;'>
             <div class='dashboard-section-head'>
                 <div>
-                    <h2 style='margin:0 0 6px 0;'>{_t(lang, "Outstanding Invoice Aging", "Antigüedad de Facturas Pendientes")}</h2>
+                    <h2 style='margin:0 0 6px 0;'>{_t(lang, "Outstanding Invoice Aging", "Antigüedad de facturas pendientes")}</h2>
                 </div>
                 <div class='dashboard-total-outstanding'>
-                    <div class='muted' style='font-size:.9rem;'>{_t(lang, "Total Outstanding", "Total Pendiente")}</div>
+                    <div class='muted' style='font-size:.9rem;'>{_t(lang, "Total Outstanding", "Total pendiente")}</div>
                     <div style='font-size:1.6rem; font-weight:800; color:#0f172a;'>${total_outstanding:,.2f}</div>
                 </div>
             </div>
@@ -816,10 +822,10 @@ def dashboard():
                     <tr>
                         <th>{_t(lang, "Invoice", "Factura")}</th>
                         <th>{_t(lang, "Customer", "Cliente")}</th>
-                        <th>{_t(lang, "Invoice Date", "Fecha de Factura")}</th>
-                        <th>{_t(lang, "Due Date", "Fecha de Vencimiento")}</th>
+                        <th>{_t(lang, "Invoice Date", "Fecha de factura")}</th>
+                        <th>{_t(lang, "Due Date", "Fecha de vencimiento")}</th>
                         <th>{_t(lang, "Bucket", "Grupo")}</th>
-                        <th>{_t(lang, "Balance Due", "Saldo Pendiente")}</th>
+                        <th>{_t(lang, "Balance Due", "Saldo pendiente")}</th>
                         <th></th>
                     </tr>
                     {aging_table_rows or f"<tr><td colspan='7'>{_t(lang, 'No outstanding invoices.', 'No hay facturas pendientes.')}</td></tr>"}
@@ -836,8 +842,8 @@ def dashboard():
         <div class='dashboard-grid'>
             <div class='card'>
                 <div class='dashboard-section-head'>
-                    <h2 style='margin:0;'>{_t(lang, "Upcoming Jobs", "Próximos Trabajos")}</h2>
-                    <a class='btn small dashboard-btn' href='{url_for("jobs.jobs")}'>{_t(lang, "View All", "Ver Todo")}</a>
+                    <h2 style='margin:0;'>{_t(lang, "Upcoming Jobs", "Próximos trabajos")}</h2>
+                    <a class='btn small dashboard-btn' href='{url_for("jobs.jobs")}'>{_t(lang, "View All", "Ver todo")}</a>
                 </div>
 
                 <div class='table-wrap desktop-only'>
@@ -863,8 +869,8 @@ def dashboard():
 
             <div class='card'>
                 <div class='dashboard-section-head'>
-                    <h2 style='margin:0;'>{_t(lang, "Unpaid Invoices", "Facturas No Pagadas")}</h2>
-                    <a class='btn small dashboard-btn' href='{url_for("invoices.invoices")}'>{_t(lang, "View All", "Ver Todo")}</a>
+                    <h2 style='margin:0;'>{_t(lang, "Unpaid Invoices", "Facturas no pagadas")}</h2>
+                    <a class='btn small dashboard-btn' href='{url_for("invoices.invoices")}'>{_t(lang, "View All", "Ver todo")}</a>
                 </div>
 
                 <div class='table-wrap desktop-only'>

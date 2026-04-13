@@ -12,6 +12,11 @@ from page_helpers import render_page
 customers_bp = Blueprint("customers", __name__)
 
 
+def _get_lang():
+    lang = str(session.get("language") or session.get("language_preference") or "en").strip().lower()
+    return "es" if lang == "es" else "en"
+
+
 def _t(lang, en, es):
     return es if lang == "es" else en
 
@@ -75,7 +80,7 @@ def _fmt_dt(value):
 @subscription_required
 @require_permission("can_manage_customers")
 def customers():
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     ensure_customer_name_columns()
     ensure_customer_sms_consent_columns()
@@ -113,7 +118,7 @@ def customers():
         if first or last:
             display_name = f"{first} {last}".strip()
         else:
-            display_name = full_name or f"Customer #{customer_id}"
+            display_name = full_name or f"{_t(lang, 'Customer', 'Cliente')} #{customer_id}"
 
         company = escape((r["company"] or "").strip()) if "company" in r.keys() and r["company"] else "-"
         phone = escape((r["phone"] or "").strip()) if "phone" in r.keys() and r["phone"] else "-"
@@ -340,7 +345,7 @@ def customers():
 @subscription_required
 @require_permission("can_manage_customers")
 def add_customer():
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     ensure_customer_name_columns()
     ensure_customer_sms_consent_columns()
@@ -495,7 +500,7 @@ def add_customer():
 @subscription_required
 @require_permission("can_manage_customers")
 def edit_customer(customer_id):
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     ensure_customer_name_columns()
     ensure_customer_sms_consent_columns()
@@ -693,7 +698,7 @@ def edit_customer(customer_id):
 @subscription_required
 @require_permission("can_manage_customers")
 def delete_customer(customer_id):
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     conn = get_db_connection()
     cid = session["company_id"]

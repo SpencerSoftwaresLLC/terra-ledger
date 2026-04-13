@@ -41,6 +41,11 @@ INDIANA_COUNTIES = [
 ]
 
 
+def _get_lang():
+    lang = str(session.get("language") or session.get("language_preference") or "en").strip().lower()
+    return "es" if lang == "es" else "en"
+
+
 def _t(lang, en, es):
     return es if lang == "es" else en
 
@@ -604,7 +609,7 @@ def _get_current_pay_period(start_day):
 @subscription_required
 @require_permission("can_manage_employees")
 def employees():
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     ensure_employee_profile_columns()
     ensure_employee_status_column()
@@ -939,7 +944,7 @@ def employees():
 @subscription_required
 @require_permission("can_manage_employees")
 def new_employee():
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     ensure_employee_profile_columns()
     ensure_employee_name_columns()
@@ -1141,7 +1146,7 @@ def new_employee():
 @subscription_required
 @require_permission("can_view_employees")
 def view_employee(employee_id):
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     ensure_employee_profile_columns()
     ensure_employee_payroll_columns()
@@ -1373,6 +1378,15 @@ def view_employee(employee_id):
         .section-title {{
             margin: 0 0 14px;
             color: #2f4f1f;
+        }}
+
+        .section-head {{
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:12px;
+            flex-wrap:wrap;
+            margin-bottom:14px;
         }}
 
         .employee-meta-grid {{
@@ -1657,7 +1671,7 @@ def view_employee(employee_id):
 @subscription_required
 @require_permission("can_manage_employees")
 def edit_employee(employee_id):
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     ensure_employee_profile_columns()
     ensure_employee_name_columns()
@@ -1849,7 +1863,7 @@ def edit_employee(employee_id):
 @subscription_required
 @require_permission("can_manage_employees")
 def activate_employee(employee_id):
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     ensure_employee_profile_columns()
     ensure_employee_status_column()
@@ -1877,7 +1891,7 @@ def activate_employee(employee_id):
 @subscription_required
 @require_permission("can_manage_employees")
 def deactivate_employee(employee_id):
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     ensure_employee_profile_columns()
     ensure_employee_status_column()
@@ -1905,7 +1919,7 @@ def deactivate_employee(employee_id):
 @subscription_required
 @require_permission("can_manage_employees")
 def delete_employee(employee_id):
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     ensure_employee_profile_columns()
 
@@ -1983,7 +1997,7 @@ def delete_employee(employee_id):
 @subscription_required
 @require_permission("can_manage_employees")
 def time_clock():
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     ensure_employee_profile_columns()
     ensure_employee_time_entries_table()
@@ -2556,7 +2570,7 @@ def time_clock():
 @subscription_required
 @require_permission("can_manage_employees")
 def update_time_clock_settings():
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     ensure_company_profile_table()
     ensure_company_time_clock_columns()
@@ -2618,7 +2632,7 @@ def update_time_clock_settings():
 @subscription_required
 @require_permission("can_manage_employees")
 def time_clock_clock_in():
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     ensure_employee_profile_columns()
     ensure_employee_time_entries_table()
@@ -2696,7 +2710,7 @@ def time_clock_clock_in():
 @subscription_required
 @require_permission("can_manage_employees")
 def time_clock_clock_out():
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     ensure_employee_profile_columns()
     ensure_employee_time_entries_table()
@@ -2757,7 +2771,7 @@ def time_clock_clock_out():
 @subscription_required
 @require_permission("can_manage_employees")
 def send_time_clock_summary_now():
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
     cid = session["company_id"]
 
     try:
