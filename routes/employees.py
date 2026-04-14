@@ -1016,7 +1016,7 @@ def new_employee():
 
         is_active = _active_update_value(True)
         w4_step2_checked = 1 if request.form.get("w4_step2_checked") else 0
-        is_indiana_resident = 1 if request.form.get("is_indiana_resident") else 0
+        is_indiana_resident = bool(request.form.get("is_indiana_resident"))
 
         w4_step3_amount = _safe_float(request.form.get("w4_step3_amount"), 0)
         w4_step4a_other_income = _safe_float(request.form.get("w4_step4a_other_income"), 0)
