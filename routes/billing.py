@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from urllib.parse import urlencode
 
 from flask import Blueprint, request, redirect, url_for, session, flash, render_template_string
 
@@ -38,6 +39,13 @@ def _t(en, es):
     return es if _is_es() else en
 
 
+def _env_flag(name, default=False):
+    raw = str(os.environ.get(name, "")).strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on"}
+
+
 def get_stripe_config():
     stripe_secret_key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
     stripe_publishable_key = os.environ.get("STRIPE_PUBLISHABLE_KEY", "").strip()
@@ -50,6 +58,21 @@ def get_stripe_config():
     stripe_owner_email = os.environ.get("STRIPE_OWNER_EMAIL", "").strip().lower()
     stripe_owner_coupon_id = os.environ.get("STRIPE_OWNER_COUPON_ID", "").strip()
     stripe_owner_promo_code_id = os.environ.get("STRIPE_OWNER_PROMO_CODE_ID", "").strip()
+
+    spencer_site_base_url = os.environ.get(
+        "SPENCER_SITE_BASE_URL",
+        "https://spencersoftwaresllc.com"
+    ).strip().rstrip("/")
+
+    spencer_terraledger_pricing_url = os.environ.get(
+        "SPENCER_TERRALEDGER_PRICING_URL",
+        f"{spencer_site_base_url}/terraledger#pricing"
+    ).strip()
+
+    redirect_new_companies_to_parent_site = _env_flag(
+        "REDIRECT_NEW_COMPANIES_TO_PARENT_SITE",
+        default=True,
+    )
 
     stripe_enabled = bool(STRIPE_IMPORT_OK and stripe_secret_key)
 
@@ -67,6 +90,9 @@ def get_stripe_config():
         "owner_coupon_id": stripe_owner_coupon_id,
         "owner_promo_code_id": stripe_owner_promo_code_id,
         "enabled": stripe_enabled,
+        "spencer_site_base_url": spencer_site_base_url,
+        "spencer_terraledger_pricing_url": spencer_terraledger_pricing_url,
+        "redirect_new_companies_to_parent_site": redirect_new_companies_to_parent_site,
     }
 
 
@@ -186,6 +212,49 @@ def _find_best_subscription_for_customer(customer_id):
 
     items = sorted(items, key=sort_key)
     return items[0]
+
+
+def _build_parent_pricing_url(plan):
+    cfg = get_stripe_config()
+    base_url = cfg["spencer_terraledger_pricing_url"] or f"{cfg['spencer_site_base_url']}/terraledger#pricing"
+
+    company_id = session.get("company_id")
+    user_email = _get_user_email()
+
+    params = {
+        "plan": plan,
+        "source": "terraledger_app",
+    }
+
+    if company_id:
+        params["company_id"] = str(company_id)
+    if user_email:
+        params["email"] = user_email
+
+    separator = "&" if "?" in base_url else "?"
+    return f"{base_url}{separator}{urlencode(params)}"
+
+
+def _should_redirect_to_parent_site(sub):
+    cfg = get_stripe_config()
+
+    if not cfg["redirect_new_companies_to_parent_site"]:
+        return False
+
+    if not sub:
+        return True
+
+    status = (sub["status"] or "").strip().lower()
+    stripe_customer_id = (sub["stripe_customer_id"] or "").strip() if "stripe_customer_id" in sub.keys() else ""
+    stripe_subscription_id = (sub["stripe_subscription_id"] or "").strip() if "stripe_subscription_id" in sub.keys() else ""
+
+    if status in ("active", "trialing", "trial", "past_due", "unpaid", "incomplete"):
+        return False
+
+    if stripe_customer_id or stripe_subscription_id:
+        return False
+
+    return True
 
 
 def _sync_subscription_from_stripe(company_id, stripe_subscription_id):
@@ -312,6 +381,9 @@ def subscription_required_page():
     plan_name = sub["plan_name"] if sub and sub["plan_name"] else _t("No active plan", "Sin plan activo")
     renewal = sub["current_period_end"] if sub and sub["current_period_end"] else "-"
 
+    monthly_redirect_url = _build_parent_pricing_url("monthly")
+    yearly_redirect_url = _build_parent_pricing_url("yearly")
+
     content = render_template_string(
         """
         <div class="card" style="max-width:900px;margin:0 auto;">
@@ -342,11 +414,14 @@ def subscription_required_page():
                     </p>
 
                     <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                        <a class="btn" href="{{ monthly_redirect_url }}">{{ t_start_monthly }}</a>
+                        <a class="btn secondary" href="{{ yearly_redirect_url }}">{{ t_start_yearly }}</a>
+
                         <form method="post" action="{{ refresh_url }}" style="display:inline;">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button class="btn secondary" type="submit">{{ t_refresh_access }}</button>
                         </form>
-                        <a class="btn" href="{{ billing_url }}">{{ t_view_billing_page }}</a>
+                        <a class="btn secondary" href="{{ billing_url }}">{{ t_view_billing_page }}</a>
                     </div>
                 </div>
             </div>
@@ -358,6 +433,8 @@ def subscription_required_page():
         refresh_url=url_for("billing.refresh_billing_status"),
         billing_url=url_for("billing.billing_page"),
         settings_url=url_for("settings.settings"),
+        monthly_redirect_url=monthly_redirect_url,
+        yearly_redirect_url=yearly_redirect_url,
         t_subscription_required=_t("Subscription Required", "Suscripción requerida"),
         t_locked_message=_t(
             "TerraLedger access is currently locked for this account.",
@@ -373,6 +450,8 @@ def subscription_required_page():
             "Your account needs an active subscription to continue using TerraLedger.",
             "Tu cuenta necesita una suscripción activa para seguir usando TerraLedger."
         ),
+        t_start_monthly=_t("Start Monthly", "Iniciar mensual"),
+        t_start_yearly=_t("Start Yearly", "Iniciar anual"),
         t_refresh_access=_t("Refresh Access", "Actualizar acceso"),
         t_view_billing_page=_t("View Billing Page", "Ver página de facturación"),
     )
@@ -406,6 +485,10 @@ def billing_page():
     status_text = _normalize_status(sub["status"]) if sub else _t("Inactive", "Inactiva")
     status_css = _get_subscription_css_class(sub["status"] if sub else "inactive")
     access_text = _display_access_text(sub)
+
+    use_parent_redirects = _should_redirect_to_parent_site(sub)
+    monthly_action_url = _build_parent_pricing_url("monthly") if use_parent_redirects else url_for("billing.create_checkout_session", plan="monthly")
+    yearly_action_url = _build_parent_pricing_url("yearly") if use_parent_redirects else url_for("billing.create_checkout_session", plan="yearly")
 
     content = render_template_string("""
     <style>
@@ -475,19 +558,26 @@ def billing_page():
             {% endif %}
 
             <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
-                {% if stripe_enabled %}
-                    <a class="btn" href="{{ url_for('billing.create_checkout_session', plan='monthly') }}">{{ t_start_monthly }}</a>
-                    <a class="btn secondary" href="{{ url_for('billing.create_checkout_session', plan='yearly') }}">{{ t_start_yearly }}</a>
+                <a class="btn" href="{{ monthly_action_url }}">{{ t_start_monthly }}</a>
+                <a class="btn secondary" href="{{ yearly_action_url }}">{{ t_start_yearly }}</a>
 
+                {% if stripe_enabled %}
                     <form method="post" action="{{ url_for('billing.refresh_billing_status') }}" style="display:inline;">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button class="btn secondary" type="submit">{{ t_refresh_status }}</button>
                     </form>
                 {% endif %}
+
                 {% if stripe_enabled and sub and sub['stripe_customer_id'] %}
                     <a class="btn secondary" href="{{ url_for('billing.customer_portal') }}">{{ t_customer_portal }}</a>
                 {% endif %}
             </div>
+
+            {% if use_parent_redirects %}
+            <p class="muted" style="margin-top:14px;">
+                {{ t_parent_site_redirect_note }}
+            </p>
+            {% endif %}
         </div>
 
         <div class="card">
@@ -559,6 +649,9 @@ def billing_page():
     status_text=status_text,
     status_css=status_css,
     access_text=access_text,
+    use_parent_redirects=use_parent_redirects,
+    monthly_action_url=monthly_action_url,
+    yearly_action_url=yearly_action_url,
     billing_interval=_display_interval(sub["billing_interval"]) if sub and "billing_interval" in sub.keys() else "-",
     auto_renew_text=_display_auto_renew(sub["auto_renew"]) if sub and "auto_renew" in sub.keys() else _t("Disabled", "Desactivada"),
     normalize_status=_normalize_status,
@@ -594,16 +687,20 @@ def billing_page():
     t_access_rules=_t("Access Rules", "Reglas de acceso"),
     t_app_access=_t("App Access", "Acceso a la app"),
     t_app_access_text_1=_t(
-        "TerraLedger access should only be available when the subscription status is",
-        "El acceso a TerraLedger solo debe estar disponible cuando el estado de la suscripción sea"
+        "TerraLedger access should only be available when the subscription status is ",
+        "El acceso a TerraLedger solo debe estar disponible cuando el estado de la suscripción sea "
     ),
     t_active=_t("Active", "Activa"),
-    t_or=_t("or", "o"),
+    t_or=_t(" or ", " o "),
     t_trialing=_t("Trialing", "En prueba"),
     t_billing_visibility=_t("Billing Visibility", "Visibilidad de facturación"),
     t_billing_visibility_text=_t(
         "This page is for subscription status, billing history, refresh actions, and customer billing visibility.",
         "Esta página es para el estado de la suscripción, historial de facturación, acciones de actualización y visibilidad de facturación del cliente."
+    ),
+    t_parent_site_redirect_note=_t(
+        "New or unlinked companies are sent to the Spencer Softwares pricing page first so billing starts from the main site.",
+        "Las empresas nuevas o no vinculadas se envían primero a la página de precios de Spencer Softwares para que la facturación comience desde el sitio principal."
     ),
     t_billing_history=_t("Billing History", "Historial de facturación"),
     t_date=_t("Date", "Fecha"),
@@ -669,6 +766,14 @@ def create_checkout_session():
 
     plan = (request.args.get("plan") or "monthly").strip().lower()
 
+    cid = session["company_id"]
+    sub = get_company_subscription(cid)
+
+    if _should_redirect_to_parent_site(sub):
+        redirect_url = _build_parent_pricing_url(plan)
+        print("REDIRECTING NEW/UNLINKED COMPANY TO PARENT SITE:", redirect_url)
+        return redirect(redirect_url)
+
     if plan == "yearly":
         price_id = cfg["price_yearly"]
     else:
@@ -679,11 +784,9 @@ def create_checkout_session():
         flash(_t("The selected billing plan is not configured yet.", "El plan de facturación seleccionado todavía no está configurado."))
         return redirect(url_for("billing.billing_page"))
 
-    cid = session["company_id"]
     company = _get_company(cid)
     user_email = _get_user_email()
 
-    sub = get_company_subscription(cid)
     stripe_customer_id = None
     if sub and sub["stripe_customer_id"]:
         stripe_customer_id = sub["stripe_customer_id"]
