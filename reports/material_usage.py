@@ -314,8 +314,10 @@ def fetch_payroll_rows_for_range(company_id, start_date, end_date):
             SELECT COALESCE(SUM(gross_pay), 0) AS payroll_total
             FROM payroll_entries
             WHERE company_id = %s
-              AND pay_date >= %s
-              AND pay_date <= %s
+              AND COALESCE(TRIM(pay_date), '') <> ''
+              AND pay_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+              AND pay_date::date >= %s
+              AND pay_date::date <= %s
             """,
             (company_id, start_date, end_date),
         ).fetchone()
