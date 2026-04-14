@@ -103,6 +103,10 @@ SERVICE_TYPE_LABELS = {
 def _t(lang, en, es):
     return es if lang == "es" else en
 
+def _get_lang():
+    lang = str(session.get("language") or session.get("language_preference") or "en").strip().lower()
+    return "es" if lang == "es" else "en"
+
 
 def _safe_float(value, default=0.0):
     try:
@@ -1371,7 +1375,7 @@ def _service_filter_options(selected_value="", lang="en"):
 
 
 def _render_bookkeeping_page(conn, cid):
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     if request.method == "POST":
         entry_date = (request.form.get("entry_date") or "").strip() or date.today().isoformat()
@@ -2144,94 +2148,94 @@ def _render_bookkeeping_page(conn, cid):
         </div>
     </div>
 
-       <script>
+    <script>
         function toggleManualCategories() {{
-        var typeEl = document.getElementById("manual_entry_type");
-        var categoryEl = document.getElementById("manual_category");
-        if (!typeEl || !categoryEl) return;
+            var typeEl = document.getElementById("manual_entry_type");
+            var categoryEl = document.getElementById("manual_category");
+            if (!typeEl || !categoryEl) return;
 
-        var lang = {repr("es" if lang == "es" else "en")};
+            var lang = {repr("es" if lang == "es" else "en")};
 
-        var expenseOptions = lang === "es"
-            ? [
-                ["Mulch", "Mantillo"],
-                ["Stone", "Piedra"],
-                ["Dump Fee", "Tarifa de Vertedero"],
-                ["Plants", "Plantas"],
-                ["Trees", "Árboles"],
-                ["Soil", "Tierra"],
-                ["Fertilizer", "Fertilizante"],
-                ["Hardscape Material", "Material de Hardscape"],
-                ["Labor", "Mano de Obra"],
-                ["Fuel", "Combustible"],
-                ["Equipment", "Equipo"],
-                ["Delivery", "Entrega"],
-                ["Misc", "Varios"],
-                ["Payroll", "Nómina"],
-                ["Hand Tools", "Herramientas Manuales"],
-                ["Office Supplies", "Suministros de Oficina"],
-                ["Maintenance", "Mantenimiento"],
-                ["Power Equipment", "Equipo Motorizado"],
-                ["Vehicles", "Vehículos"],
-                ["Insurance", "Seguro"],
-                ["Marketing", "Marketing"],
-                ["Office and Admin", "Oficina y Administración"],
-                ["Safety Gear", "Equipo de Seguridad"],
-                ["Licensing & Certifications", "Licencias y Certificaciones"]
-            ]
-            : [
-                ["Mulch", "Mulch"],
-                ["Stone", "Stone"],
-                ["Dump Fee", "Dump Fee"],
-                ["Plants", "Plants"],
-                ["Trees", "Trees"],
-                ["Soil", "Soil"],
-                ["Fertilizer", "Fertilizer"],
-                ["Hardscape Material", "Hardscape Material"],
-                ["Labor", "Labor"],
-                ["Fuel", "Fuel"],
-                ["Equipment", "Equipment"],
-                ["Delivery", "Delivery"],
-                ["Misc", "Misc"],
-                ["Payroll", "Payroll"],
-                ["Hand Tools", "Hand Tools"],
-                ["Office Supplies", "Office Supplies"],
-                ["Maintenance", "Maintenance"],
-                ["Power Equipment", "Power Equipment"],
-                ["Vehicles", "Vehicles"],
-                ["Insurance", "Insurance"],
-                ["Marketing", "Marketing"],
-                ["Office and Admin", "Office and Admin"],
-                ["Safety Gear", "Safety Gear"],
-                ["Licensing & Certifications", "Licensing & Certifications"]
-            ];
+            var expenseOptions = lang === "es"
+                ? [
+                    ["Mulch", "Mantillo"],
+                    ["Stone", "Piedra"],
+                    ["Dump Fee", "Tarifa de Vertedero"],
+                    ["Plants", "Plantas"],
+                    ["Trees", "Árboles"],
+                    ["Soil", "Tierra"],
+                    ["Fertilizer", "Fertilizante"],
+                    ["Hardscape Material", "Material de Hardscape"],
+                    ["Labor", "Mano de Obra"],
+                    ["Fuel", "Combustible"],
+                    ["Equipment", "Equipo"],
+                    ["Delivery", "Entrega"],
+                    ["Misc", "Varios"],
+                    ["Payroll", "Nómina"],
+                    ["Hand Tools", "Herramientas Manuales"],
+                    ["Office Supplies", "Suministros de Oficina"],
+                    ["Maintenance", "Mantenimiento"],
+                    ["Power Equipment", "Equipo Motorizado"],
+                    ["Vehicles", "Vehículos"],
+                    ["Insurance", "Seguro"],
+                    ["Marketing", "Marketing"],
+                    ["Office and Admin", "Oficina y Administración"],
+                    ["Safety Gear", "Equipo de Seguridad"],
+                    ["Licensing & Certifications", "Licencias y Certificaciones"]
+                ]
+                : [
+                    ["Mulch", "Mulch"],
+                    ["Stone", "Stone"],
+                    ["Dump Fee", "Dump Fee"],
+                    ["Plants", "Plants"],
+                    ["Trees", "Trees"],
+                    ["Soil", "Soil"],
+                    ["Fertilizer", "Fertilizer"],
+                    ["Hardscape Material", "Hardscape Material"],
+                    ["Labor", "Labor"],
+                    ["Fuel", "Fuel"],
+                    ["Equipment", "Equipment"],
+                    ["Delivery", "Delivery"],
+                    ["Misc", "Misc"],
+                    ["Payroll", "Payroll"],
+                    ["Hand Tools", "Hand Tools"],
+                    ["Office Supplies", "Office Supplies"],
+                    ["Maintenance", "Maintenance"],
+                    ["Power Equipment", "Power Equipment"],
+                    ["Vehicles", "Vehicles"],
+                    ["Insurance", "Insurance"],
+                    ["Marketing", "Marketing"],
+                    ["Office and Admin", "Office and Admin"],
+                    ["Safety Gear", "Safety Gear"],
+                    ["Licensing & Certifications", "Licensing & Certifications"]
+                ];
 
-        var incomeOptions = lang === "es"
-            ? [
-                ["Income", "Ingreso"],
-                ["Invoice Payments", "Pagos de Facturas"],
-                ["Bank Deposits", "Depósitos Bancarios"]
-            ]
-            : [
-                ["Income", "Income"],
-                ["Invoice Payments", "Invoice Payments"],
-                ["Bank Deposits", "Bank Deposits"]
-            ];
+            var incomeOptions = lang === "es"
+                ? [
+                    ["Income", "Ingreso"],
+                    ["Invoice Payments", "Pagos de Facturas"],
+                    ["Bank Deposits", "Depósitos Bancarios"]
+                ]
+                : [
+                    ["Income", "Income"],
+                    ["Invoice Payments", "Invoice Payments"],
+                    ["Bank Deposits", "Bank Deposits"]
+                ];
 
-        var selected = typeEl.value === "income" ? incomeOptions : expenseOptions;
-        categoryEl.innerHTML = "";
+            var selected = typeEl.value === "income" ? incomeOptions : expenseOptions;
+            categoryEl.innerHTML = "";
 
-        selected.forEach(function(opt) {{
-            var el = document.createElement("option");
-            el.value = opt[0];
-            el.textContent = opt[1];
-            categoryEl.appendChild(el);
+            selected.forEach(function(opt) {{
+                var el = document.createElement("option");
+                el.value = opt[0];
+                el.textContent = opt[1];
+                categoryEl.appendChild(el);
+            }});
+        }}
+
+        document.addEventListener("DOMContentLoaded", function() {{
+            toggleManualCategories();
         }});
-    }}
-
-    document.addEventListener("DOMContentLoaded", function() {{
-        toggleManualCategories();
-    }});
     </script>
     """
 
@@ -2262,7 +2266,7 @@ def view_bookkeeping_entry(entry_id):
     _ensure_bookkeeping_check_structure()
     conn = get_db_connection()
     cid = session["company_id"]
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     try:
         row = _fetch_ledger_entry_by_id(conn, cid, entry_id)
@@ -2395,7 +2399,7 @@ def print_bookkeeping_check(entry_id):
     _ensure_bookkeeping_check_structure()
     conn = get_db_connection()
     cid = session["company_id"]
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     try:
         row = _fetch_ledger_entry_by_id(conn, cid, entry_id)
@@ -2519,7 +2523,7 @@ def export_bookkeeping_csv():
 def delete_bookkeeping_entry(entry_id):
     conn = get_db_connection()
     cid = session["company_id"]
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     try:
         ledger_cols = table_columns(conn, "ledger_entries")
@@ -2610,7 +2614,7 @@ def delete_bookkeeping_entry(entry_id):
 def bookkeeping_pnl():
     conn = get_db_connection()
     cid = session["company_id"]
-    lang = session.get("language_preference", "en")
+    lang = _get_lang()
 
     date_from = (request.args.get("date_from") or "").strip()
     date_to = (request.args.get("date_to") or "").strip()
