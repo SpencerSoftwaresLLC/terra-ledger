@@ -580,6 +580,13 @@ def ensure_user_permission_columns():
     conn.commit()
     conn.close()
 
+def ensure_employee_user_link_column():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    safe_add_column(cur, "employees", "user_id", "INTEGER")
+    conn.commit()
+    conn.close()
+
 
 def ensure_customer_name_columns():
     conn = get_db_connection()
@@ -1205,6 +1212,7 @@ def init_db():
     ensure_employee_time_entries_table()
     ensure_company_time_clock_columns()
     migrate_employee_flags_to_boolean()
+    ensure_employee_user_link_column()
 
 
 # -------------------------------------------------------------------

@@ -108,27 +108,22 @@ def _load_user_permission_map(conn, user_id, role):
 
 def _load_linked_employee_id(conn, company_id, user_id, email):
     email = (email or "").strip().lower()
-
     employee_id = None
 
     try:
-        employee_cols = [str(c) for c in conn.execute(
+        cols = conn.execute(
             """
             SELECT column_name
             FROM information_schema.columns
             WHERE table_name = 'employees'
             """
-        ).fetchall()]
-    except Exception:
-        employee_cols = []
+        ).fetchall()
 
-    try:
-        employee_keys = set()
-        for row in employee_cols:
-            if isinstance(row, dict):
-                employee_keys.update(str(v) for v in row.values())
-            else:
-                employee_keys.add(str(row))
+        employee_keys = {
+            str(row["column_name"]).strip()
+            for row in cols
+            if row and row["column_name"]
+        }
     except Exception:
         employee_keys = set()
 

@@ -219,8 +219,11 @@ def _employee_form_html(
     submit_label="Save Employee",
     page_title="Employee",
     lang="en",
+    user_options=None,
+    selected_user_id=None,
 ):
     employee = employee or {}
+    user_options = user_options or []
 
     def val(key, default=""):
         if hasattr(employee, "keys"):
@@ -259,6 +262,28 @@ def _employee_form_html(
             county_tax_year_default = employee["county_tax_effective_year"]
     else:
         county_tax_year_default = employee.get("county_tax_effective_year", current_year)
+
+    if selected_user_id is None:
+        if hasattr(employee, "keys"):
+            if "user_id" in employee.keys() and employee["user_id"] is not None:
+                selected_user_id = employee["user_id"]
+        else:
+            selected_user_id = employee.get("user_id")
+
+    selected_user_id = "" if selected_user_id in (None, "", 0, "0") else str(selected_user_id)
+
+    user_options_html = [
+        f"<option value=''>{_t(lang, 'None', 'Ninguno')}</option>"
+    ]
+    for user in user_options:
+        uid = escape(str(user["id"]))
+        uname = escape(str(user["name"] or ""))
+        uemail = escape(str(user["email"] or ""))
+        label = f"{uname} ({uemail})" if uemail else uname
+        is_selected = "selected" if str(user["id"]) == selected_user_id else ""
+        user_options_html.append(
+            f"<option value='{uid}' {is_selected}>{label}</option>"
+        )
 
     csrf_token_value = generate_csrf()
 
@@ -334,6 +359,15 @@ def _employee_form_html(
                     <div>
                         <label>{_t(lang, 'Hire Date', 'Fecha de Contratación')}</label>
                         <input name='hire_date' type='date' value='{val("hire_date")}'>
+                    </div>
+                    <div style='grid-column:1 / -1;'>
+                        <label>{_t(lang, 'Linked User Login', 'Usuario Vinculado')}</label>
+                        <select name='user_id'>
+                            {"".join(user_options_html)}
+                        </select>
+                        <div class='muted small' style='margin-top:6px;'>
+                            {_t(lang, 'Optional. Link this employee to a TerraLedger user login so they can use employee-specific features like self clock in / clock out.', 'Opcional. Vincula este empleado con un usuario de TerraLedger para que pueda usar funciones específicas del empleado como registrar su propia entrada / salida.')}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -952,11 +986,22 @@ def new_employee():
     ensure_employee_status_column()
     ensure_employee_local_tax_columns()
     ensure_employee_w2_columns()
+    ensure_employee_user_link_column()
 
     conn = get_db_connection()
     cid = session["company_id"]
 
     cols = get_employee_columns()
+
+    user_options = conn.execute(
+        """
+        SELECT id, name, email
+        FROM users
+        WHERE company_id = %s
+        ORDER BY name ASC, email ASC
+        """,
+        (cid,),
+    ).fetchall()
 
     if request.method == "POST":
         first_name = _clean_text(request.form.get("first_name"))
@@ -968,6 +1013,7 @@ def new_employee():
         position = _clean_text(request.form.get("position"))
         hire_date = _clean_text(request.form.get("hire_date"))
         pay_type = _clean_text(request.form.get("pay_type")) or "Hourly"
+        linked_user_id = _safe_int(request.form.get("user_id"))
 
         address_line_1 = _clean_text(request.form.get("address_line_1"))
         address_line_2 = _clean_text(request.form.get("address_line_2"))
@@ -1001,15 +1047,112 @@ def new_employee():
         if not first_name or not last_name:
             flash(_t(lang, "First and last name are required.", "El nombre y el apellido son obligatorios."))
             conn.close()
-            return render_page(
-                _employee_form_html(
-                    form_action=url_for("employees.new_employee"),
-                    submit_label=_t(lang, "Save Employee", "Guardar Empleado"),
-                    page_title=_t(lang, "Add Employee", "Agregar Empleado"),
-                    lang=lang,
-                ),
-                _t(lang, "Add Employee", "Agregar Empleado"),
-            )
+            try:
+                return render_page(
+                    _employee_form_html(
+                        form_action=url_for("employees.new_employee"),
+                        submit_label=_t(lang, "Save Employee", "Guardar Empleado"),
+                        page_title=_t(lang, "Add Employee", "Agregar Empleado"),
+                        lang=lang,
+                        user_options=user_options,
+                        selected_user_id=linked_user_id,
+                    ),
+                    _t(lang, "Add Employee", "Agregar Empleado"),
+                )
+            except TypeError:
+                return render_page(
+                    _employee_form_html(
+                        form_action=url_for("employees.new_employee"),
+                        submit_label=_t(lang, "Save Employee", "Guardar Empleado"),
+                        page_title=_t(lang, "Add Employee", "Agregar Empleado"),
+                        lang=lang,
+                    ),
+                    _t(lang, "Add Employee", "Agregar Empleado"),
+                )
+
+        if linked_user_id:
+            linked_user = conn.execute(
+                """
+                SELECT id
+                FROM users
+                WHERE id = %s
+                  AND company_id = %s
+                """,
+                (linked_user_id, cid),
+            ).fetchone()
+
+            if not linked_user:
+                conn.close()
+                flash(_t(lang, "Selected user was not found.", "El usuario seleccionado no fue encontrado."))
+                try:
+                    return render_page(
+                        _employee_form_html(
+                            form_action=url_for("employees.new_employee"),
+                            submit_label=_t(lang, "Save Employee", "Guardar Empleado"),
+                            page_title=_t(lang, "Add Employee", "Agregar Empleado"),
+                            lang=lang,
+                            user_options=user_options,
+                            selected_user_id=linked_user_id,
+                        ),
+                        _t(lang, "Add Employee", "Agregar Empleado"),
+                    )
+                except TypeError:
+                    return render_page(
+                        _employee_form_html(
+                            form_action=url_for("employees.new_employee"),
+                            submit_label=_t(lang, "Save Employee", "Guardar Empleado"),
+                            page_title=_t(lang, "Add Employee", "Agregar Empleado"),
+                            lang=lang,
+                        ),
+                        _t(lang, "Add Employee", "Agregar Empleado"),
+                    )
+
+            if "user_id" in cols:
+                existing_link = conn.execute(
+                    """
+                    SELECT id, full_name, first_name, last_name
+                    FROM employees
+                    WHERE company_id = %s
+                      AND user_id = %s
+                    LIMIT 1
+                    """,
+                    (cid, linked_user_id),
+                ).fetchone()
+
+                if existing_link:
+                    existing_name = (
+                        (existing_link["full_name"] or "").strip()
+                        or f"{(existing_link['first_name'] or '').strip()} {(existing_link['last_name'] or '').strip()}".strip()
+                        or f"Employee #{existing_link['id']}"
+                    )
+                    conn.close()
+                    flash(_t(
+                        lang,
+                        f"That user is already linked to {existing_name}.",
+                        f"Ese usuario ya está vinculado a {existing_name}.",
+                    ))
+                    try:
+                        return render_page(
+                            _employee_form_html(
+                                form_action=url_for("employees.new_employee"),
+                                submit_label=_t(lang, "Save Employee", "Guardar Empleado"),
+                                page_title=_t(lang, "Add Employee", "Agregar Empleado"),
+                                lang=lang,
+                                user_options=user_options,
+                                selected_user_id=linked_user_id,
+                            ),
+                            _t(lang, "Add Employee", "Agregar Empleado"),
+                        )
+                    except TypeError:
+                        return render_page(
+                            _employee_form_html(
+                                form_action=url_for("employees.new_employee"),
+                                submit_label=_t(lang, "Save Employee", "Guardar Empleado"),
+                                page_title=_t(lang, "Add Employee", "Agregar Empleado"),
+                                lang=lang,
+                            ),
+                            _t(lang, "Add Employee", "Agregar Empleado"),
+                        )
 
         full_name = " ".join(part for part in [first_name, middle_name, last_name, suffix] if part).strip()
 
@@ -1030,6 +1173,7 @@ def new_employee():
 
         data = {
             "company_id": cid,
+            "user_id": linked_user_id,
             "first_name": first_name,
             "middle_name": middle_name,
             "last_name": last_name,
@@ -1072,6 +1216,7 @@ def new_employee():
 
         ordered_columns = [
             "company_id",
+            "user_id",
             "first_name",
             "middle_name",
             "last_name",
@@ -1129,15 +1274,29 @@ def new_employee():
         return redirect(url_for("employees.employees"))
 
     conn.close()
-    return render_page(
-        _employee_form_html(
-            form_action=url_for("employees.new_employee"),
-            submit_label=_t(lang, "Save Employee", "Guardar Empleado"),
-            page_title=_t(lang, "Add Employee", "Agregar Empleado"),
-            lang=lang,
-        ),
-        _t(lang, "Add Employee", "Agregar Empleado"),
-    )
+
+    try:
+        return render_page(
+            _employee_form_html(
+                form_action=url_for("employees.new_employee"),
+                submit_label=_t(lang, "Save Employee", "Guardar Empleado"),
+                page_title=_t(lang, "Add Employee", "Agregar Empleado"),
+                lang=lang,
+                user_options=user_options,
+                selected_user_id=None,
+            ),
+            _t(lang, "Add Employee", "Agregar Empleado"),
+        )
+    except TypeError:
+        return render_page(
+            _employee_form_html(
+                form_action=url_for("employees.new_employee"),
+                submit_label=_t(lang, "Save Employee", "Guardar Empleado"),
+                page_title=_t(lang, "Add Employee", "Agregar Empleado"),
+                lang=lang,
+            ),
+            _t(lang, "Add Employee", "Agregar Empleado"),
+        )
 
 
 @employees_bp.route("/employees/<int:employee_id>")
