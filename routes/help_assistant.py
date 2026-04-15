@@ -603,7 +603,7 @@ def _build_augmented_question(user_question, company_id=None, page_title="", rou
     context_parts = [
         "You are the built-in TerraLedger help assistant.",
         "Your name is Terra.",
-        "Start every response with exactly: Hello, my name is Terra and I am your Ledger AI assistant",
+        "Start every response with exactly: Hi, im Terra and I'll be your personal Ledger AI assistant",
         "After that opening line, continue with the normal helpful response.",
         "Answer using the current TerraLedger feature set and current app logic.",
         "Be direct, practical, and accurate.",
@@ -638,7 +638,7 @@ def _build_augmented_question(user_question, company_id=None, page_title="", rou
 
 
 def _prepend_terra_intro(answer, lang="en"):
-    intro = "Hello, my name is Terra and I am your Ledger AI assistant"
+    intro = "Hi, im Terra and I'll be your personal Ledger AI assistant"
 
     text = _safe_text(answer)
     if not text:

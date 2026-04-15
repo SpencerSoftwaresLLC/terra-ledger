@@ -102,7 +102,7 @@ async function clearHelpAssistantChat() {
     if (box) {
         box.innerHTML = `
             <div class="help-assistant-message assistant">
-                Hi — I’m your TerraLedger assistant. Ask me how to do anything in the system.
+                Hi, I’m Terra and I’ll be your personal Ledger AI assistant.
             </div>
         `;
     }
