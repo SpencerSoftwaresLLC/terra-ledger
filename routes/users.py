@@ -1,11 +1,12 @@
 from flask import Blueprint, request, redirect, url_for, session, flash
 from werkzeug.security import generate_password_hash
+from flask_wtf.csrf import generate_csrf
 from html import escape
 
-from db import get_db_connection, ensure_user_permission_columns
+from db import get_db_connection, ensure_user_permission_columns, table_columns
 from decorators import login_required, require_permission, subscription_required
 from permissions import get_role_defaults
-from page_helpers import render_page, csrf_input
+from page_helpers import render_page
 
 users_bp = Blueprint("users", __name__)
 
@@ -61,6 +62,8 @@ def sync_missing_user_permissions_for_company(company_id):
     ]
 
     try:
+        existing_cols = set(table_columns(conn, "users"))
+
         users = conn.execute(
             "SELECT * FROM users WHERE company_id = %s",
             (company_id,),
@@ -76,6 +79,9 @@ def sync_missing_user_permissions_for_company(company_id):
             user_keys = set(user.keys()) if hasattr(user, "keys") else set()
 
             for field in permission_fields:
+                if field not in existing_cols:
+                    continue
+
                 current_value = user[field] if field in user_keys else None
                 if current_value is None:
                     update_parts.append(f"{field} = %s")
@@ -248,12 +254,15 @@ def users():
         )
 
         if not is_current_user:
+            toggle_csrf = generate_csrf()
+            delete_csrf = generate_csrf()
+
             toggle_button = f"""
             <form method='post'
                   action='{url_for("users.toggle_user_active", user_id=r["id"])}'
                   class='inline-form'
                   onsubmit="return confirm({confirm_toggle!r});">
-                {csrf_input()}
+                <input type="hidden" name="csrf_token" value="{toggle_csrf}">
                 <button class='btn warning small' type='submit'>{deactivate_label if r["is_active"] else activate_label}</button>
             </form>
             """
@@ -262,7 +271,7 @@ def users():
                   action='{url_for("users.delete_user", user_id=r["id"])}'
                   class='inline-form'
                   onsubmit="return confirm({confirm_delete!r});">
-                {csrf_input()}
+                <input type="hidden" name="csrf_token" value="{delete_csrf}">
                 <button class='btn danger small' type='submit'>{delete_label}</button>
             </form>
             """
@@ -335,6 +344,9 @@ def users():
     back_to_settings_btn = _t("Back to Settings", "Volver a Configuración")
     sync_permissions_btn = _t("Sync Permissions", "Sincronizar Permisos")
     no_users_found = _t("No users found.", "No se encontraron usuarios.")
+
+    sync_csrf = generate_csrf()
+    add_user_csrf = generate_csrf()
 
     content = f"""
     <style>
@@ -513,7 +525,7 @@ def users():
             <p class='muted'>{page_subtitle}</p>
 
             <form method="post" action="{url_for('users.sync_user_permissions')}" style="margin-top:14px;">
-                {csrf_input()}
+                <input type="hidden" name="csrf_token" value="{sync_csrf}">
                 <button class="btn secondary" type="submit">{sync_permissions_btn}</button>
             </form>
         </div>
@@ -521,7 +533,7 @@ def users():
         <div class='card'>
             <h2>{add_user_title}</h2>
             <form method='post'>
-                {csrf_input()}
+                <input type="hidden" name="csrf_token" value="{add_user_csrf}">
                 <div class='grid'>
                     <div>
                         <label>{name_label}</label>
@@ -692,13 +704,15 @@ def edit_user_permissions(user_id):
     save_btn = _t("Save Permissions", "Guardar Permisos")
     cancel_btn = _t("Cancel", "Cancelar")
 
+    edit_csrf = generate_csrf()
+
     content = f"""
     <div class='card'>
         <h1>{page_title}</h1>
         <p class='muted'><strong>{user_label}:</strong> {escape(user['name'] or '-')} ({escape(user['email'] or '-')})</p>
 
         <form method='post'>
-            {csrf_input()}
+            <input type="hidden" name="csrf_token" value="{edit_csrf}">
             <div class='grid'>
                 <div>
                     <label>{role_label}</label>
