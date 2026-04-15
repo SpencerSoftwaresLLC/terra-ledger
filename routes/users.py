@@ -39,6 +39,8 @@ def _role_label(role):
 
 
 def sync_missing_user_permissions_for_company(company_id):
+    ensure_user_permission_columns()
+
     conn = get_db_connection()
     updated = 0
 
@@ -52,6 +54,7 @@ def sync_missing_user_permissions_for_company(company_id):
         "can_manage_customers",
         "can_manage_invoices",
         "can_manage_settings",
+        "can_manage_employees",
         "can_manage_messages",
         "can_manage_payments",
         "can_view_calendar",
@@ -70,8 +73,11 @@ def sync_missing_user_permissions_for_company(company_id):
             update_parts = []
             params = []
 
+            user_keys = set(user.keys()) if hasattr(user, "keys") else set()
+
             for field in permission_fields:
-                if field not in user.keys() or user[field] is None:
+                current_value = user[field] if field in user_keys else None
+                if current_value is None:
                     update_parts.append(f"{field} = %s")
                     params.append(int(defaults.get(field, 0)))
 
@@ -327,6 +333,7 @@ def users():
     actions_label = _t("Actions", "Acciones")
     add_user_btn = _t("Add User", "Agregar Usuario")
     back_to_settings_btn = _t("Back to Settings", "Volver a Configuración")
+    sync_permissions_btn = _t("Sync Permissions", "Sincronizar Permisos")
     no_users_found = _t("No users found.", "No se encontraron usuarios.")
 
     content = f"""
@@ -504,6 +511,11 @@ def users():
         <div class='card'>
             <h1>{page_title}</h1>
             <p class='muted'>{page_subtitle}</p>
+
+            <form method="post" action="{url_for('users.sync_user_permissions')}" style="margin-top:14px;">
+                <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
+                <button class="btn secondary" type="submit">{sync_permissions_btn}</button>
+            </form>
         </div>
 
         <div class='card'>
@@ -664,6 +676,15 @@ def edit_user_permissions(user_id):
     def checked(val):
         return "checked" if val else ""
 
+    def user_perm(name, default=0):
+        try:
+            if name in user.keys():
+                value = user[name]
+                return default if value is None else value
+        except Exception:
+            pass
+        return default
+
     page_title = _t("Edit Permissions", "Editar Permisos")
     user_label = _t("User", "Usuario")
     role_label = _t("Role", "Rol")
@@ -695,19 +716,19 @@ def edit_user_permissions(user_id):
                 <h3 style='margin-top:0;'>{permissions_title}</h3>
 
                 <div class='grid'>
-                    <label><input type='checkbox' name='can_manage_users' {checked(user['can_manage_users'])}> {_t("Manage Users", "Administrar Usuarios")}</label>
-                    <label><input type='checkbox' name='can_view_payroll' {checked(user['can_view_payroll'])}> {_t("View Payroll", "Ver Nómina")}</label>
-                    <label><input type='checkbox' name='can_manage_payroll' {checked(user['can_manage_payroll'])}> {_t("Manage Payroll", "Administrar Nómina")}</label>
-                    <label><input type='checkbox' name='can_view_bookkeeping' {checked(user['can_view_bookkeeping'])}> {_t("View Bookkeeping", "Ver Contabilidad")}</label>
-                    <label><input type='checkbox' name='can_manage_bookkeeping' {checked(user['can_manage_bookkeeping'])}> {_t("Manage Bookkeeping", "Administrar Contabilidad")}</label>
-                    <label><input type='checkbox' name='can_manage_jobs' {checked(user['can_manage_jobs'])}> {_t("Manage Jobs", "Administrar Trabajos")}</label>
-                    <label><input type='checkbox' name='can_manage_customers' {checked(user['can_manage_customers'])}> {_t("Manage Customers", "Administrar Clientes")}</label>
-                    <label><input type='checkbox' name='can_manage_invoices' {checked(user['can_manage_invoices'])}> {_t("Manage Invoices", "Administrar Facturas")}</label>
-                    <label><input type='checkbox' name='can_manage_settings' {checked(user['can_manage_settings'])}> {_t("Manage Settings", "Administrar Configuración")}</label>
-                    <label><input type='checkbox' name='can_manage_employees' {checked(user['can_manage_employees'])}> {_t("Manage Employees", "Administrar Empleados")}</label>
-                    <label><input type='checkbox' name='can_manage_messages' {checked(user['can_manage_messages'])}> {_t("Manage Messages", "Administrar Mensajes")}</label>
-                    <label><input type='checkbox' name='can_manage_payments' {checked(user['can_manage_payments'])}> {_t("Manage Payments", "Administrar Pagos")}</label>
-                    <label><input type='checkbox' name='can_view_calendar' {checked(user['can_view_calendar'])}> {_t("View Calendar", "Ver Calendario")}</label>
+                    <label><input type='checkbox' name='can_manage_users' {checked(user_perm('can_manage_users'))}> {_t("Manage Users", "Administrar Usuarios")}</label>
+                    <label><input type='checkbox' name='can_view_payroll' {checked(user_perm('can_view_payroll'))}> {_t("View Payroll", "Ver Nómina")}</label>
+                    <label><input type='checkbox' name='can_manage_payroll' {checked(user_perm('can_manage_payroll'))}> {_t("Manage Payroll", "Administrar Nómina")}</label>
+                    <label><input type='checkbox' name='can_view_bookkeeping' {checked(user_perm('can_view_bookkeeping'))}> {_t("View Bookkeeping", "Ver Contabilidad")}</label>
+                    <label><input type='checkbox' name='can_manage_bookkeeping' {checked(user_perm('can_manage_bookkeeping'))}> {_t("Manage Bookkeeping", "Administrar Contabilidad")}</label>
+                    <label><input type='checkbox' name='can_manage_jobs' {checked(user_perm('can_manage_jobs'))}> {_t("Manage Jobs", "Administrar Trabajos")}</label>
+                    <label><input type='checkbox' name='can_manage_customers' {checked(user_perm('can_manage_customers'))}> {_t("Manage Customers", "Administrar Clientes")}</label>
+                    <label><input type='checkbox' name='can_manage_invoices' {checked(user_perm('can_manage_invoices'))}> {_t("Manage Invoices", "Administrar Facturas")}</label>
+                    <label><input type='checkbox' name='can_manage_settings' {checked(user_perm('can_manage_settings'))}> {_t("Manage Settings", "Administrar Configuración")}</label>
+                    <label><input type='checkbox' name='can_manage_employees' {checked(user_perm('can_manage_employees'))}> {_t("Manage Employees", "Administrar Empleados")}</label>
+                    <label><input type='checkbox' name='can_manage_messages' {checked(user_perm('can_manage_messages'))}> {_t("Manage Messages", "Administrar Mensajes")}</label>
+                    <label><input type='checkbox' name='can_manage_payments' {checked(user_perm('can_manage_payments'))}> {_t("Manage Payments", "Administrar Pagos")}</label>
+                    <label><input type='checkbox' name='can_view_calendar' {checked(user_perm('can_view_calendar', 1))}> {_t("View Calendar", "Ver Calendario")}</label>
                 </div>
             </div>
 
@@ -812,11 +833,15 @@ def delete_user(user_id):
     flash(_t("User deleted.", "Usuario eliminado."))
     return redirect(url_for("users.users"))
 
+
 @users_bp.route("/users/sync-permissions", methods=["POST"])
 @login_required
 @subscription_required
 @require_permission("can_manage_users")
 def sync_user_permissions():
     updated = sync_missing_user_permissions_for_company(session["company_id"])
-    flash(f"Permissions synced for {updated} user(s).")
+    flash(_t(
+        f"Permissions synced for {updated} user(s).",
+        f"Permisos sincronizados para {updated} usuario(s).",
+    ))
     return redirect(url_for("users.users"))
