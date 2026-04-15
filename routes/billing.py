@@ -98,12 +98,14 @@ def get_stripe_config():
 
 def _get_company(company_id):
     conn = get_db_connection()
-    row = conn.execute(
-        "SELECT * FROM companies WHERE id = %s",
-        (company_id,),
-    ).fetchone()
-    conn.close()
-    return row
+    try:
+        row = conn.execute(
+            "SELECT * FROM companies WHERE id = %s",
+            (company_id,),
+        ).fetchone()
+        return row
+    finally:
+        conn.close()
 
 
 def _get_user_email():
@@ -201,6 +203,7 @@ def _find_best_subscription_for_customer(customer_id):
         "unpaid": 4,
         "incomplete": 5,
         "canceled": 6,
+        "cancelled": 6,
         "incomplete_expired": 7,
         "paused": 8,
     }
@@ -212,6 +215,29 @@ def _find_best_subscription_for_customer(customer_id):
 
     items = sorted(items, key=sort_key)
     return items[0]
+
+
+def _find_best_customer_by_email(email):
+    email = (email or "").strip().lower()
+    if not email:
+        return None
+
+    try:
+        customers = stripe.Customer.list(email=email, limit=20)
+    except Exception as e:
+        print("STRIPE CUSTOMER SEARCH FAILED:", e)
+        return None
+
+    data = customers.get("data", []) if customers else []
+    if not data:
+        return None
+
+    def customer_sort_key(c):
+        created = c.get("created") or 0
+        return -created
+
+    data = sorted(data, key=customer_sort_key)
+    return data[0]
 
 
 def _build_parent_pricing_url(plan):
@@ -336,18 +362,147 @@ def _sync_subscription_from_stripe(company_id, stripe_subscription_id):
     )
 
 
+def _link_customer_only(company_id, stripe_customer_id):
+    if not company_id or not stripe_customer_id:
+        return
+
+    upsert_company_subscription(
+        company_id=company_id,
+        stripe_customer_id=stripe_customer_id,
+        stripe_subscription_id=None,
+        stripe_price_id=None,
+        plan_name="Subscription",
+        billing_interval=None,
+        amount_cents=None,
+        status="inactive",
+        auto_renew=1,
+        cancel_at_period_end=0,
+        current_period_start=None,
+        current_period_end=None,
+        payment_method_type=None,
+        payment_method_last4=None,
+        payment_method_label=None,
+    )
+
+
+def _find_company_id_by_customer(customer_id):
+    if not customer_id:
+        return None
+
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT company_id FROM subscriptions WHERE stripe_customer_id = %s",
+            (customer_id,),
+        ).fetchone()
+        return row["company_id"] if row else None
+    finally:
+        conn.close()
+
+
+def _find_company_id_by_subscription(subscription_id):
+    if not subscription_id:
+        return None
+
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT company_id FROM subscriptions WHERE stripe_subscription_id = %s",
+            (subscription_id,),
+        ).fetchone()
+        return row["company_id"] if row else None
+    finally:
+        conn.close()
+
+
+def _find_company_id_by_user_email(email):
+    email = (email or "").strip().lower()
+    if not email:
+        return None
+
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT company_id
+            FROM users
+            WHERE LOWER(email) = %s
+            ORDER BY id
+            LIMIT 1
+            """,
+            (email,),
+        ).fetchone()
+        return row["company_id"] if row else None
+    finally:
+        conn.close()
+
+
+def _resolve_company_id_for_checkout_obj(obj):
+    company_id = None
+    metadata = obj.get("metadata") or {}
+
+    raw_company_id = metadata.get("company_id")
+    if raw_company_id:
+        try:
+            company_id = int(raw_company_id)
+        except Exception:
+            company_id = None
+
+    if not company_id and obj.get("client_reference_id"):
+        try:
+            company_id = int(obj.get("client_reference_id"))
+        except Exception:
+            company_id = None
+
+    customer_id = obj.get("customer")
+    subscription_id = obj.get("subscription")
+
+    if not company_id and subscription_id:
+        company_id = _find_company_id_by_subscription(subscription_id)
+
+    if not company_id and customer_id:
+        company_id = _find_company_id_by_customer(customer_id)
+
+    checkout_email = None
+    customer_details = obj.get("customer_details") or {}
+
+    if customer_details.get("email"):
+        checkout_email = (customer_details.get("email") or "").strip().lower()
+
+    if not checkout_email and obj.get("customer_email"):
+        checkout_email = (obj.get("customer_email") or "").strip().lower()
+
+    if not checkout_email and metadata.get("user_email"):
+        checkout_email = (metadata.get("user_email") or "").strip().lower()
+
+    if not checkout_email and customer_id:
+        try:
+            stripe_customer = stripe.Customer.retrieve(customer_id)
+            if stripe_customer and stripe_customer.get("email"):
+                checkout_email = (stripe_customer.get("email") or "").strip().lower()
+        except Exception as e:
+            print("Could not retrieve Stripe customer email:", e)
+
+    if not company_id and checkout_email:
+        company_id = _find_company_id_by_user_email(checkout_email)
+
+    return company_id, checkout_email
+
+
 def _refresh_company_subscription_from_stripe(company_id):
     cfg = get_stripe_config()
     if not cfg["enabled"]:
         return False, _t("Stripe is not configured.", "Stripe no está configurado.")
 
     sub = get_company_subscription(company_id)
+    user_email = _get_user_email()
 
-    if not sub:
-        return False, _t("No subscription record found yet.", "Todavía no se encontró un registro de suscripción.")
+    stripe_subscription_id = None
+    stripe_customer_id = None
 
-    stripe_subscription_id = sub["stripe_subscription_id"] if "stripe_subscription_id" in sub.keys() else None
-    stripe_customer_id = sub["stripe_customer_id"] if "stripe_customer_id" in sub.keys() else None
+    if sub:
+        stripe_subscription_id = sub["stripe_subscription_id"] if "stripe_subscription_id" in sub.keys() else None
+        stripe_customer_id = sub["stripe_customer_id"] if "stripe_customer_id" in sub.keys() else None
 
     try:
         if stripe_subscription_id:
@@ -359,6 +514,25 @@ def _refresh_company_subscription_from_stripe(company_id):
             if best and best.get("id"):
                 _sync_subscription_from_stripe(company_id, best["id"])
                 return True, _t("Subscription status refreshed.", "El estado de la suscripción fue actualizado.")
+
+        if user_email:
+            best_customer = _find_best_customer_by_email(user_email)
+            if best_customer and best_customer.get("id"):
+                customer_id = best_customer.get("id")
+
+                best_sub = _find_best_subscription_for_customer(customer_id)
+                if best_sub and best_sub.get("id"):
+                    _sync_subscription_from_stripe(company_id, best_sub["id"])
+                    return True, _t(
+                        "Subscription status refreshed from Stripe.",
+                        "El estado de la suscripción fue actualizado desde Stripe."
+                    )
+
+                _link_customer_only(company_id, customer_id)
+                return False, _t(
+                    "A Stripe customer was found, but no active subscription was found yet.",
+                    "Se encontró un cliente de Stripe, pero todavía no se encontró una suscripción activa."
+                )
 
         return False, _t(
             "No Stripe subscription was found for this account.",
@@ -888,93 +1062,32 @@ def stripe_webhook():
     print("WEBHOOK METADATA:", obj.get("metadata"))
     print("WEBHOOK CLIENT_REFERENCE_ID:", obj.get("client_reference_id"))
 
-    def company_id_from_customer(customer_id):
-        conn = get_db_connection()
-        row = conn.execute(
-            "SELECT company_id FROM subscriptions WHERE stripe_customer_id = %s",
-            (customer_id,)
-        ).fetchone()
-        conn.close()
-        return row["company_id"] if row else None
-
-    def company_id_from_user_email(email):
-        if not email:
-            return None
-
-        conn = get_db_connection()
-        row = conn.execute(
-            "SELECT company_id FROM users WHERE LOWER(email) = %s ORDER BY id LIMIT 1",
-            ((email or "").strip().lower(),)
-        ).fetchone()
-        conn.close()
-        return row["company_id"] if row else None
-
     if event_type == "checkout.session.completed":
         customer_id = obj.get("customer")
         subscription_id = obj.get("subscription")
 
-        company_id = None
-        metadata = obj.get("metadata") or {}
-
-        if metadata.get("company_id"):
-            try:
-                company_id = int(metadata.get("company_id"))
-            except Exception:
-                company_id = None
-
-        if not company_id and obj.get("client_reference_id"):
-            try:
-                company_id = int(obj.get("client_reference_id"))
-            except Exception:
-                company_id = None
-
-        checkout_email = None
-
-        customer_details = obj.get("customer_details") or {}
-        if customer_details.get("email"):
-            checkout_email = (customer_details.get("email") or "").strip().lower()
-
-        if not checkout_email and obj.get("customer_email"):
-            checkout_email = (obj.get("customer_email") or "").strip().lower()
-
-        if not checkout_email and customer_id:
-            try:
-                stripe_customer = stripe.Customer.retrieve(customer_id)
-                if stripe_customer and stripe_customer.get("email"):
-                    checkout_email = (stripe_customer.get("email") or "").strip().lower()
-            except Exception as e:
-                print("Could not retrieve Stripe customer email:", e)
-
-        if not company_id and checkout_email:
-            company_id = company_id_from_user_email(checkout_email)
+        company_id, checkout_email = _resolve_company_id_for_checkout_obj(obj)
 
         print("checkout.session.completed resolved company_id:", company_id)
         print("checkout.session.completed resolved email:", checkout_email)
 
         if company_id:
             try:
+                if customer_id:
+                    _link_customer_only(company_id, customer_id)
+
                 if subscription_id:
                     _sync_subscription_from_stripe(company_id, subscription_id)
                     print("checkout.session.completed sync success:", company_id, subscription_id)
+                elif customer_id:
+                    best = _find_best_subscription_for_customer(customer_id)
+                    if best and best.get("id"):
+                        _sync_subscription_from_stripe(company_id, best["id"])
+                        print("checkout.session.completed best-sub sync success:", company_id, best["id"])
+                    else:
+                        print("checkout.session.completed customer linked but no subscription found yet:", company_id, customer_id)
                 else:
-                    upsert_company_subscription(
-                        company_id=company_id,
-                        stripe_customer_id=customer_id,
-                        stripe_subscription_id=None,
-                        stripe_price_id=None,
-                        plan_name="Subscription",
-                        billing_interval=None,
-                        amount_cents=None,
-                        status="active",
-                        auto_renew=1,
-                        cancel_at_period_end=0,
-                        current_period_start=None,
-                        current_period_end=None,
-                        payment_method_type=None,
-                        payment_method_last4=None,
-                        payment_method_label=None,
-                    )
-                    print("checkout.session.completed linked customer only:", company_id, customer_id)
+                    print("checkout.session.completed no customer or subscription found to sync")
             except Exception as e:
                 print("checkout.session.completed sync failed:", e)
         else:
@@ -985,20 +1098,69 @@ def stripe_webhook():
         "customer.subscription.updated",
         "customer.subscription.deleted",
     ):
-        company_id = company_id_from_customer(obj.get("customer"))
+        company_id = None
+
+        if obj.get("id"):
+            company_id = _find_company_id_by_subscription(obj.get("id"))
+
+        if not company_id and obj.get("customer"):
+            company_id = _find_company_id_by_customer(obj.get("customer"))
+
+        metadata = obj.get("metadata") or {}
+        if not company_id and metadata.get("company_id"):
+            try:
+                company_id = int(metadata.get("company_id"))
+            except Exception:
+                company_id = None
+
+        if not company_id and obj.get("customer"):
+            try:
+                stripe_customer = stripe.Customer.retrieve(obj.get("customer"))
+                customer_email = (stripe_customer.get("email") or "").strip().lower() if stripe_customer else ""
+                if customer_email:
+                    company_id = _find_company_id_by_user_email(customer_email)
+            except Exception as e:
+                print("subscription event customer email lookup failed:", e)
+
         if company_id and obj.get("id"):
             try:
+                if obj.get("customer"):
+                    _link_customer_only(company_id, obj.get("customer"))
                 _sync_subscription_from_stripe(company_id, obj["id"])
                 print("subscription sync success:", company_id, obj["id"])
             except Exception as e:
                 print("subscription sync failed:", e)
+        else:
+            print("subscription event could not resolve company_id")
 
     elif event_type in (
         "invoice.paid",
         "invoice.payment_succeeded",
         "invoice.payment_failed",
     ):
-        company_id = company_id_from_customer(obj.get("customer"))
+        company_id = None
+
+        if obj.get("subscription"):
+            company_id = _find_company_id_by_subscription(obj.get("subscription"))
+
+        if not company_id and obj.get("customer"):
+            company_id = _find_company_id_by_customer(obj.get("customer"))
+
+        if not company_id and obj.get("customer"):
+            try:
+                stripe_customer = stripe.Customer.retrieve(obj.get("customer"))
+                customer_email = (stripe_customer.get("email") or "").strip().lower() if stripe_customer else ""
+                if customer_email:
+                    company_id = _find_company_id_by_user_email(customer_email)
+            except Exception as e:
+                print("invoice event customer email lookup failed:", e)
+
+        if company_id and obj.get("customer"):
+            try:
+                _link_customer_only(company_id, obj.get("customer"))
+            except Exception as e:
+                print("invoice event customer link failed:", e)
+
         if company_id:
             event_date = None
             if obj.get("created"):
@@ -1021,5 +1183,15 @@ def stripe_webhook():
                 print("invoice event saved:", event_type, company_id)
             except Exception as e:
                 print("invoice event save failed:", e)
+
+            invoice_subscription_id = obj.get("subscription")
+            if invoice_subscription_id:
+                try:
+                    _sync_subscription_from_stripe(company_id, invoice_subscription_id)
+                    print("invoice-triggered subscription sync success:", company_id, invoice_subscription_id)
+                except Exception as e:
+                    print("invoice-triggered subscription sync failed:", e)
+        else:
+            print("invoice event could not resolve company_id")
 
     return {"ok": True}
