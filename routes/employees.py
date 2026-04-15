@@ -13,11 +13,13 @@ from db import (
     ensure_employee_time_entries_table,
     ensure_company_profile_table,
     ensure_company_time_clock_columns,
+    ensure_employee_user_link_column
 )
 from decorators import login_required, require_permission, subscription_required
 from page_helpers import render_page
 from utils.time_clock_emailing import send_pay_period_summary_emails_for_company
 from utils.time_clock import get_previous_pay_period
+
 
 
 employees_bp = Blueprint("employees", __name__)
