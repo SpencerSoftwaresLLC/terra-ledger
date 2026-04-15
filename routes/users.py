@@ -5,7 +5,7 @@ from html import escape
 from db import get_db_connection, ensure_user_permission_columns
 from decorators import login_required, require_permission, subscription_required
 from permissions import get_role_defaults
-from page_helpers import render_page
+from page_helpers import render_page, csrf_input
 
 users_bp = Blueprint("users", __name__)
 
@@ -253,7 +253,7 @@ def users():
                   action='{url_for("users.toggle_user_active", user_id=r["id"])}'
                   class='inline-form'
                   onsubmit="return confirm({confirm_toggle!r});">
-                <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
+                {csrf_input()}
                 <button class='btn warning small' type='submit'>{deactivate_label if r["is_active"] else activate_label}</button>
             </form>
             """
@@ -262,7 +262,7 @@ def users():
                   action='{url_for("users.delete_user", user_id=r["id"])}'
                   class='inline-form'
                   onsubmit="return confirm({confirm_delete!r});">
-                <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
+                {csrf_input()}
                 <button class='btn danger small' type='submit'>{delete_label}</button>
             </form>
             """
@@ -513,7 +513,7 @@ def users():
             <p class='muted'>{page_subtitle}</p>
 
             <form method="post" action="{url_for('users.sync_user_permissions')}" style="margin-top:14px;">
-                <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
+                {csrf_input()}
                 <button class="btn secondary" type="submit">{sync_permissions_btn}</button>
             </form>
         </div>
@@ -521,7 +521,7 @@ def users():
         <div class='card'>
             <h2>{add_user_title}</h2>
             <form method='post'>
-                <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
+                {csrf_input()}
                 <div class='grid'>
                     <div>
                         <label>{name_label}</label>
@@ -698,7 +698,7 @@ def edit_user_permissions(user_id):
         <p class='muted'><strong>{user_label}:</strong> {escape(user['name'] or '-')} ({escape(user['email'] or '-')})</p>
 
         <form method='post'>
-            <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
+            {csrf_input()}
             <div class='grid'>
                 <div>
                     <label>{role_label}</label>
