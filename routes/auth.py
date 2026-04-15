@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from db import get_db_connection, create_owner_user, ensure_password_reset_table
 from page_helpers import render_public_page, csrf_input
 from utils.emailing import send_company_email
+from permissions import get_role_defaults
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -65,6 +66,162 @@ def _get_company_language(company_id):
         return language
     finally:
         conn.close()
+
+
+def _safe_int(value, default=None):
+    try:
+        if value is None or value == "":
+            return default
+        return int(value)
+    except Exception:
+        return default
+
+
+def _session_role_defaults(role):
+    defaults = get_role_defaults(role or "")
+    return {k: int(v or 0) for k, v in defaults.items()}
+
+
+def _load_user_permission_map(conn, user_id, role):
+    permission_map = _session_role_defaults(role)
+
+    try:
+        rows = conn.execute(
+            """
+            SELECT permission_name, allowed
+            FROM user_permissions
+            WHERE user_id = %s
+            """,
+            (user_id,),
+        ).fetchall()
+    except Exception:
+        rows = []
+
+    for row in rows:
+        name = str(row["permission_name"] or "").strip()
+        if not name:
+            continue
+        permission_map[name] = int(row["allowed"] or 0)
+
+    return permission_map
+
+
+def _load_linked_employee_id(conn, company_id, user_id, email):
+    email = (email or "").strip().lower()
+
+    employee_id = None
+
+    try:
+        employee_cols = [str(c) for c in conn.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'employees'
+            """
+        ).fetchall()]
+    except Exception:
+        employee_cols = []
+
+    try:
+        employee_keys = set()
+        for row in employee_cols:
+            if isinstance(row, dict):
+                employee_keys.update(str(v) for v in row.values())
+            else:
+                employee_keys.add(str(row))
+    except Exception:
+        employee_keys = set()
+
+    if not employee_keys:
+        try:
+            sample = conn.execute(
+                "SELECT * FROM employees LIMIT 1"
+            ).fetchone()
+            if sample:
+                employee_keys = set(sample.keys())
+        except Exception:
+            employee_keys = set()
+
+    link_user_id = "user_id" in employee_keys
+    link_email = "email" in employee_keys
+
+    if link_user_id:
+        try:
+            row = conn.execute(
+                """
+                SELECT id
+                FROM employees
+                WHERE company_id = %s
+                  AND user_id = %s
+                ORDER BY id
+                LIMIT 1
+                """,
+                (company_id, user_id),
+            ).fetchone()
+            if row:
+                employee_id = _safe_int(row["id"])
+        except Exception:
+            pass
+
+    if employee_id is None and link_email and email:
+        try:
+            row = conn.execute(
+                """
+                SELECT id
+                FROM employees
+                WHERE company_id = %s
+                  AND LOWER(COALESCE(email, '')) = %s
+                ORDER BY id
+                LIMIT 1
+                """,
+                (company_id, email),
+            ).fetchone()
+            if row:
+                employee_id = _safe_int(row["id"])
+        except Exception:
+            pass
+
+    return employee_id
+
+
+def _set_logged_in_session(user, email):
+    conn = get_db_connection()
+    try:
+        role = str(
+            user["role"]
+            if "role" in user.keys() and user["role"] is not None
+            else "owner"
+        ).strip().lower() or "owner"
+
+        permission_map = _load_user_permission_map(conn, user["id"], role)
+        linked_employee_id = _load_linked_employee_id(
+            conn=conn,
+            company_id=user["company_id"],
+            user_id=user["id"],
+            email=email,
+        )
+    finally:
+        conn.close()
+
+    session.clear()
+    session["user_id"] = user["id"]
+    session["user_name"] = user["name"]
+    session["user_email"] = email
+    session["company_id"] = user["company_id"]
+    session["company_name"] = user["company_name"]
+    session["language"] = _get_company_language(user["company_id"])
+
+    session["role"] = role
+    session["user_role"] = role
+    session["permissions"] = permission_map
+    session["user_permissions"] = permission_map
+
+    session["is_owner"] = 1 if role == "owner" else 0
+    session["is_admin"] = 1 if role in {"owner", "admin"} else 0
+
+    if linked_employee_id:
+        session["employee_id"] = linked_employee_id
+        session["linked_employee_id"] = linked_employee_id
 
 
 def _render_auth_page(title: str, heading: str, subtitle: str, body_html: str):
@@ -154,14 +311,25 @@ def register():
             password_hash=generate_password_hash(password),
         )
 
-        session.clear()
-        session["user_id"] = user_id
-        session["user_name"] = user_name
-        session["user_email"] = email
-        session["company_id"] = company_id
-        session["company_name"] = company_name
-        session["language"] = _get_company_language(company_id)
+        conn = get_db_connection()
+        try:
+            user = conn.execute(
+                """
+                SELECT u.*, c.name AS company_name
+                FROM users u
+                JOIN companies c ON u.company_id = c.id
+                WHERE u.id = %s
+                """,
+                (user_id,),
+            ).fetchone()
+        finally:
+            conn.close()
 
+        if not user:
+            flash("Account created, but login could not be completed.")
+            return redirect(url_for("auth.login"))
+
+        _set_logged_in_session(user, email)
         _reset_login_attempts()
 
         flash("Account created.")
@@ -243,13 +411,7 @@ def login():
             flash("This user account is inactive.")
             return redirect(url_for("auth.login"))
 
-        session.clear()
-        session["user_id"] = user["id"]
-        session["user_name"] = user["name"]
-        session["user_email"] = email
-        session["company_id"] = user["company_id"]
-        session["company_name"] = user["company_name"]
-        session["language"] = _get_company_language(user["company_id"])
+        _set_logged_in_session(user, email)
 
         _reset_login_attempts()
         return redirect(url_for("dashboard.dashboard"))

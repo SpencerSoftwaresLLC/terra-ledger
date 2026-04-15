@@ -1,6 +1,7 @@
 from flask import Blueprint, redirect, url_for, flash, session
 from decorators import login_required, subscription_required, require_permission
 from db import get_db_connection
+from permissions import get_role_defaults
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -151,3 +152,4 @@ def fix_company_language():
         return f"Error: {e}"
     finally:
         conn.close()
+

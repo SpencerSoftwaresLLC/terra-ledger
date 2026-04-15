@@ -38,6 +38,61 @@ def _role_label(role):
     return raw or "-"
 
 
+def sync_missing_user_permissions_for_company(company_id):
+    conn = get_db_connection()
+    updated = 0
+
+    permission_fields = [
+        "can_manage_users",
+        "can_view_payroll",
+        "can_manage_payroll",
+        "can_view_bookkeeping",
+        "can_manage_bookkeeping",
+        "can_manage_jobs",
+        "can_manage_customers",
+        "can_manage_invoices",
+        "can_manage_settings",
+        "can_manage_messages",
+        "can_manage_payments",
+        "can_view_calendar",
+    ]
+
+    try:
+        users = conn.execute(
+            "SELECT * FROM users WHERE company_id = %s",
+            (company_id,),
+        ).fetchall()
+
+        for user in users:
+            role = (user["role"] or "Employee").strip().title()
+            defaults = get_role_defaults(role)
+
+            update_parts = []
+            params = []
+
+            for field in permission_fields:
+                if field not in user.keys() or user[field] is None:
+                    update_parts.append(f"{field} = %s")
+                    params.append(int(defaults.get(field, 0)))
+
+            if update_parts:
+                params.append(user["id"])
+                conn.execute(
+                    f"""
+                    UPDATE users
+                    SET {", ".join(update_parts)}
+                    WHERE id = %s
+                    """,
+                    tuple(params),
+                )
+                updated += 1
+
+        conn.commit()
+        return updated
+    finally:
+        conn.close()
+
+
 @users_bp.route("/users", methods=["GET", "POST"])
 @login_required
 @subscription_required
@@ -99,9 +154,13 @@ def users():
                 can_manage_jobs,
                 can_manage_customers,
                 can_manage_invoices,
-                can_manage_settings
+                can_manage_settings,
+                can_manage_employees,
+                can_manage_messages,
+                can_manage_payments,
+                can_view_calendar
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 cid,
@@ -119,6 +178,10 @@ def users():
                 defaults["can_manage_customers"],
                 defaults["can_manage_invoices"],
                 defaults["can_manage_settings"],
+                defaults["can_manage_employees"],
+                defaults["can_manage_messages"],
+                defaults["can_manage_payments"],
+                defaults["can_view_calendar"],
             ),
         )
 
@@ -541,6 +604,10 @@ def edit_user_permissions(user_id):
         can_manage_customers = 1 if request.form.get("can_manage_customers") else 0
         can_manage_invoices = 1 if request.form.get("can_manage_invoices") else 0
         can_manage_settings = 1 if request.form.get("can_manage_settings") else 0
+        can_manage_employees = 1 if request.form.get("can_manage_employees") else 0
+        can_manage_messages = 1 if request.form.get("can_manage_messages") else 0
+        can_manage_payments = 1 if request.form.get("can_manage_payments") else 0
+        can_view_calendar = 1 if request.form.get("can_view_calendar") else 0
 
         conn.execute(
             """
@@ -554,7 +621,11 @@ def edit_user_permissions(user_id):
                 can_manage_jobs = %s,
                 can_manage_customers = %s,
                 can_manage_invoices = %s,
-                can_manage_settings = %s
+                can_manage_settings = %s,
+                can_manage_employees = %s,
+                can_manage_messages = %s,
+                can_manage_payments = %s,
+                can_view_calendar = %s
             WHERE id = %s AND company_id = %s
             """,
             (
@@ -568,6 +639,10 @@ def edit_user_permissions(user_id):
                 can_manage_customers,
                 can_manage_invoices,
                 can_manage_settings,
+                can_manage_employees,
+                can_manage_messages,
+                can_manage_payments,
+                can_view_calendar,
                 user_id,
                 cid,
             ),
@@ -629,6 +704,10 @@ def edit_user_permissions(user_id):
                     <label><input type='checkbox' name='can_manage_customers' {checked(user['can_manage_customers'])}> {_t("Manage Customers", "Administrar Clientes")}</label>
                     <label><input type='checkbox' name='can_manage_invoices' {checked(user['can_manage_invoices'])}> {_t("Manage Invoices", "Administrar Facturas")}</label>
                     <label><input type='checkbox' name='can_manage_settings' {checked(user['can_manage_settings'])}> {_t("Manage Settings", "Administrar Configuración")}</label>
+                    <label><input type='checkbox' name='can_manage_employees' {checked(user['can_manage_employees'])}> {_t("Manage Employees", "Administrar Empleados")}</label>
+                    <label><input type='checkbox' name='can_manage_messages' {checked(user['can_manage_messages'])}> {_t("Manage Messages", "Administrar Mensajes")}</label>
+                    <label><input type='checkbox' name='can_manage_payments' {checked(user['can_manage_payments'])}> {_t("Manage Payments", "Administrar Pagos")}</label>
+                    <label><input type='checkbox' name='can_view_calendar' {checked(user['can_view_calendar'])}> {_t("View Calendar", "Ver Calendario")}</label>
                 </div>
             </div>
 
@@ -731,4 +810,13 @@ def delete_user(user_id):
     conn.close()
 
     flash(_t("User deleted.", "Usuario eliminado."))
+    return redirect(url_for("users.users"))
+
+@users_bp.route("/users/sync-permissions", methods=["POST"])
+@login_required
+@subscription_required
+@require_permission("can_manage_users")
+def sync_user_permissions():
+    updated = sync_missing_user_permissions_for_company(session["company_id"])
+    flash(f"Permissions synced for {updated} user(s).")
     return redirect(url_for("users.users"))
