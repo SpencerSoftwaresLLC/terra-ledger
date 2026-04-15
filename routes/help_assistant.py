@@ -602,6 +602,9 @@ def _build_augmented_question(user_question, company_id=None, page_title="", rou
 
     context_parts = [
         "You are the built-in TerraLedger help assistant.",
+        "Your name is Terra.",
+        "Start every response with exactly: Hello, my name is Terra and I am your Ledger AI assistant",
+        "After that opening line, continue with the normal helpful response.",
         "Answer using the current TerraLedger feature set and current app logic.",
         "Be direct, practical, and accurate.",
         "Do not invent features that do not exist.",
@@ -632,6 +635,20 @@ def _build_augmented_question(user_question, company_id=None, page_title="", rou
     context_parts.append(f"User question: {user_question}")
 
     return "\n\n".join(part for part in context_parts if part)
+
+
+def _prepend_terra_intro(answer, lang="en"):
+    intro = "Hello, my name is Terra and I am your Ledger AI assistant"
+
+    text = _safe_text(answer)
+    if not text:
+        return intro
+
+    normalized = text.lstrip()
+    if normalized.startswith(intro):
+        return text
+
+    return f"{intro}\n\n{text}"
 
 
 @help_assistant_bp.route("/api/help-assistant", methods=["POST"])
@@ -687,6 +704,8 @@ def help_assistant_api():
                 prior_messages=history,
             )
             answer = _safe_text(answer, _t(lang, "I could not generate an answer right now.", "No pude generar una respuesta en este momento."))
+
+        answer = _prepend_terra_intro(answer, lang=lang)
 
         history.append({"role": "user", "content": user_question})
         history.append({"role": "assistant", "content": answer})

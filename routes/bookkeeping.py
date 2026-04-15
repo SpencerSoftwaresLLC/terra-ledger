@@ -1658,8 +1658,8 @@ def _render_bookkeeping_page(conn, cid):
                 <td class='wrap'>{escape(str(r.get('category') or '-'))}</td>
                 <td class='wrap'>{escape(str(r.get('description') or '-'))}</td>
                 <td class='money {amount_class}'>{amount_text}</td>
-                <td class='center'>{source_html}</td>
-                <td class='wrap'>
+                <td class='source-cell'>{source_html}</td>
+                <td class='actions-cell'>
                     <div class='static-actions'>{actions_html}</div>
                 </td>
             </tr>
@@ -1841,7 +1841,7 @@ def _render_bookkeeping_page(conn, cid):
         .static-table-scroll {{
             max-height: 520px;
             overflow-y: auto;
-            overflow-x: hidden;
+            overflow-x: auto;
             border: 1px solid rgba(0,0,0,0.06);
             border-radius: 12px;
         }}
@@ -1860,6 +1860,7 @@ def _render_bookkeeping_page(conn, cid):
 
         .static-table {{
             width: 100%;
+            min-width: 1100px;
             table-layout: fixed;
             border-collapse: collapse;
         }}
@@ -1896,19 +1897,39 @@ def _render_bookkeeping_page(conn, cid):
             word-break: break-word;
         }}
 
+        .source-cell {{
+            min-width: 140px;
+            white-space: normal;
+            text-align: left;
+        }}
+
+        .source-cell .btn {{
+            display: inline-flex;
+            max-width: 100%;
+        }}
+
+        .actions-cell {{
+            min-width: 220px;
+            white-space: normal;
+        }}
+
         .static-actions {{
             display: flex;
             flex-wrap: wrap;
             gap: 6px;
             align-items: center;
+            justify-content: flex-start;
+            min-width: 0;
         }}
 
         .static-actions form {{
             margin: 0;
+            flex: 0 0 auto;
         }}
 
         .static-actions .btn {{
             white-space: nowrap;
+            flex: 0 0 auto;
         }}
 
         .summary-table .positive {{
@@ -2117,9 +2138,9 @@ def _render_bookkeeping_page(conn, cid):
                         <col style='width:9%;'>
                         <col style='width:11%;'>
                         <col style='width:14%;'>
-                        <col style='width:24%;'>
+                        <col style='width:22%;'>
                         <col style='width:10%;'>
-                        <col style='width:10%;'>
+                        <col style='width:12%;'>
                         <col style='width:13%;'>
                     </colgroup>
                     <thead>
@@ -2130,8 +2151,8 @@ def _render_bookkeeping_page(conn, cid):
                             <th class='wrap'>{_t(lang, 'Category', 'Categoría')}</th>
                             <th class='wrap'>{_t(lang, 'Description', 'Descripción')}</th>
                             <th class='money'>{_t(lang, 'Amount', 'Monto')}</th>
-                            <th class='center'>{_t(lang, 'Source', 'Origen')}</th>
-                            <th class='wrap'>{_t(lang, 'Actions', 'Acciones')}</th>
+                            <th>{_t(lang, 'Source', 'Origen')}</th>
+                            <th>{_t(lang, 'Actions', 'Acciones')}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -2240,7 +2261,6 @@ def _render_bookkeeping_page(conn, cid):
     """
 
     return render_page(content, _t(lang, "Bookkeeping / P&L", "Contabilidad / P&L"))
-
 
 @bookkeeping_bp.route("/bookkeeping", methods=["GET", "POST"])
 @bookkeeping_bp.route("/ledger", methods=["GET", "POST"])

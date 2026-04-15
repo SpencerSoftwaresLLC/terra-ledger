@@ -906,7 +906,6 @@ def employees():
                 <div class='row-actions'>
                     <a href='{url_for("employees.employees", show="active")}' class='{active_btn_class}'>{_t(lang, 'Active Employees', 'Empleados Activos')}</a>
                     <a href='{url_for("employees.employees", show="all")}' class='{all_btn_class}'>{_t(lang, 'All Employees', 'Todos los Empleados')}</a>
-                    <a href='{url_for("employees.time_clock")}' class='btn'>{_t(lang, 'Clock In / Out', 'Entrada / Salida')}</a>
                     <a href='{url_for("payroll.employee_payroll")}' class='btn warning'>{_t(lang, 'Payroll', 'Nómina')}</a>
                     <a href='{url_for("employees.new_employee")}' class='btn success'>+ {_t(lang, 'New Employee', 'Nuevo Empleado')}</a>
                 </div>
@@ -1995,7 +1994,6 @@ def delete_employee(employee_id):
 @employees_bp.route("/employees/time-clock", methods=["GET"])
 @login_required
 @subscription_required
-@require_permission("can_manage_employees")
 def time_clock():
     lang = _get_lang()
 
@@ -2003,6 +2001,87 @@ def time_clock():
     ensure_employee_time_entries_table()
     ensure_company_profile_table()
     ensure_company_time_clock_columns()
+
+    def _session_truthy(value):
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+    def _session_int(value):
+        try:
+            return int(str(value).strip())
+        except Exception:
+            return None
+
+    def _session_permission_enabled(name):
+        permissions = (
+            session.get("permissions")
+            or session.get("user_permissions")
+            or session.get("permission_map")
+            or {}
+        )
+
+        if isinstance(permissions, dict):
+            return _session_truthy(permissions.get(name))
+
+        if isinstance(permissions, (list, tuple, set)):
+            return name in permissions
+
+        if isinstance(permissions, str):
+            raw = permissions.strip()
+            if not raw:
+                return False
+            lowered = raw.lower()
+            if lowered in {"all", "*", "admin"}:
+                return True
+            return name in {part.strip() for part in raw.split(",") if part.strip()}
+
+        return False
+
+    def _can_manage_time_clock():
+        role = str(
+            session.get("role")
+            or session.get("user_role")
+            or session.get("account_role")
+            or ""
+        ).strip().lower()
+
+        if role in {"owner", "admin", "manager"}:
+            return True
+
+        if _session_truthy(session.get("is_admin")) or _session_truthy(session.get("is_owner")):
+            return True
+
+        return _session_permission_enabled("can_manage_employees")
+
+    def _current_employee_id():
+        for key in ("employee_id", "linked_employee_id", "staff_employee_id"):
+            value = _session_int(session.get(key))
+            if value:
+                return value
+        return None
+
+    def _can_use_time_clock():
+        return _can_manage_time_clock() or bool(_current_employee_id())
+
+    def _visible_employee_filter(all_rows):
+        if _can_manage_time_clock():
+            return list(all_rows)
+
+        current_emp_id = _current_employee_id()
+        if not current_emp_id:
+            return []
+
+        return [row for row in all_rows if int(row["employee_id"]) == int(current_emp_id)]
+
+    def _action_employee_id_from_row(row):
+        return int(row["employee_id"])
+
+    if not _can_use_time_clock():
+        flash(_t(lang, "You do not have access to the time clock.", "No tienes acceso al reloj de tiempo."))
+        return redirect(url_for("dashboard.dashboard"))
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -2156,6 +2235,15 @@ def time_clock():
             "pay_period_hours": pay_period_map.get(row["employee_id"], 0),
         })
 
+    employees_with_status = _visible_employee_filter(employees_with_status)
+
+    visible_employee_ids = {int(row["employee_id"]) for row in employees_with_status}
+
+    recent_entries = [
+        row for row in recent_entries
+        if int(row["employee_id"]) in visible_employee_ids
+    ]
+
     clocked_in_ids = {
         row["employee_id"]
         for row in employees_with_status
@@ -2276,6 +2364,27 @@ def time_clock():
             word-break:break-word;
         }
 
+        .time-clock-action-cell {
+            min-width:145px;
+            text-align:right;
+        }
+
+        .time-clock-inline-form {
+            margin:0;
+            display:flex;
+            justify-content:flex-end;
+        }
+
+        .time-clock-inline-form .btn {
+            min-width:110px;
+        }
+
+        .time-clock-mobile-action {
+            margin-top:12px;
+            display:flex;
+            justify-content:flex-start;
+        }
+
         @media (max-width: 640px) {
             .time-clock-form-grid {
                 grid-template-columns:1fr;
@@ -2308,6 +2417,7 @@ def time_clock():
             </div>
         </div>
 
+        {% if can_manage_time_clock %}
         <div class='card'>
             <h2>{{ t("Pay Period Settings", "Configuración del Periodo de Pago") }}</h2>
             <form method='post' action='{{ url_for("employees.update_time_clock_settings") }}'>
@@ -2330,6 +2440,7 @@ def time_clock():
                 </div>
             </form>
         </div>
+        {% endif %}
 
         <div class='card'>
             <div class='time-clock-stat-grid'>
@@ -2340,56 +2451,14 @@ def time_clock():
 
                 <div style='border:1px solid #e5e7eb; border-radius:12px; padding:16px; background:#f8fafc;'>
                     <div class='muted' style='margin-bottom:6px;'>{{ t("Employees", "Empleados") }}</div>
-                    <div style='font-size:1.4rem; font-weight:700;'>{{ employees|length }}</div>
+                    <div style='font-size:1.4rem; font-weight:700;'>{{ employees_with_status|length }}</div>
                 </div>
 
                 <div style='border:1px solid #e5e7eb; border-radius:12px; padding:16px; background:#f8fafc;'>
                     <div class='muted' style='margin-bottom:6px;'>{{ t("Currently Clocked In", "Actualmente Registrados") }}</div>
-                    <div style='font-size:1.4rem; font-weight:700;'>{{ currently_clocked_in }}</div>
+                    <div style='font-size:1.4rem; font-weight:700;'>{{ currently_clocked_in_visible }}</div>
                 </div>
             </div>
-        </div>
-
-        <div class='card'>
-            <h2>{{ t("Clock Actions", "Acciones de Entrada / Salida") }}</h2>
-
-            <form method='post' action='{{ url_for("employees.time_clock_clock_in") }}' style='margin-bottom:14px;'>
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <div class='time-clock-form-grid'>
-                    <div>
-                        <label>{{ t("Select Employee to Clock In", "Selecciona el Empleado para Registrar Entrada") }}</label>
-                        <select name='employee_id' required>
-                            <option value=''>{{ t("Choose employee", "Elegir empleado") }}</option>
-                            {% for emp in employees if emp["id"] not in clocked_in_ids %}
-                                {% set emp_name = ((emp["first_name"] or "") ~ " " ~ (emp["last_name"] or "")).strip() or (emp["full_name"] or "") or ("Employee #" ~ emp["id"]) %}
-                                <option value='{{ emp["id"] }}'>{{ emp_name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div>
-                        <button class='btn success' type='submit'>{{ t("Clock In", "Registrar Entrada") }}</button>
-                    </div>
-                </div>
-            </form>
-
-            <form method='post' action='{{ url_for("employees.time_clock_clock_out") }}'>
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <div class='time-clock-form-grid'>
-                    <div>
-                        <label>{{ t("Select Employee to Clock Out", "Selecciona el Empleado para Registrar Salida") }}</label>
-                        <select name='employee_id' required>
-                            <option value=''>{{ t("Choose employee", "Elegir empleado") }}</option>
-                            {% for emp in employees if emp["id"] in clocked_in_ids %}
-                                {% set emp_name = ((emp["first_name"] or "") ~ " " ~ (emp["last_name"] or "")).strip() or (emp["full_name"] or "") or ("Employee #" ~ emp["id"]) %}
-                                <option value='{{ emp["id"] }}'>{{ emp_name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div>
-                        <button class='btn warning' type='submit'>{{ t("Clock Out", "Registrar Salida") }}</button>
-                    </div>
-                </div>
-            </form>
         </div>
 
         <div class='card'>
@@ -2404,6 +2473,7 @@ def time_clock():
                                 <th>{{ t("Clocked In At", "Entrada Registrada a las") }}</th>
                                 <th>{{ t("Today", "Hoy") }}</th>
                                 <th>{{ t("This Pay Period", "Este Periodo de Pago") }}</th>
+                                <th>{{ t("Action", "Acción") }}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -2420,6 +2490,21 @@ def time_clock():
                                     <td>{{ row.clock_in or "-" }}</td>
                                     <td>{{ format_hours(row.today_hours) }} hrs</td>
                                     <td>{{ format_hours(row.pay_period_hours) }} hrs</td>
+                                    <td class='time-clock-action-cell'>
+                                        {% if row.is_clocked_in %}
+                                            <form method='post' action='{{ url_for("employees.time_clock_clock_out") }}' class='time-clock-inline-form'>
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
+                                                <button class='btn warning' type='submit'>{{ t("Clock Out", "Registrar Salida") }}</button>
+                                            </form>
+                                        {% else %}
+                                            <form method='post' action='{{ url_for("employees.time_clock_clock_in") }}' class='time-clock-inline-form'>
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
+                                                <button class='btn success' type='submit'>{{ t("Clock In", "Registrar Entrada") }}</button>
+                                            </form>
+                                        {% endif %}
+                                    </td>
                                 </tr>
                             {% endfor %}
                         </tbody>
@@ -2441,6 +2526,22 @@ def time_clock():
                                     <div><span>{{ t("Clocked In At", "Entrada Registrada a las") }}</span><strong>{{ row.clock_in or "-" }}</strong></div>
                                     <div><span>{{ t("Today", "Hoy") }}</span><strong>{{ format_hours(row.today_hours) }} hrs</strong></div>
                                     <div><span>{{ t("This Pay Period", "Este Periodo de Pago") }}</span><strong>{{ format_hours(row.pay_period_hours) }} hrs</strong></div>
+                                </div>
+
+                                <div class='time-clock-mobile-action'>
+                                    {% if row.is_clocked_in %}
+                                        <form method='post' action='{{ url_for("employees.time_clock_clock_out") }}' style='margin:0;'>
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
+                                            <button class='btn warning' type='submit'>{{ t("Clock Out", "Registrar Salida") }}</button>
+                                        </form>
+                                    {% else %}
+                                        <form method='post' action='{{ url_for("employees.time_clock_clock_in") }}' style='margin:0;'>
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
+                                            <button class='btn success' type='submit'>{{ t("Clock In", "Registrar Entrada") }}</button>
+                                        </form>
+                                    {% endif %}
                                 </div>
                             </div>
                         {% endfor %}
@@ -2470,10 +2571,12 @@ def time_clock():
                         </a>
                     </div>
 
+                    {% if can_manage_time_clock %}
                     <form method='post' action='{{ url_for("employees.send_time_clock_summary_now") }}' style='margin:0;'>
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button class='btn warning' type='submit'>{{ t("Send Last Pay Period Summary", "Enviar Resumen del Último Periodo de Pago") }}</button>
                     </form>
+                    {% endif %}
                 </div>
             </div>
 
@@ -2530,6 +2633,8 @@ def time_clock():
     </div>
     """
 
+    currently_clocked_in_visible = sum(1 for row in employees_with_status if row["is_clocked_in"])
+
     return render_page(
         render_template_string(
             time_clock_html,
@@ -2537,6 +2642,7 @@ def time_clock():
             employees_with_status=employees_with_status,
             recent_entries=recent_entries,
             currently_clocked_in=currently_clocked_in,
+            currently_clocked_in_visible=currently_clocked_in_visible,
             pay_period_start=pay_period_start.isoformat(),
             pay_period_end=pay_period_end.isoformat(),
             previous_pay_period_start=previous_pay_period_start.isoformat(),
@@ -2559,6 +2665,7 @@ def time_clock():
             empty_entries_message=empty_entries_message,
             clocked_in_ids=clocked_in_ids,
             format_hours=_format_hours,
+            can_manage_time_clock=_can_manage_time_clock(),
             t=lambda en, es: _t(lang, en, es),
         ),
         _t(lang, "Clock In / Out", "Entrada / Salida"),
@@ -2630,17 +2737,90 @@ def update_time_clock_settings():
 @employees_bp.route("/employees/time-clock/clock-in", methods=["POST"])
 @login_required
 @subscription_required
-@require_permission("can_manage_employees")
 def time_clock_clock_in():
     lang = _get_lang()
 
     ensure_employee_profile_columns()
     ensure_employee_time_entries_table()
 
+    def _session_truthy(value):
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+    def _session_int(value):
+        try:
+            return int(str(value).strip())
+        except Exception:
+            return None
+
+    def _session_permission_enabled(name):
+        permissions = (
+            session.get("permissions")
+            or session.get("user_permissions")
+            or session.get("permission_map")
+            or {}
+        )
+
+        if isinstance(permissions, dict):
+            return _session_truthy(permissions.get(name))
+
+        if isinstance(permissions, (list, tuple, set)):
+            return name in permissions
+
+        if isinstance(permissions, str):
+            raw = permissions.strip()
+            if not raw:
+                return False
+            lowered = raw.lower()
+            if lowered in {"all", "*", "admin"}:
+                return True
+            return name in {part.strip() for part in raw.split(",") if part.strip()}
+
+        return False
+
+    def _can_manage_time_clock():
+        role = str(
+            session.get("role")
+            or session.get("user_role")
+            or session.get("account_role")
+            or ""
+        ).strip().lower()
+
+        if role in {"owner", "admin", "manager"}:
+            return True
+
+        if _session_truthy(session.get("is_admin")) or _session_truthy(session.get("is_owner")):
+            return True
+
+        return _session_permission_enabled("can_manage_employees")
+
+    def _current_employee_id():
+        for key in ("employee_id", "linked_employee_id", "staff_employee_id"):
+            value = _session_int(session.get(key))
+            if value:
+                return value
+        return None
+
+    def _can_use_time_clock():
+        return _can_manage_time_clock() or bool(_current_employee_id())
+
+    if not _can_use_time_clock():
+        flash(_t(lang, "You do not have access to the time clock.", "No tienes acceso al reloj de tiempo."))
+        return redirect(url_for("dashboard.dashboard"))
+
     conn = get_db_connection()
     cid = session["company_id"]
 
-    employee_id = (request.form.get("employee_id") or "").strip()
+    posted_employee_id = _session_int(request.form.get("employee_id"))
+    session_employee_id = _current_employee_id()
+
+    if _can_manage_time_clock():
+        employee_id = posted_employee_id
+    else:
+        employee_id = session_employee_id
 
     if not employee_id:
         conn.close()
@@ -2708,17 +2888,90 @@ def time_clock_clock_in():
 @employees_bp.route("/employees/time-clock/clock-out", methods=["POST"])
 @login_required
 @subscription_required
-@require_permission("can_manage_employees")
 def time_clock_clock_out():
     lang = _get_lang()
 
     ensure_employee_profile_columns()
     ensure_employee_time_entries_table()
 
+    def _session_truthy(value):
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+    def _session_int(value):
+        try:
+            return int(str(value).strip())
+        except Exception:
+            return None
+
+    def _session_permission_enabled(name):
+        permissions = (
+            session.get("permissions")
+            or session.get("user_permissions")
+            or session.get("permission_map")
+            or {}
+        )
+
+        if isinstance(permissions, dict):
+            return _session_truthy(permissions.get(name))
+
+        if isinstance(permissions, (list, tuple, set)):
+            return name in permissions
+
+        if isinstance(permissions, str):
+            raw = permissions.strip()
+            if not raw:
+                return False
+            lowered = raw.lower()
+            if lowered in {"all", "*", "admin"}:
+                return True
+            return name in {part.strip() for part in raw.split(",") if part.strip()}
+
+        return False
+
+    def _can_manage_time_clock():
+        role = str(
+            session.get("role")
+            or session.get("user_role")
+            or session.get("account_role")
+            or ""
+        ).strip().lower()
+
+        if role in {"owner", "admin", "manager"}:
+            return True
+
+        if _session_truthy(session.get("is_admin")) or _session_truthy(session.get("is_owner")):
+            return True
+
+        return _session_permission_enabled("can_manage_employees")
+
+    def _current_employee_id():
+        for key in ("employee_id", "linked_employee_id", "staff_employee_id"):
+            value = _session_int(session.get(key))
+            if value:
+                return value
+        return None
+
+    def _can_use_time_clock():
+        return _can_manage_time_clock() or bool(_current_employee_id())
+
+    if not _can_use_time_clock():
+        flash(_t(lang, "You do not have access to the time clock.", "No tienes acceso al reloj de tiempo."))
+        return redirect(url_for("dashboard.dashboard"))
+
     conn = get_db_connection()
     cid = session["company_id"]
 
-    employee_id = (request.form.get("employee_id") or "").strip()
+    posted_employee_id = _session_int(request.form.get("employee_id"))
+    session_employee_id = _current_employee_id()
+
+    if _can_manage_time_clock():
+        employee_id = posted_employee_id
+    else:
+        employee_id = session_employee_id
 
     if not employee_id:
         conn.close()
