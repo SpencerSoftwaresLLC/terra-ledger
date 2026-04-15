@@ -1837,6 +1837,7 @@ def edit_employee(employee_id):
     ensure_employee_tax_columns()
     ensure_employee_local_tax_columns()
     ensure_employee_w2_columns()
+    ensure_employee_user_link_column()
 
     conn = get_db_connection()
     cid = session["company_id"]
@@ -1851,6 +1852,18 @@ def edit_employee(employee_id):
         flash(_t(lang, "Employee not found.", "Empleado no encontrado."))
         return redirect(url_for("employees.employees"))
 
+    user_options = conn.execute(
+        """
+        SELECT id, name, email
+        FROM users
+        WHERE company_id = %s
+        ORDER BY name ASC, email ASC
+        """,
+        (cid,),
+    ).fetchall()
+
+    employee_cols = set(get_employee_columns())
+
     if request.method == "POST":
         first_name = _clean_text(request.form.get("first_name"))
         middle_name = _clean_text(request.form.get("middle_name"))
@@ -1860,11 +1873,55 @@ def edit_employee(employee_id):
         email = _clean_text(request.form.get("email"))
         position = _clean_text(request.form.get("position"))
         hire_date = _clean_text(request.form.get("hire_date"))
+        linked_user_id = _safe_int(request.form.get("user_id"))
 
         if not first_name or not last_name:
             conn.close()
             flash(_t(lang, "First and last name are required.", "El nombre y el apellido son obligatorios."))
             return redirect(url_for("employees.edit_employee", employee_id=employee_id))
+
+        if linked_user_id:
+            linked_user = conn.execute(
+                """
+                SELECT id
+                FROM users
+                WHERE id = %s
+                  AND company_id = %s
+                """,
+                (linked_user_id, cid),
+            ).fetchone()
+
+            if not linked_user:
+                conn.close()
+                flash(_t(lang, "Selected user was not found.", "El usuario seleccionado no fue encontrado."))
+                return redirect(url_for("employees.edit_employee", employee_id=employee_id))
+
+            if "user_id" in employee_cols:
+                existing_link = conn.execute(
+                    """
+                    SELECT id, full_name, first_name, last_name
+                    FROM employees
+                    WHERE company_id = %s
+                      AND user_id = %s
+                      AND id <> %s
+                    LIMIT 1
+                    """,
+                    (cid, linked_user_id, employee_id),
+                ).fetchone()
+
+                if existing_link:
+                    existing_name = (
+                        (existing_link["full_name"] or "").strip()
+                        or f"{(existing_link['first_name'] or '').strip()} {(existing_link['last_name'] or '').strip()}".strip()
+                        or f"Employee #{existing_link['id']}"
+                    )
+                    conn.close()
+                    flash(_t(
+                        lang,
+                        f"That user is already linked to {existing_name}.",
+                        f"Ese usuario ya está vinculado a {existing_name}.",
+                    ))
+                    return redirect(url_for("employees.edit_employee", employee_id=employee_id))
 
         address_line_1 = _clean_text(request.form.get("address_line_1"))
         address_line_2 = _clean_text(request.form.get("address_line_2"))
@@ -1914,90 +1971,178 @@ def edit_employee(employee_id):
             part for part in [first_name, middle_name, last_name, suffix] if part
         ).strip()
 
-        conn.execute(
-            """
-            UPDATE employees
-            SET first_name = %s,
-                middle_name = %s,
-                last_name = %s,
-                suffix = %s,
-                full_name = %s,
-                phone = %s,
-                email = %s,
-                position = %s,
-                hire_date = %s,
-                address_line_1 = %s,
-                address_line_2 = %s,
-                city = %s,
-                state = %s,
-                zip = %s,
-                ssn = %s,
-                w2_address_line_1 = %s,
-                w2_address_line_2 = %s,
-                w2_city = %s,
-                w2_state = %s,
-                w2_zip = %s,
-                pay_type = %s,
-                hourly_rate = %s,
-                overtime_rate = %s,
-                salary_amount = %s,
-                default_hours = %s,
-                payroll_notes = %s,
-                federal_filing_status = %s,
-                pay_frequency = %s,
-                w4_step2_checked = %s,
-                w4_step3_amount = %s,
-                w4_step4a_other_income = %s,
-                w4_step4b_deductions = %s,
-                w4_step4c_extra_withholding = %s,
-                is_indiana_resident = %s,
-                county_of_residence = %s,
-                county_of_principal_employment = %s,
-                county_tax_effective_year = %s
-            WHERE id = %s AND company_id = %s
-            """,
-            (
-                first_name,
-                middle_name,
-                last_name,
-                suffix,
-                full_name,
-                phone,
-                email,
-                position,
-                hire_date,
-                address_line_1,
-                address_line_2,
-                city,
-                state,
-                zip_code,
-                ssn,
-                w2_address_line_1,
-                w2_address_line_2,
-                w2_city,
-                w2_state,
-                w2_zip,
-                pay_type,
-                hourly_rate,
-                overtime_rate,
-                salary_amount,
-                default_hours,
-                payroll_notes,
-                federal_filing_status,
-                pay_frequency,
-                w4_step2_checked,
-                w4_step3_amount,
-                w4_step4a_other_income,
-                w4_step4b_deductions,
-                w4_step4c_extra_withholding,
-                is_indiana_resident,
-                county_of_residence,
-                county_of_principal_employment,
-                county_tax_effective_year,
-                employee_id,
-                cid,
-            ),
-        )
+        if "user_id" in employee_cols:
+            conn.execute(
+                """
+                UPDATE employees
+                SET first_name = %s,
+                    middle_name = %s,
+                    last_name = %s,
+                    suffix = %s,
+                    full_name = %s,
+                    user_id = %s,
+                    phone = %s,
+                    email = %s,
+                    position = %s,
+                    hire_date = %s,
+                    address_line_1 = %s,
+                    address_line_2 = %s,
+                    city = %s,
+                    state = %s,
+                    zip = %s,
+                    ssn = %s,
+                    w2_address_line_1 = %s,
+                    w2_address_line_2 = %s,
+                    w2_city = %s,
+                    w2_state = %s,
+                    w2_zip = %s,
+                    pay_type = %s,
+                    hourly_rate = %s,
+                    overtime_rate = %s,
+                    salary_amount = %s,
+                    default_hours = %s,
+                    payroll_notes = %s,
+                    federal_filing_status = %s,
+                    pay_frequency = %s,
+                    w4_step2_checked = %s,
+                    w4_step3_amount = %s,
+                    w4_step4a_other_income = %s,
+                    w4_step4b_deductions = %s,
+                    w4_step4c_extra_withholding = %s,
+                    is_indiana_resident = %s,
+                    county_of_residence = %s,
+                    county_of_principal_employment = %s,
+                    county_tax_effective_year = %s
+                WHERE id = %s AND company_id = %s
+                """,
+                (
+                    first_name,
+                    middle_name,
+                    last_name,
+                    suffix,
+                    full_name,
+                    linked_user_id,
+                    phone,
+                    email,
+                    position,
+                    hire_date,
+                    address_line_1,
+                    address_line_2,
+                    city,
+                    state,
+                    zip_code,
+                    ssn,
+                    w2_address_line_1,
+                    w2_address_line_2,
+                    w2_city,
+                    w2_state,
+                    w2_zip,
+                    pay_type,
+                    hourly_rate,
+                    overtime_rate,
+                    salary_amount,
+                    default_hours,
+                    payroll_notes,
+                    federal_filing_status,
+                    pay_frequency,
+                    w4_step2_checked,
+                    w4_step3_amount,
+                    w4_step4a_other_income,
+                    w4_step4b_deductions,
+                    w4_step4c_extra_withholding,
+                    is_indiana_resident,
+                    county_of_residence,
+                    county_of_principal_employment,
+                    county_tax_effective_year,
+                    employee_id,
+                    cid,
+                ),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE employees
+                SET first_name = %s,
+                    middle_name = %s,
+                    last_name = %s,
+                    suffix = %s,
+                    full_name = %s,
+                    phone = %s,
+                    email = %s,
+                    position = %s,
+                    hire_date = %s,
+                    address_line_1 = %s,
+                    address_line_2 = %s,
+                    city = %s,
+                    state = %s,
+                    zip = %s,
+                    ssn = %s,
+                    w2_address_line_1 = %s,
+                    w2_address_line_2 = %s,
+                    w2_city = %s,
+                    w2_state = %s,
+                    w2_zip = %s,
+                    pay_type = %s,
+                    hourly_rate = %s,
+                    overtime_rate = %s,
+                    salary_amount = %s,
+                    default_hours = %s,
+                    payroll_notes = %s,
+                    federal_filing_status = %s,
+                    pay_frequency = %s,
+                    w4_step2_checked = %s,
+                    w4_step3_amount = %s,
+                    w4_step4a_other_income = %s,
+                    w4_step4b_deductions = %s,
+                    w4_step4c_extra_withholding = %s,
+                    is_indiana_resident = %s,
+                    county_of_residence = %s,
+                    county_of_principal_employment = %s,
+                    county_tax_effective_year = %s
+                WHERE id = %s AND company_id = %s
+                """,
+                (
+                    first_name,
+                    middle_name,
+                    last_name,
+                    suffix,
+                    full_name,
+                    phone,
+                    email,
+                    position,
+                    hire_date,
+                    address_line_1,
+                    address_line_2,
+                    city,
+                    state,
+                    zip_code,
+                    ssn,
+                    w2_address_line_1,
+                    w2_address_line_2,
+                    w2_city,
+                    w2_state,
+                    w2_zip,
+                    pay_type,
+                    hourly_rate,
+                    overtime_rate,
+                    salary_amount,
+                    default_hours,
+                    payroll_notes,
+                    federal_filing_status,
+                    pay_frequency,
+                    w4_step2_checked,
+                    w4_step3_amount,
+                    w4_step4a_other_income,
+                    w4_step4b_deductions,
+                    w4_step4c_extra_withholding,
+                    is_indiana_resident,
+                    county_of_residence,
+                    county_of_principal_employment,
+                    county_tax_effective_year,
+                    employee_id,
+                    cid,
+                ),
+            )
 
         conn.commit()
         conn.close()
@@ -2011,6 +2156,8 @@ def edit_employee(employee_id):
         submit_label=_t(lang, "Save Changes", "Guardar Cambios"),
         page_title=f"{_t(lang, 'Edit', 'Editar')} {_employee_display_name(employee)}",
         lang=lang,
+        user_options=user_options,
+        selected_user_id=employee["user_id"] if "user_id" in employee.keys() else None,
     )
     conn.close()
     return render_page(content, _t(lang, "Edit Employee", "Editar Empleado"))
