@@ -569,6 +569,9 @@ def ensure_user_permission_columns():
         "can_manage_employees": "INTEGER DEFAULT 0",
         "can_view_employees": "INTEGER DEFAULT 0",
         "can_manage_quotes": "INTEGER DEFAULT 0",
+        "can_manage_messages": "INTEGER DEFAULT 0",
+        "can_manage_payments": "INTEGER DEFAULT 0",
+        "can_view_calendar": "INTEGER DEFAULT 1",
     }
 
     for col, col_type in needed.items():
