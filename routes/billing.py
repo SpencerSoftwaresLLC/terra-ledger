@@ -18,7 +18,6 @@ from extensions import csrf
 print("LOADED BILLING FILE:", __file__)
 
 billing_bp = Blueprint("billing", __name__)
-csrf.init_app(billing_bp)
 
 try:
     import stripe
