@@ -1032,7 +1032,8 @@ def create_checkout_session():
         return redirect(url_for("billing.billing_page"))
 
 
-@billing_bp.route("/stripe-webhook", methods=["POST"])
+@billing_bp.route("/stripe/webhook", methods=["POST"])
+@csrf.exempt
 def stripe_webhook():
     cfg = get_stripe_config()
 
@@ -1194,4 +1195,4 @@ def stripe_webhook():
         else:
             print("invoice event could not resolve company_id")
 
-    return {"ok": True}
+    return {"ok": True}, 200
